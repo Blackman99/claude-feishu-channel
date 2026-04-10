@@ -1146,7 +1146,10 @@ Set up pino with pino-pretty for dev output and redaction for secrets. No unit t
 
 Create `src/util/logger.ts`:
 ```ts
-import pino, { type Logger } from "pino";
+// pino uses `export = pino` with `Logger` inside the pino namespace,
+// so import it as a namespace member rather than a named type export.
+import pino from "pino";
+type Logger = pino.Logger;
 
 export interface LoggerOptions {
   level: "trace" | "debug" | "info" | "warn" | "error";
