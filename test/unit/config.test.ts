@@ -64,6 +64,11 @@ log_dir = "~/.claude-feishu-channel/logs"
     await expect(loadConfig(path)).rejects.toThrow(ConfigError);
   });
 
+  it("throws ConfigError on malformed TOML", async () => {
+    const path = writeConfig("this = is [ not valid toml");
+    await expect(loadConfig(path)).rejects.toThrow(ConfigError);
+  });
+
   it("throws ConfigError with field path on invalid schema", async () => {
     const path = writeConfig(`
 [feishu]

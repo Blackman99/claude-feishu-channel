@@ -56,11 +56,9 @@ function expandHome(path: string): string {
 }
 
 function formatZodError(error: z.ZodError): string {
-  const issues = error.issues.map((issue) => {
-    const path = issue.path.join(".");
-    return `  - ${path}: ${issue.message}`;
-  });
-  return `Invalid config:\n${issues.join("\n")}`;
+  return error.issues
+    .map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`)
+    .join("\n");
 }
 
 export async function loadConfig(path: string): Promise<AppConfig> {
@@ -87,7 +85,9 @@ export async function loadConfig(path: string): Promise<AppConfig> {
 
   const result = ConfigSchema.safeParse(parsed);
   if (!result.success) {
-    throw new ConfigError(formatZodError(result.error));
+    throw new ConfigError(
+      `Invalid config at ${path}:\n${formatZodError(result.error)}`,
+    );
   }
 
   const data = result.data;
