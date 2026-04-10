@@ -695,8 +695,8 @@ describe("LruDedup", () => {
     dedup.check("b");
     dedup.check("c");
     dedup.check("d"); // evicts "a"
-    expect(dedup.check("a")).toBe(false); // re-inserted as fresh
-    expect(dedup.check("b")).toBe(true);
+    expect(dedup.check("a")).toBe(false); // re-inserted as fresh, evicts "b"
+    expect(dedup.check("b")).toBe(false); // "b" was evicted when "a" was re-inserted
   });
 
   it("re-seeing an id promotes it (LRU)", () => {
