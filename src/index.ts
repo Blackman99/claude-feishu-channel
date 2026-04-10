@@ -11,6 +11,13 @@ import { FeishuGateway } from "./feishu/gateway.js";
 import { checkCredentials } from "./claude/preflight.js";
 import { ClaudeSessionManager } from "./claude/session-manager.js";
 import type { QueryFn, SDKMessageLike } from "./claude/session.js";
+import type { RenderEvent } from "./claude/render-event.js";
+import { buildToolUseCard, buildToolResultCard } from "./feishu/cards.js";
+import {
+  formatThinkingText,
+  formatResultTip,
+  formatErrorText,
+} from "./feishu/messages.js";
 import type { IncomingMessage } from "./types.js";
 
 function resolveConfigPath(): string {
@@ -93,21 +100,55 @@ async function main(): Promise<void> {
   const onMessage = async (msg: IncomingMessage): Promise<void> => {
     logger.info({ chat_id: msg.chatId, len: msg.text.length }, "Message received");
     const session = sessionManager.getOrCreate(msg.chatId);
+    const emit = async (event: RenderEvent): Promise<void> => {
+      switch (event.type) {
+        case "text":
+          await feishuClient.sendText(msg.chatId, event.text);
+          return;
+        case "thinking":
+          if (config.render.hideThinking) return;
+          await feishuClient.sendText(msg.chatId, formatThinkingText(event.text));
+          return;
+        case "tool_use":
+          await feishuClient.sendCard(
+            msg.chatId,
+            buildToolUseCard(
+              { id: event.id, name: event.name, input: event.input },
+              { inlineMaxBytes: config.render.inlineMaxBytes },
+            ),
+          );
+          return;
+        case "tool_result":
+          await feishuClient.sendCard(
+            msg.chatId,
+            buildToolResultCard({
+              toolUseId: event.toolUseId,
+              isError: event.isError,
+              text: event.text,
+              inlineMaxBytes: config.render.inlineMaxBytes,
+            }),
+          );
+          return;
+        case "turn_end":
+          if (!config.render.showTurnStats) return;
+          await feishuClient.sendText(
+            msg.chatId,
+            formatResultTip({
+              durationMs: event.durationMs,
+              inputTokens: event.inputTokens,
+              outputTokens: event.outputTokens,
+            }),
+          );
+          return;
+      }
+    };
     try {
-      // Temporary Phase 3 Task 8 shim — replaced in Task 10 with full dispatcher.
-      // Collects text events and sends a single concatenated message so the app
-      // remains minimally functional until Task 10 wires up per-event dispatch.
-      const parts: string[] = [];
-      await session.handleMessage(msg.text, async (event) => {
-        if (event.type === "text") parts.push(event.text);
-      });
-      const text = parts.length > 0 ? parts.join("\n\n") : "(Claude returned no text)";
-      await feishuClient.sendText(msg.chatId, text);
+      await session.handleMessage(msg.text, emit);
     } catch (err) {
       logger.error({ err, chat_id: msg.chatId }, "Claude turn failed");
       const errorText = err instanceof Error ? err.message : String(err);
       try {
-        await feishuClient.sendText(msg.chatId, `❌ 错误: ${errorText}`);
+        await feishuClient.sendText(msg.chatId, formatErrorText(errorText));
       } catch (sendErr) {
         logger.error({ err: sendErr }, "Failed to deliver error reply");
       }
@@ -160,8 +201,11 @@ async function main(): Promise<void> {
       default_cwd: config.claude.defaultCwd,
       default_model: config.claude.defaultModel,
       permission_mode: config.claude.defaultPermissionMode,
+      inline_max_bytes: config.render.inlineMaxBytes,
+      hide_thinking: config.render.hideThinking,
+      show_turn_stats: config.render.showTurnStats,
     },
-    "claude-feishu-channel Phase 2 ready",
+    "claude-feishu-channel Phase 3 ready",
   );
 }
 
