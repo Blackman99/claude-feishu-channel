@@ -1315,7 +1315,8 @@ describe("StateStore", () => {
   it("markUncleanAtStartup sets lastCleanShutdown to false and persists", async () => {
     const store = new StateStore(statePath);
     await store.save({ ...EMPTY_STATE, lastCleanShutdown: true });
-    await store.markUncleanAtStartup();
+    const state = await store.load();
+    await store.markUncleanAtStartup(state);
     const fresh = await new StateStore(statePath).load();
     expect(fresh.lastCleanShutdown).toBe(false);
   });
@@ -1323,7 +1324,8 @@ describe("StateStore", () => {
   it("markCleanShutdown sets lastCleanShutdown to true and persists", async () => {
     const store = new StateStore(statePath);
     await store.save({ ...EMPTY_STATE, lastCleanShutdown: false });
-    await store.markCleanShutdown();
+    const state = await store.load();
+    await store.markCleanShutdown(state);
     const fresh = await new StateStore(statePath).load();
     expect(fresh.lastCleanShutdown).toBe(true);
   });
@@ -1405,14 +1407,12 @@ export class StateStore {
     await rename(tmp, this.path);
   }
 
-  async markUncleanAtStartup(): Promise<void> {
-    const state = await this.load();
+  async markUncleanAtStartup(state: State): Promise<void> {
     state.lastCleanShutdown = false;
     await this.save(state);
   }
 
-  async markCleanShutdown(): Promise<void> {
-    const state = await this.load();
+  async markCleanShutdown(state: State): Promise<void> {
     state.lastCleanShutdown = true;
     await this.save(state);
   }
@@ -1837,6 +1837,9 @@ export class FeishuGateway {
       chatId: event.message.chat_id,
       senderOpenId: event.sender.sender_id.open_id,
       text,
+      // Feishu create_time is a stringified Unix milliseconds timestamp
+      // (confirmed via open.feishu.cn docs: "消息发送时间（毫秒）"). No
+      // conversion needed — IncomingMessage.receivedAt is also in ms.
       receivedAt: Number(event.message.create_time),
     };
 
@@ -1923,12 +1926,12 @@ async function main(): Promise<void> {
   logger.info({ configPath }, "Config loaded");
 
   const stateStore = new StateStore(config.persistence.stateFile);
-  const initialState = await stateStore.load();
+  const state = await stateStore.load();
   logger.info(
-    { lastCleanShutdown: initialState.lastCleanShutdown },
+    { lastCleanShutdown: state.lastCleanShutdown },
     "State store loaded",
   );
-  await stateStore.markUncleanAtStartup();
+  await stateStore.markUncleanAtStartup(state);
 
   const access = new AccessControl({
     allowedOpenIds: config.access.allowedOpenIds,
@@ -1964,7 +1967,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     logger.info({ signal }, "Shutting down");
     try {
-      await stateStore.markCleanShutdown();
+      await stateStore.markCleanShutdown(state);
     } catch (err) {
       logger.error({ err }, "Failed to mark clean shutdown");
     }
@@ -2072,6 +2075,7 @@ unauthorized_behavior = "ignore"
 # ─── Persistence paths ───────────────────────────────────────────────
 [persistence]
 state_file = "~/.claude-feishu-channel/state.json"
+# log_dir is reserved for Phase 2+ file logging. Phase 1 logs to stdout only.
 log_dir = "~/.claude-feishu-channel/logs"
 
 # ─── Logging ─────────────────────────────────────────────────────────
