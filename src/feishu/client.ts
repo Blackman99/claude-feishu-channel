@@ -23,6 +23,13 @@ export class FeishuClient {
       );
     }
 
-    return { messageId: (response.data as { message_id?: string } | undefined)?.message_id ?? "" };
+    const messageId = response.data?.message_id;
+    if (!messageId) {
+      throw new Error(
+        `Feishu send returned code=0 but no message_id (chatId=${chatId})`,
+      );
+    }
+
+    return { messageId };
   }
 }

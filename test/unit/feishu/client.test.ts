@@ -54,6 +54,18 @@ describe("FeishuClient.sendText", () => {
     );
   });
 
+  it("throws when code is zero but message_id is missing", async () => {
+    const mock = makeMockLarkClient();
+    mock.im.v1.message.create = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {},
+    });
+    const client = new FeishuClient(mock as never);
+    await expect(client.sendText("oc_1", "hi")).rejects.toThrow(
+      /message_id/i,
+    );
+  });
+
   it("escapes newlines and quotes in text content", async () => {
     const mock = makeMockLarkClient();
     const client = new FeishuClient(mock as never);
