@@ -1025,12 +1025,18 @@ const AccessSchema = z.object({
   unauthorized_behavior: z.enum(["ignore", "reject"]).default("ignore"),
 });
 
+// NOTE: zod v4 changed `.default({})` behavior — the literal object is
+// returned as-is without re-parsing, so nested field defaults are NOT applied.
+// We provide the full default object explicitly to preserve the nested defaults.
 const PersistenceSchema = z
   .object({
     state_file: z.string().default("~/.claude-feishu-channel/state.json"),
     log_dir: z.string().default("~/.claude-feishu-channel/logs"),
   })
-  .default({});
+  .default({
+    state_file: "~/.claude-feishu-channel/state.json",
+    log_dir: "~/.claude-feishu-channel/logs",
+  });
 
 const LoggingSchema = z
   .object({
@@ -1038,7 +1044,7 @@ const LoggingSchema = z
       .enum(["trace", "debug", "info", "warn", "error"])
       .default("info"),
   })
-  .default({});
+  .default({ level: "info" });
 
 const ConfigSchema = z.object({
   feishu: FeishuSchema,
