@@ -32,6 +32,18 @@ const ClaudeSchema = z.object({
   default_model: z.string().min(1).default("claude-opus-4-6"),
 });
 
+const RenderSchema = z
+  .object({
+    inline_max_bytes: z.number().int().positive().default(2048),
+    hide_thinking: z.boolean().default(false),
+    show_turn_stats: z.boolean().default(true),
+  })
+  .default({
+    inline_max_bytes: 2048,
+    hide_thinking: false,
+    show_turn_stats: true,
+  });
+
 const PersistenceSchema = z
   .object({
     state_file: z.string().default("~/.claude-feishu-channel/state.json"),
@@ -54,6 +66,7 @@ const ConfigSchema = z.object({
   feishu: FeishuSchema,
   access: AccessSchema,
   claude: ClaudeSchema,
+  render: RenderSchema,
   persistence: PersistenceSchema,
   logging: LoggingSchema,
 });
@@ -115,6 +128,11 @@ export async function loadConfig(path: string): Promise<AppConfig> {
       defaultCwd: expandHome(data.claude.default_cwd),
       defaultPermissionMode: data.claude.default_permission_mode,
       defaultModel: data.claude.default_model,
+    },
+    render: {
+      inlineMaxBytes: data.render.inline_max_bytes,
+      hideThinking: data.render.hide_thinking,
+      showTurnStats: data.render.show_turn_stats,
     },
     persistence: {
       stateFile: expandHome(data.persistence.state_file),

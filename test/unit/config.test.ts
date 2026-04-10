@@ -203,3 +203,49 @@ default_cwd = ""
     await expect(loadConfig(path)).rejects.toThrow(/default_cwd/);
   });
 });
+
+describe("render config", () => {
+  it("defaults to inline_max_bytes=2048, hide_thinking=false, show_turn_stats=true when [render] is absent", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+`);
+    const cfg = await loadConfig(path);
+    expect(cfg.render.inlineMaxBytes).toBe(2048);
+    expect(cfg.render.hideThinking).toBe(false);
+    expect(cfg.render.showTurnStats).toBe(true);
+  });
+
+  it("accepts explicit [render] values", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+
+[render]
+inline_max_bytes = 512
+hide_thinking = true
+show_turn_stats = false
+`);
+    const cfg = await loadConfig(path);
+    expect(cfg.render.inlineMaxBytes).toBe(512);
+    expect(cfg.render.hideThinking).toBe(true);
+    expect(cfg.render.showTurnStats).toBe(false);
+  });
+
+  it("rejects negative inline_max_bytes", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+
+[render]
+inline_max_bytes = -1
+`);
+    await expect(loadConfig(path)).rejects.toThrow(ConfigError);
+  });
+});

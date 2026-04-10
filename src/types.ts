@@ -43,6 +43,14 @@ export interface AppConfig {
     defaultPermissionMode: "default" | "acceptEdits" | "plan" | "bypassPermissions";
     defaultModel: string;
   };
+  render: {
+    /** Max bytes (UTF-8) of inline content in a card before truncation. */
+    inlineMaxBytes: number;
+    /** If true, skip thinking blocks entirely. */
+    hideThinking: boolean;
+    /** If true, send a stats tip ("✅ 12.3s · 1.2k in / 3.4k out") at turn end. */
+    showTurnStats: boolean;
+  };
   persistence: {
     stateFile: string;
     logDir: string;

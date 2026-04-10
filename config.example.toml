@@ -44,6 +44,21 @@ default_permission_mode = "default"
 # Model id passed to query(). Any model the Claude Code runtime accepts.
 default_model = "claude-opus-4-6"
 
+# ─── Render / Feishu cards ───────────────────────────────────────────
+[render]
+# Max UTF-8 bytes of inline content (tool input params, tool output
+# previews) shown in a card before we truncate and append
+# "... (N more bytes omitted)".
+inline_max_bytes = 2048
+
+# If true, skip Claude's extended-thinking blocks entirely instead of
+# sending them as 💭 messages.
+hide_thinking = false
+
+# If true, send a small "✅ 12.3s · 1.2k in / 3.4k out" tip after each
+# turn. Disable if you find it noisy.
+show_turn_stats = true
+
 # ─── Persistence paths ───────────────────────────────────────────────
 [persistence]
 state_file = "~/.claude-feishu-channel/state.json"
