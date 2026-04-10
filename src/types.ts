@@ -42,6 +42,8 @@ export interface AppConfig {
     defaultCwd: string;
     defaultPermissionMode: "default" | "acceptEdits" | "plan" | "bypassPermissions";
     defaultModel: string;
+    /** Path to the `claude` CLI binary. Usually `"claude"` (resolved via $PATH). */
+    cliPath: string;
   };
   render: {
     /** Max bytes (UTF-8) of inline content in a card before truncation. */

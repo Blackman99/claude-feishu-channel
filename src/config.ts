@@ -30,6 +30,7 @@ const ClaudeSchema = z.object({
     .enum(["default", "acceptEdits", "plan", "bypassPermissions"])
     .default("default"),
   default_model: z.string().min(1).default("claude-opus-4-6"),
+  cli_path: z.string().min(1).default("claude"),
 });
 
 const RenderSchema = z
@@ -128,6 +129,7 @@ export async function loadConfig(path: string): Promise<AppConfig> {
       defaultCwd: expandHome(data.claude.default_cwd),
       defaultPermissionMode: data.claude.default_permission_mode,
       defaultModel: data.claude.default_model,
+      cliPath: data.claude.cli_path,
     },
     render: {
       inlineMaxBytes: data.render.inline_max_bytes,

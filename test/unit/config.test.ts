@@ -150,6 +150,19 @@ default_cwd = "/tmp/cfc-test-cwd"
     expect(cfg.claude.defaultCwd).toBe("/tmp/cfc-test-cwd");
     expect(cfg.claude.defaultPermissionMode).toBe("default");
     expect(cfg.claude.defaultModel).toBe("claude-opus-4-6");
+    expect(cfg.claude.cliPath).toBe("claude");
+  });
+
+  it("accepts a custom cli_path", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/x"
+cli_path = "/usr/local/bin/claude"
+`);
+    const cfg = await loadConfig(path);
+    expect(cfg.claude.cliPath).toBe("/usr/local/bin/claude");
   });
 
   it("expands ~ in default_cwd", async () => {

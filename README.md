@@ -8,21 +8,16 @@ Bridge a Claude Code session to a Feishu (Lark) bot so you can drive your local 
 
 - Node.js 20+
 - pnpm (`npm install -g pnpm`)
+- The local **Claude Code CLI** installed and logged in (`claude login`). See https://docs.claude.com/en/docs/claude-code for install instructions. Every turn spawns `claude --print --output-format stream-json` as a subprocess, so the CLI must be reachable on `$PATH` (or set `[claude].cli_path` to an absolute path).
 - A Feishu developer account with a custom app
 - A Feishu bot added to the custom app, with the `im:message` and `im:message.receive_v1` event subscribed
 - WebSocket event delivery mode enabled (no public webhook URL required)
 
 ## Credentials
 
-The Claude Agent SDK runs Claude Code in-process and needs an auth credential. Set one of:
+The bridge does **not** talk to the Anthropic API directly. It spawns your local `claude` CLI, which handles its own credentials (OAuth from `claude login`, keychain, or `ANTHROPIC_*` env vars — whichever the CLI resolves). If `claude -p "hi"` works in your terminal, the bridge will work too.
 
-- `ANTHROPIC_API_KEY` — Anthropic API key (recommended for headless use)
-- `ANTHROPIC_AUTH_TOKEN` — bearer token for an Anthropic-compatible endpoint (combine with `ANTHROPIC_BASE_URL`)
-- `CLAUDE_CODE_OAUTH_TOKEN` — OAuth token from `claude login`
-- `CLAUDE_CODE_USE_BEDROCK=1` (+ AWS creds) — Bedrock
-- `CLAUDE_CODE_USE_VERTEX=1` (+ GCP creds) — Vertex
-
-The bridge fails fast at startup if none are present.
+The bridge fails fast at startup if `claude --version` does not respond.
 
 ## Setup
 
@@ -54,8 +49,12 @@ Send a text message to the bot from a whitelisted account in Feishu. Each turn n
 
 ## Configuration
 
-Config lives at `~/.claude-feishu-channel/config.toml` (or `$CLAUDE_FEISHU_CONFIG`). See `config.example.toml` for the full template. Notable Phase 3 section:
+Config lives at `~/.claude-feishu-channel/config.toml` (or `$CLAUDE_FEISHU_CONFIG`). See `config.example.toml` for the full template. Notable Phase 3 sections:
 
+- `[claude]` — runtime knobs:
+  - `cli_path` (default `"claude"`): path to the Claude Code CLI binary. Leave as `"claude"` for `$PATH` resolution, or set an absolute path.
+  - `default_permission_mode` — **set to `"bypassPermissions"` or `"acceptEdits"`** until Phase 5 adds interactive permission cards. The default `"default"` mode will hang every turn because the CLI waits on an interactive prompt that no one can answer.
+  - `default_model`, `default_cwd` — passed directly to the CLI's `--model` and subprocess `cwd`.
 - `[render]` — card rendering knobs:
   - `inline_max_bytes` (default `2048`): UTF-8 byte limit for inline tool params / tool output previews before truncation
   - `hide_thinking` (default `false`): skip Claude's extended-thinking blocks entirely
@@ -86,9 +85,10 @@ src/
   types.ts               # shared types
   access.ts              # whitelist filter
   claude/
-    session.ts           # streams RenderEvents from SDK
+    session.ts           # streams RenderEvents from the CLI transport
     session-manager.ts   # chat_id → ClaudeSession
-    preflight.ts         # credential check
+    cli-query.ts         # spawns `claude --print --output-format stream-json`
+    preflight.ts         # CLI binary availability check
     render-event.ts      # RenderEvent tagged union
   feishu/
     client.ts            # REST wrapper (sendText, sendCard)

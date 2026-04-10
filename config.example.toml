@@ -35,14 +35,24 @@ unauthorized_behavior = "ignore"
 default_cwd = "~/my-projects"
 
 # Permission mode for new sessions. Options:
-#   default            — Claude asks for every tool use (recommended)
+#   default            — Claude asks for every tool use. In bot mode this
+#                        HANGS the turn because there's nobody to answer
+#                        the prompt. Use acceptEdits or bypassPermissions
+#                        until Phase 5 adds interactive permission cards.
 #   acceptEdits        — auto-approve file edits, ask for shell
 #   plan               — plan mode, read-only
 #   bypassPermissions  — auto-approve everything (dangerous)
-default_permission_mode = "default"
+default_permission_mode = "bypassPermissions"
 
-# Model id passed to query(). Any model the Claude Code runtime accepts.
+# Model id passed to the CLI's --model flag. Any model the local
+# `claude` CLI accepts (e.g. "claude-opus-4-6", "claude-sonnet-4-6",
+# or aliases like "opus" / "sonnet").
 default_model = "claude-opus-4-6"
+
+# Path to the local Claude Code CLI binary. Leave as "claude" to resolve
+# via $PATH, or set an absolute path if the binary lives outside PATH.
+# Run `which claude` to find yours.
+cli_path = "claude"
 
 # ─── Render / Feishu cards ───────────────────────────────────────────
 [render]

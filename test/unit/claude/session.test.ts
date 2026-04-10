@@ -13,6 +13,7 @@ const BASE_CLAUDE_CONFIG = {
   defaultCwd: "/tmp/cfc-test",
   defaultPermissionMode: "default" as const,
   defaultModel: "claude-opus-4-6",
+  cliPath: "claude",
 };
 
 function fakeQueryReturning(msgs: SDKMessageLike[]): QueryFn {
@@ -265,6 +266,7 @@ describe("ClaudeSession", () => {
         defaultCwd: "/a/b",
         defaultPermissionMode: "acceptEdits",
         defaultModel: "claude-sonnet-4-6",
+        cliPath: "claude",
       },
       queryFn,
       logger: SILENT_LOGGER,

@@ -5,8 +5,10 @@ import type { RenderEvent } from "./render-event.js";
 import { extractToolResultText, type ToolResultBlock } from "../feishu/tool-result.js";
 
 /**
- * Shallow structural subset of `@anthropic-ai/claude-agent-sdk`'s `SDKMessage`
- * union. Phase 3 narrows on the fields we read to dispatch RenderEvents.
+ * Shallow structural subset of the Claude Code stream-json message
+ * union (same shape as the SDK's `SDKMessage`). Phase 3 narrows on
+ * only the fields we read when dispatching RenderEvents, so any
+ * transport — in-process SDK or CLI subprocess — can yield these.
  */
 export interface SDKMessageLike {
   type: string;

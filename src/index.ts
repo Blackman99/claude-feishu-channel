@@ -1,16 +1,15 @@
 import { Client as LarkClient } from "@larksuiteoapi/node-sdk";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadConfig, ConfigError } from "./config.js";
 import { createLogger } from "./util/logger.js";
 import { StateStore } from "./persistence/state-store.js";
 import { AccessControl } from "./access.js";
 import { FeishuClient } from "./feishu/client.js";
 import { FeishuGateway } from "./feishu/gateway.js";
-import { checkCredentials } from "./claude/preflight.js";
+import { checkClaudeCli } from "./claude/preflight.js";
+import { createCliQueryFn } from "./claude/cli-query.js";
 import { ClaudeSessionManager } from "./claude/session-manager.js";
-import type { QueryFn, SDKMessageLike } from "./claude/session.js";
 import type { RenderEvent } from "./claude/render-event.js";
 import { buildToolUseCard, buildToolResultCard } from "./feishu/cards.js";
 import {
@@ -51,11 +50,15 @@ async function main(): Promise<void> {
 
   logger.info({ configPath }, "Config loaded");
 
-  const preflight = checkCredentials(process.env);
+  const preflight = await checkClaudeCli(config.claude.cliPath);
   if (!preflight.ok) {
     console.error(`[preflight] ${preflight.reason}`);
     process.exit(1);
   }
+  logger.info(
+    { cliPath: config.claude.cliPath, version: preflight.version },
+    "Claude CLI preflight ok",
+  );
 
   const stateStore = new StateStore(config.persistence.stateFile);
   const state = await stateStore.load();
@@ -76,20 +79,14 @@ async function main(): Promise<void> {
   });
   const feishuClient = new FeishuClient(lark);
 
-  // Wrap the real SDK `query` into our structural QueryFn interface.
-  // The SDK's return type (`Query extends AsyncGenerator<SDKMessage, void>`)
-  // is assignable to `AsyncIterable<SDKMessageLike>` because SDKMessage is
-  // a superset of our shallow SDKMessageLike.
-  const queryFn: QueryFn = (params) =>
-    query({
-      prompt: params.prompt,
-      options: {
-        cwd: params.options.cwd,
-        model: params.options.model,
-        permissionMode: params.options.permissionMode,
-        settingSources: params.options.settingSources as ("project" | "user" | "local")[],
-      },
-    }) as unknown as AsyncIterable<SDKMessageLike>;
+  // Phase 3 (CLI transport): spawn the local `claude` CLI in
+  // non-interactive stream-json mode per turn, instead of using the
+  // in-process SDK. The CLI handles OAuth / keychain credentials on
+  // its own, which is more robust than direct HTTP from undici.
+  const queryFn = createCliQueryFn({
+    cliPath: config.claude.cliPath,
+    logger,
+  });
 
   const sessionManager = new ClaudeSessionManager({
     config: config.claude,
@@ -99,9 +96,10 @@ async function main(): Promise<void> {
 
   const onMessage = async (msg: IncomingMessage): Promise<void> => {
     logger.info({ chat_id: msg.chatId, len: msg.text.length }, "Message received");
-    // Immediate ACK so the user sees the bot is alive even before the SDK
-    // yields its first message (proxy first-byte latency can be several
-    // seconds). A failing ACK must not block the turn itself.
+    // Immediate ACK so the user sees the bot is alive before the CLI
+    // subprocess yields its first stream-json message (cold start +
+    // first-token latency can easily be several seconds). A failing
+    // ACK must not block the turn itself.
     try {
       await feishuClient.sendText(msg.chatId, "⏳ 收到，正在思考...");
     } catch (err) {
@@ -212,6 +210,7 @@ async function main(): Promise<void> {
     {
       allowed_count: config.access.allowedOpenIds.length,
       unauthorized_behavior: config.access.unauthorizedBehavior,
+      cli_path: config.claude.cliPath,
       default_cwd: config.claude.defaultCwd,
       default_model: config.claude.defaultModel,
       permission_mode: config.claude.defaultPermissionMode,

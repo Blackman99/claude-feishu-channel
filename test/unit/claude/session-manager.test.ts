@@ -9,6 +9,7 @@ const BASE_CLAUDE_CONFIG = {
   defaultCwd: "/tmp/cfc-test",
   defaultPermissionMode: "default" as const,
   defaultModel: "claude-opus-4-6",
+  cliPath: "claude",
 };
 
 const NOOP_QUERY: QueryFn = () => ({
