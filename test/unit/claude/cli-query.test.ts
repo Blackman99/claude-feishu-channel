@@ -199,6 +199,68 @@ describe("createCliQueryFn", () => {
     ).rejects.toThrow(/exited with code 1.*auth failed/s);
   });
 
+  it("falls back to stdout tail when exit is non-zero and stderr is empty", async () => {
+    // Simulates the silent-failure case: CLI dies with no stderr and no
+    // result message. We want the error to surface whatever stdout we
+    // did see so the failure is debuggable.
+    const spawnFn: SpawnFn = vi.fn(() =>
+      makeFakeChild({
+        stdoutLines: [
+          JSON.stringify({ type: "system", subtype: "init" }),
+          "some unstructured warning before crash",
+        ],
+        exitCode: 1,
+      }),
+    );
+    const queryFn = createCliQueryFn({
+      cliPath: "claude",
+      logger: SILENT_LOGGER,
+      spawnFn,
+    });
+    await expect(
+      collectMessages(queryFn({ prompt: "x", options: BASE_OPTIONS })),
+    ).rejects.toThrow(
+      /exited with code 1.*stdout tail.*some unstructured warning before crash/s,
+    );
+  });
+
+  it("defers to the consumer when a result message was yielded, even if exit is non-zero", async () => {
+    // If a `result` message has already been yielded, session.ts will
+    // throw its own richer "Claude turn failed (subtype)" error. We must
+    // NOT shadow that by throwing our bare "exited with code 1" error —
+    // session.ts's post-loop code never runs if we do.
+    const lines = [
+      JSON.stringify({ type: "system", subtype: "init" }),
+      JSON.stringify({
+        type: "result",
+        subtype: "error_during_execution",
+        errors: ["model refused"],
+      }),
+    ];
+    const warns: unknown[] = [];
+    const loggerSpy = {
+      ...SILENT_LOGGER,
+      warn: (obj: unknown) => warns.push(obj),
+    } as unknown as typeof SILENT_LOGGER;
+    const spawnFn: SpawnFn = vi.fn(() =>
+      makeFakeChild({ stdoutLines: lines, exitCode: 1 }),
+    );
+    const queryFn = createCliQueryFn({
+      cliPath: "claude",
+      logger: loggerSpy,
+      spawnFn,
+    });
+    const messages = await collectMessages(
+      queryFn({ prompt: "x", options: BASE_OPTIONS }),
+    );
+    // Iterator completes cleanly — all messages delivered, no throw.
+    expect(messages).toHaveLength(2);
+    expect(messages[1]!.subtype).toBe("error_during_execution");
+    // But we logged a warn about the exit mismatch so it's still visible
+    // in the logs for debugging.
+    expect(warns.length).toBe(1);
+  });
+
   it("throws a clear error when the spawn itself fails (ENOENT)", async () => {
     const err = Object.assign(new Error("spawn claude ENOENT"), {
       code: "ENOENT",

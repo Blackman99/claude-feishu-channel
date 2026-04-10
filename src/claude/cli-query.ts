@@ -52,6 +52,11 @@ function buildArgs(options: ClaudeQueryOptions, prompt: string): string[] {
   ];
 }
 
+/** Max raw stdout lines to retain for diagnostic error messages. */
+const STDOUT_TAIL_MAX_LINES = 10;
+/** Per-line truncation cap when keeping a stdout tail. */
+const STDOUT_TAIL_LINE_CAP = 400;
+
 /**
  * Adapter that implements the `QueryFn` interface by spawning the local
  * `claude` CLI in `--print --output-format stream-json` mode. Each line
@@ -60,7 +65,13 @@ function buildArgs(options: ClaudeQueryOptions, prompt: string): string[] {
  *
  * Error semantics:
  * - Spawn failure (e.g. ENOENT) → throws `"Failed to spawn claude CLI: ..."`
- * - Non-zero exit code → throws with the exit code and the tail of stderr
+ * - Non-zero exit AND a `result` message was already yielded → swallowed
+ *   here (logged at warn). The consumer (session.ts) owns the error path
+ *   in that case and will surface a richer "Claude turn failed (subtype)"
+ *   message. Throwing here would shadow that.
+ * - Non-zero exit with NO result message → throws with the exit code and
+ *   a tail of stderr; falls back to a tail of stdout when stderr is empty,
+ *   so silent failures are still debuggable.
  * - Malformed JSON lines → logged at `warn` and skipped (the turn continues)
  */
 export function createCliQueryFn(opts: CliQueryFnOptions): QueryFn {
@@ -97,11 +108,24 @@ export function createCliQueryFn(opts: CliQueryFnOptions): QueryFn {
         throw new Error("claude CLI spawned without a stdout pipe");
       }
 
+      // Rolling tail of non-empty raw stdout lines, used only when we
+      // need to build an error message and stderr is empty (silent
+      // failure case). Not used on the happy path.
+      const stdoutTail: string[] = [];
+      let sawResultMessage = false;
+
       const rl = createInterface({ input: child.stdout });
       try {
         for await (const rawLine of rl) {
           const line = rawLine.trim();
           if (line.length === 0) continue;
+          stdoutTail.push(
+            line.length > STDOUT_TAIL_LINE_CAP
+              ? `${line.slice(0, STDOUT_TAIL_LINE_CAP)}…`
+              : line,
+          );
+          if (stdoutTail.length > STDOUT_TAIL_MAX_LINES) stdoutTail.shift();
+
           let parsed: SDKMessageLike;
           try {
             parsed = JSON.parse(line) as SDKMessageLike;
@@ -112,6 +136,7 @@ export function createCliQueryFn(opts: CliQueryFnOptions): QueryFn {
             );
             continue;
           }
+          if (parsed.type === "result") sawResultMessage = true;
           yield parsed;
         }
       } finally {
@@ -130,10 +155,28 @@ export function createCliQueryFn(opts: CliQueryFnOptions): QueryFn {
         );
       }
       if (exitCode !== 0) {
-        const tail = stderrBuf.trim().split("\n").slice(-5).join("\n");
-        const suffix = tail ? `:\n${tail}` : "";
+        // Session.ts already saw the result message and will throw its
+        // own richer error if subtype !== "success". Don't shadow it.
+        if (sawResultMessage) {
+          opts.logger.warn(
+            { exitCode, stderrLen: stderrBuf.length },
+            "claude CLI exited non-zero after result message — deferring to session error handler",
+          );
+          return;
+        }
+        const stderrTail = stderrBuf.trim().split("\n").slice(-5).join("\n");
+        const diagnostics: string[] = [];
+        if (stderrTail) {
+          diagnostics.push(`stderr:\n${stderrTail}`);
+        } else if (stdoutTail.length > 0) {
+          // Silent exit: best-effort surface the last stdout lines so
+          // at least we can see what the CLI was doing before it died.
+          diagnostics.push(`stdout tail:\n${stdoutTail.join("\n")}`);
+        } else {
+          diagnostics.push("(no stdout or stderr output)");
+        }
         throw new Error(
-          `claude CLI exited with code ${exitCode}${suffix}`,
+          `claude CLI exited with code ${exitCode}:\n${diagnostics.join("\n")}`,
         );
       }
     },
