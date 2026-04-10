@@ -8,6 +8,12 @@ describe("checkCredentials", () => {
     });
   });
 
+  it("accepts ANTHROPIC_AUTH_TOKEN (third-party Anthropic-compatible endpoint)", () => {
+    expect(
+      checkCredentials({ ANTHROPIC_AUTH_TOKEN: "tok_thirdparty" }),
+    ).toEqual({ ok: true });
+  });
+
   it("accepts CLAUDE_CODE_OAUTH_TOKEN", () => {
     expect(
       checkCredentials({ CLAUDE_CODE_OAUTH_TOKEN: "tok_xxx" }),
