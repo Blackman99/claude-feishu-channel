@@ -1,7 +1,3 @@
-export function formatThinkingText(text: string): string {
-  return `💭 思考过程\n\n${text}`;
-}
-
 export interface ResultTipStats {
   durationMs: number;
   inputTokens: number;

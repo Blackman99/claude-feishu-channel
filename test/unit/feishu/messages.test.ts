@@ -1,20 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
-  formatThinkingText,
   formatResultTip,
   formatErrorText,
 } from "../../../src/feishu/messages.js";
-
-describe("formatThinkingText", () => {
-  it("prepends the 💭 header", () => {
-    expect(formatThinkingText("I should check the docs first"))
-      .toBe("💭 思考过程\n\nI should check the docs first");
-  });
-
-  it("handles empty input", () => {
-    expect(formatThinkingText("")).toBe("💭 思考过程\n\n");
-  });
-});
 
 describe("formatResultTip", () => {
   it("formats duration + token usage", () => {

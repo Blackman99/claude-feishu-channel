@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { truncateForInline } from "../../../src/feishu/truncate.js";
+import {
+  sanitizeForFeishuMarkdown,
+  truncateForInline,
+} from "../../../src/feishu/truncate.js";
 
 describe("truncateForInline", () => {
   it("returns the input unchanged when within byte budget", () => {
@@ -44,5 +47,62 @@ describe("truncateForInline", () => {
   it("throws on non-positive budget", () => {
     expect(() => truncateForInline("abc", 0)).toThrow();
     expect(() => truncateForInline("abc", -1)).toThrow();
+  });
+});
+
+describe("sanitizeForFeishuMarkdown", () => {
+  it("demotes a markdown image reference to a plain link", () => {
+    // Feishu rejects `![alt](https://...)` with code=230099 "invalid
+    // image keys" because its parser only accepts internal img_key
+    // values. Stripping the leading `!` keeps the URL visible as a
+    // clickable link while the parser stops trying to resolve it.
+    expect(
+      sanitizeForFeishuMarkdown(
+        "![Node](https://img.shields.io/badge/Node-16-green)",
+      ),
+    ).toBe("[Node](https://img.shields.io/badge/Node-16-green)");
+  });
+
+  it("handles multiple images on separate lines", () => {
+    const input =
+      "![a](https://x.test/a.png)\n\nsome text\n\n![b](https://x.test/b.png)";
+    const out = sanitizeForFeishuMarkdown(input);
+    expect(out).toBe(
+      "[a](https://x.test/a.png)\n\nsome text\n\n[b](https://x.test/b.png)",
+    );
+  });
+
+  it("handles multiple images on the same line", () => {
+    expect(
+      sanitizeForFeishuMarkdown(
+        "badges: ![one](https://x.test/1) ![two](https://x.test/2)",
+      ),
+    ).toBe("badges: [one](https://x.test/1) [two](https://x.test/2)");
+  });
+
+  it("leaves plain links untouched", () => {
+    const input = "see [the docs](https://example.com) for details";
+    expect(sanitizeForFeishuMarkdown(input)).toBe(input);
+  });
+
+  it("leaves standalone exclamation marks untouched", () => {
+    expect(sanitizeForFeishuMarkdown("hello world!")).toBe("hello world!");
+    expect(sanitizeForFeishuMarkdown("wow! really")).toBe("wow! really");
+  });
+
+  it("does not strip an escaped bang", () => {
+    // `\![x](y)` means the user escaped the image syntax on purpose;
+    // leave the `!` and the escape alone.
+    const input = "\\![x](https://example.com)";
+    expect(sanitizeForFeishuMarkdown(input)).toBe(input);
+  });
+
+  it("returns the empty string unchanged", () => {
+    expect(sanitizeForFeishuMarkdown("")).toBe("");
+  });
+
+  it("leaves text without any image refs unchanged", () => {
+    const input = "## Heading\n\nplain prose with no images at all.";
+    expect(sanitizeForFeishuMarkdown(input)).toBe(input);
   });
 });

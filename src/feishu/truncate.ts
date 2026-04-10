@@ -1,4 +1,32 @@
 /**
+ * Neutralize markdown image references so Feishu's card validator
+ * doesn't reject the whole card.
+ *
+ * Feishu's markdown parser treats `![alt](url)` as a reference to an
+ * uploaded-image `img_key` (their internal format, e.g. `img_v2_xxx`).
+ * When the URL is an ordinary HTTP link (shields.io badges, GitHub
+ * avatars, etc.) the server responds with
+ *   code=230099 "card contains invalid image keys"
+ * and the entire card — including anything else we were trying to
+ * show the user — fails to render. Tool output from Claude routinely
+ * contains exactly that syntax (READMEs full of badges, for example),
+ * so we can't rely on the source being image-free.
+ *
+ * The simplest durable fix is to demote image refs to plain links by
+ * stripping the leading `!`. The URL still displays as a clickable
+ * link, no content is lost, and the parser is happy.
+ */
+export function sanitizeForFeishuMarkdown(text: string): string {
+  // Match only the `!` directly before `[alt](url)` markdown image
+  // syntax. Keep the `[alt](url)` intact so it renders as a normal
+  // link. A negative lookbehind for `\` avoids touching already-
+  // escaped sequences. `[^\]]*` for alt text and `[^)\s]+` for the
+  // URL stay on a single line — multiline images are exotic enough
+  // to not be worth the regex complexity.
+  return text.replace(/(?<!\\)!(\[[^\]]*\]\([^)\s]+\))/g, "$1");
+}
+
+/**
  * Truncate a string so its UTF-8 byte length does not exceed `maxBytes`.
  * When truncation happens, append "\n… (N more bytes omitted)" where N
  * is the byte count of the omitted suffix. The truncation boundary
