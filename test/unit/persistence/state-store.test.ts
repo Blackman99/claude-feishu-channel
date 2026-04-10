@@ -73,7 +73,17 @@ describe("StateStore", () => {
     const store = new StateStore(statePath);
     const fs = await import("node:fs/promises");
     await fs.writeFile(statePath, "{ not valid json");
-    await expect(store.load()).rejects.toThrow(/state file/i);
+    await expect(store.load()).rejects.toThrow(/malformed json/i);
+  });
+
+  it("throws a distinct error on unsupported version", async () => {
+    const store = new StateStore(statePath);
+    const fs = await import("node:fs/promises");
+    await fs.writeFile(
+      statePath,
+      JSON.stringify({ version: 2, lastCleanShutdown: true, sessions: {} }),
+    );
+    await expect(store.load()).rejects.toThrow(/unsupported state file version/i);
   });
 
   it("markUncleanAtStartup sets lastCleanShutdown to false and persists", async () => {

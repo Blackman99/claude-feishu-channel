@@ -38,17 +38,20 @@ export class StateStore {
       );
     }
 
+    let parsed: State;
     try {
-      const parsed = JSON.parse(raw) as State;
-      if (parsed.version !== 1) {
-        throw new Error(`Unsupported state file version: ${parsed.version}`);
-      }
-      return parsed;
+      parsed = JSON.parse(raw) as State;
     } catch (err) {
       throw new Error(
-        `Invalid state file ${this.path}: ${(err as Error).message}`,
+        `Malformed JSON in state file ${this.path}: ${(err as Error).message}`,
       );
     }
+    if (parsed.version !== 1) {
+      throw new Error(
+        `Unsupported state file version ${parsed.version} in ${this.path}`,
+      );
+    }
+    return parsed;
   }
 
   async save(state: State): Promise<void> {
