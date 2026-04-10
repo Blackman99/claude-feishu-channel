@@ -212,3 +212,172 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     expect(h.session._testGetState()).toBe("idle");
   });
 });
+
+describe("ClaudeSession — FIFO queue", () => {
+  it("second submit while generating returns queued #1 without consuming a new turn", async () => {
+    const h = makeHarness();
+    const spy1 = new SpyRenderer();
+    const spy2 = new SpyRenderer();
+
+    const first = await h.session.submit(
+      { kind: "run", text: "one" },
+      spy1.emit,
+    );
+    await flushMicrotasks();
+    expect(h.fakes).toHaveLength(1);
+    expect(first.kind).toBe("started");
+
+    const second = await h.session.submit(
+      { kind: "run", text: "two" },
+      spy2.emit,
+    );
+    expect(second.kind).toBe("queued");
+    if (second.kind !== "queued") throw new Error("unreachable");
+    expect(second.position).toBe(1);
+    expect(h.session._testGetQueueLength()).toBe(1);
+    // Still only one turn has been created.
+    expect(h.fakes).toHaveLength(1);
+    // And the queued emit was delivered.
+    expect(spy2.events).toEqual([{ type: "queued", position: 1 }]);
+  });
+
+  it("third submit lands at position 2", async () => {
+    const h = makeHarness();
+    const spy1 = new SpyRenderer();
+    const spy2 = new SpyRenderer();
+    const spy3 = new SpyRenderer();
+
+    const first = await h.session.submit(
+      { kind: "run", text: "one" },
+      spy1.emit,
+    );
+    await flushMicrotasks();
+    await h.session.submit({ kind: "run", text: "two" }, spy2.emit);
+    const third = await h.session.submit(
+      { kind: "run", text: "three" },
+      spy3.emit,
+    );
+
+    expect(third.kind).toBe("queued");
+    if (third.kind !== "queued") throw new Error("unreachable");
+    expect(third.position).toBe(2);
+    expect(spy3.events).toEqual([{ type: "queued", position: 2 }]);
+    void first;
+  });
+
+  it("drains the queue in FIFO order after each turn ends", async () => {
+    const h = makeHarness();
+    const spy1 = new SpyRenderer();
+    const spy2 = new SpyRenderer();
+    const spy3 = new SpyRenderer();
+
+    const first = await h.session.submit(
+      { kind: "run", text: "one" },
+      spy1.emit,
+    );
+    await flushMicrotasks();
+    const second = await h.session.submit(
+      { kind: "run", text: "two" },
+      spy2.emit,
+    );
+    const third = await h.session.submit(
+      { kind: "run", text: "three" },
+      spy3.emit,
+    );
+    if (
+      first.kind !== "started" ||
+      second.kind !== "queued" ||
+      third.kind !== "queued"
+    ) {
+      throw new Error("unreachable");
+    }
+
+    // End turn 1 → drain pulls "two"
+    h.fakes[0]!.emitMessage({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "reply one" }] },
+    });
+    h.fakes[0]!.finishWithSuccess({
+      durationMs: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    await first.done;
+    await flushMicrotasks();
+    expect(h.fakes).toHaveLength(2);
+
+    // End turn 2 → drain pulls "three"
+    h.fakes[1]!.emitMessage({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "reply two" }] },
+    });
+    h.fakes[1]!.finishWithSuccess({
+      durationMs: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    await second.done;
+    await flushMicrotasks();
+    expect(h.fakes).toHaveLength(3);
+
+    // End turn 3 → back to idle
+    h.fakes[2]!.emitMessage({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "reply three" }] },
+    });
+    h.fakes[2]!.finishWithSuccess({
+      durationMs: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    await third.done;
+    expect(h.session._testGetState()).toBe("idle");
+
+    // Each turn's reply landed on the right emit.
+    expect(
+      spy1.events.some((e) => e.type === "text" && e.text === "reply one"),
+    ).toBe(true);
+    expect(
+      spy2.events.some((e) => e.type === "text" && e.text === "reply two"),
+    ).toBe(true);
+    expect(
+      spy3.events.some((e) => e.type === "text" && e.text === "reply three"),
+    ).toBe(true);
+  });
+
+  it("a turn that fails still allows the next queued input to run", async () => {
+    const h = makeHarness();
+    const spy1 = new SpyRenderer();
+    const spy2 = new SpyRenderer();
+
+    const first = await h.session.submit(
+      { kind: "run", text: "bad" },
+      spy1.emit,
+    );
+    await flushMicrotasks();
+    const second = await h.session.submit(
+      { kind: "run", text: "good" },
+      spy2.emit,
+    );
+    if (first.kind !== "started" || second.kind !== "queued") {
+      throw new Error("unreachable");
+    }
+
+    h.fakes[0]!.finishWithError({
+      subtype: "error_during_execution",
+      errors: ["boom"],
+    });
+    await expect(first.done).rejects.toThrow(/boom/);
+    await flushMicrotasks();
+
+    // Drain picked up turn 2 despite turn 1's error.
+    expect(h.fakes).toHaveLength(2);
+    h.fakes[1]!.finishWithSuccess({
+      durationMs: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    await second.done;
+    expect(h.session._testGetState()).toBe("idle");
+  });
+});

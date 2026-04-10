@@ -153,37 +153,60 @@ export class ClaudeSession {
       seq: this.nextSeq++,
     };
 
-    return await this.mutex.run(async () => {
-      this.inputQueue.push(entry);
-      const wasIdle = this.state === "idle";
-      if (wasIdle) {
-        this.state = "generating";
+    const outcome = await this.mutex.run(
+      async (): Promise<SubmitOutcome> => {
+        this.inputQueue.push(entry);
+        const wasIdle = this.state === "idle";
+        if (wasIdle) {
+          this.state = "generating";
+        }
+        if (!this.loopRunning) {
+          this.loopRunning = true;
+          // Start the loop on a microtask so it runs after submit
+          // releases the mutex. Fire-and-forget — the loop catches
+          // its own errors.
+          queueMicrotask(() => {
+            void (async () => {
+              try {
+                await this.processLoop();
+              } catch (err) {
+                this.logger.error(
+                  { err },
+                  "processLoop crashed — state machine may be inconsistent",
+                );
+              }
+            })();
+          });
+        }
+        if (wasIdle) {
+          return { kind: "started", done: entry.done.promise };
+        }
+        // State is "generating" or "awaiting_permission". The
+        // currently running turn lives in `currentTurn`, not in
+        // `inputQueue`, so after pushing, `inputQueue.length` is the
+        // 1-indexed position of this new input.
+        return {
+          kind: "queued",
+          position: this.inputQueue.length,
+          done: entry.done.promise,
+        };
+      },
+    );
+
+    // Fire the out-of-band "queued" notice after releasing the lock.
+    // Doing this OUTSIDE the lock keeps the mutex fast, and since
+    // `emit` is per-input there's no concurrency with other emits.
+    if (outcome.kind === "queued") {
+      try {
+        await emit({ type: "queued", position: outcome.position });
+      } catch (err) {
+        this.logger.warn(
+          { err, seq: entry.seq },
+          "emit({type:'queued'}) threw — continuing",
+        );
       }
-      if (!this.loopRunning) {
-        this.loopRunning = true;
-        // Start the loop on a microtask so it runs after submit
-        // releases the mutex. Fire-and-forget — the loop catches
-        // its own errors.
-        queueMicrotask(() => {
-          void (async () => {
-            try {
-              await this.processLoop();
-            } catch (err) {
-              this.logger.error(
-                { err },
-                "processLoop crashed — state machine may be inconsistent",
-              );
-            }
-          })();
-        });
-      }
-      if (wasIdle) {
-        return { kind: "started", done: entry.done.promise };
-      }
-      // Task 7 will flip this to return { kind: "queued", ... }; for
-      // now, the happy-path tests only exercise the idle branch.
-      throw new Error("queue branch not implemented yet (Task 7)");
-    });
+    }
+    return outcome;
   }
 
   /** Phase 4 Task 8 will implement this. */
