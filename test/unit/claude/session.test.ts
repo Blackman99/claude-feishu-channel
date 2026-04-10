@@ -317,4 +317,47 @@ describe("ClaudeSession", () => {
     await Promise.all([p1, p2]);
     expect(events).toEqual(["A:start", "A:end", "B:start", "B:end"]);
   });
+
+  it("releases the mutex after a throwing turn so the session stays usable", async () => {
+    let callCount = 0;
+    const queryFn: QueryFn = () => ({
+      async *[Symbol.asyncIterator]() {
+        callCount += 1;
+        if (callCount === 1) {
+          yield {
+            type: "result",
+            subtype: "error_during_execution",
+            is_error: true,
+            errors: ["first turn boom"],
+          } satisfies SDKMessageLike;
+          return;
+        }
+        yield {
+          type: "assistant",
+          message: { content: [{ type: "text", text: "recovered" }] },
+        } satisfies SDKMessageLike;
+        yield {
+          type: "result",
+          subtype: "success",
+          duration_ms: 1,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        } satisfies SDKMessageLike;
+      },
+    });
+    const session = new ClaudeSession({
+      chatId: "oc_x",
+      config: BASE_CLAUDE_CONFIG,
+      queryFn,
+      logger: SILENT_LOGGER,
+    });
+    await expect(session.handleMessage("first", async () => {})).rejects.toThrow(
+      /first turn boom/,
+    );
+    const events: RenderEvent[] = [];
+    await session.handleMessage("second", async (e) => {
+      events.push(e);
+    });
+    expect(events).toContainEqual({ type: "text", text: "recovered" });
+    expect(callCount).toBe(2);
+  });
 });

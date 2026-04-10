@@ -140,6 +140,12 @@ async function main(): Promise<void> {
             }),
           );
           return;
+        default: {
+          // Exhaustiveness check — a future RenderEvent variant will make
+          // this line fail to compile, forcing the dispatcher to be updated.
+          const _exhaustive: never = event;
+          void _exhaustive;
+        }
       }
     };
     try {
