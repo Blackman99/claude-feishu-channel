@@ -14,7 +14,6 @@ import {
   extractToolResultText,
   type ToolResultBlock,
 } from "../feishu/tool-result.js";
-import { formatStopAck } from "../feishu/messages.js";
 
 /**
  * Error rejected on a QueuedInput's `done` promise when its turn was
@@ -387,9 +386,12 @@ export class ClaudeSession {
       }
     }
 
-    // 4. Ack the caller.
+    // 4. Ack the caller. A dedicated `stop_ack` variant keeps the
+    //    dispatcher from routing this through the answer-card + "✅
+    //    完成" path that plain `text` uses — stopping is not
+    //    completing, and the user should see a terse one-liner.
     try {
-      await emit({ type: "text", text: formatStopAck() });
+      await emit({ type: "stop_ack" });
     } catch (err) {
       this.logger.warn({ err }, "stop ack emit threw");
     }

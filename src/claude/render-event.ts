@@ -19,4 +19,8 @@ export type RenderEvent =
   | { type: "turn_end"; durationMs: number; inputTokens: number; outputTokens: number }
   // Phase 4: out-of-band notices
   | { type: "queued"; position: number }
-  | { type: "interrupted"; reason: "stop" | "bang_prefix" };
+  | { type: "interrupted"; reason: "stop" | "bang_prefix" }
+  // Phase 4: dedicated stop ack. Distinct from `text` so the dispatcher
+  // renders it as a plain one-liner rather than routing it through the
+  // answer-card / "✅ 完成" status path — stopping is not completing.
+  | { type: "stop_ack" };

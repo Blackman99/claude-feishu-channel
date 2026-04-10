@@ -33,6 +33,7 @@ import {
   formatErrorText,
   formatQueuedTip,
   formatInterruptDropAck,
+  formatStopAck,
 } from "./feishu/messages.js";
 import type { IncomingMessage } from "./types.js";
 
@@ -181,24 +182,34 @@ async function main(): Promise<void> {
     // first stream-json message. Any failure here is non-fatal:
     // we log and carry on without a status card, and the turn
     // still delivers its thinking / tool / answer cards normally.
-    try {
-      const { messageId } = await feishuClient.sendCard(
-        msg.chatId,
-        buildStatusCard(""),
-      );
-      turnState.statusCardMessageId = messageId;
+    //
+    // Only emit the card for inputs that will *start a new turn on
+    // this message* — `run` (when idle) and `interrupt_and_run`. We
+    // don't know yet whether a `run` will actually start vs. queue,
+    // so the gate is finer-grained: caller invokes this after
+    // `session.submit` returns `started`. For `/stop` and queued
+    // `run`s the card is suppressed entirely so the user doesn't see
+    // a flashing empty "⏳ 正在处理..." card.
+    const sendStatusCard = async (): Promise<void> => {
       try {
-        turnState.statusCardId =
-          await feishuClient.convertMessageIdToCardId(messageId);
-      } catch (err) {
-        logger.warn(
-          { err, chat_id: msg.chatId, message_id: messageId },
-          "idConvert failed; status card will fall back to patchCard",
+        const { messageId } = await feishuClient.sendCard(
+          msg.chatId,
+          buildStatusCard(""),
         );
+        turnState.statusCardMessageId = messageId;
+        try {
+          turnState.statusCardId =
+            await feishuClient.convertMessageIdToCardId(messageId);
+        } catch (err) {
+          logger.warn(
+            { err, chat_id: msg.chatId, message_id: messageId },
+            "idConvert failed; status card will fall back to patchCard",
+          );
+        }
+      } catch (err) {
+        logger.warn({ err, chat_id: msg.chatId }, "Failed to send status card");
       }
-    } catch (err) {
-      logger.warn({ err, chat_id: msg.chatId }, "Failed to send status card");
-    }
+    };
 
     // Push a new line into the status card. Swallows errors — the
     // status line is a cosmetic cursor, so a transient 502 / network
@@ -438,6 +449,20 @@ async function main(): Promise<void> {
             }
           }
           return;
+        case "stop_ack":
+          // Dedicated /stop ack. Sent as plain text so it doesn't get
+          // promoted to "✅ 完成" on the status card or wrapped in
+          // `buildAnswerCard` — stopping is not completing, and the
+          // one-liner should look distinct from a finished turn.
+          try {
+            await feishuClient.sendText(msg.chatId, formatStopAck());
+          } catch (err) {
+            logger.warn(
+              { err, chat_id: msg.chatId },
+              "stop ack send failed",
+            );
+          }
+          return;
         default: {
           // Exhaustiveness check — a future RenderEvent variant will make
           // this line fail to compile, forcing the dispatcher to be updated.
@@ -535,10 +560,31 @@ async function main(): Promise<void> {
     try {
       const parsed = parseInput(msg.text);
       if (parsed.kind === "stop") {
+        // /stop never gets a status card — there's nothing to cursor
+        // through, and flashing an empty "⏳ 正在处理..." then
+        // immediately replacing it with "🛑 已停止" is visually noisy.
         await session.stop(emit);
         return;
       }
       const outcome = await session.submit(parsed, emit);
+      // Only the input that actually starts a turn on this message
+      // gets a status card. Queued `run`s get the "📥 已加入队列" text
+      // reply instead (emitted from inside `session.submit`), so a
+      // second card here would be an orphan — it would never receive
+      // status updates because the turn will run under the emit
+      // callback of whichever *earlier* message started it.
+      //
+      // `interrupt_and_run` always comes back as `started`, so the
+      // two started-paths collapse into one.
+      if (outcome.kind === "started") {
+        // Fire the status card in the background so it races with
+        // `session.submit`'s processLoop kickoff — the CLI spawn +
+        // first stream-json line is orders of magnitude slower than a
+        // card send, so the card lands first in practice. Awaiting
+        // here would serialize us against a single card round-trip
+        // before any events can flow.
+        await sendStatusCard();
+      }
       if (outcome.kind === "started" || outcome.kind === "queued") {
         try {
           await outcome.done;

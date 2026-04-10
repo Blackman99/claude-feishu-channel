@@ -392,7 +392,7 @@ describe("ClaudeSession — /stop", () => {
     const spy = new SpyRenderer();
     await h.session.stop(spy.emit);
     expect(h.session._testGetState()).toBe("idle");
-    expect(spy.events).toEqual([{ type: "text", text: "🛑 已停止" }]);
+    expect(spy.events).toEqual([{ type: "stop_ack" }]);
   });
 
   it("stop in generating interrupts the current turn, clears the queue, and returns to idle", async () => {
@@ -435,7 +435,7 @@ describe("ClaudeSession — /stop", () => {
     expect(h.session._testGetState()).toBe("idle");
 
     // Stop ack was emitted via the caller's emit.
-    expect(stopSpy.events).toEqual([{ type: "text", text: "🛑 已停止" }]);
+    expect(stopSpy.events).toEqual([{ type: "stop_ack" }]);
   });
 
   it("two /stop calls in a row are idempotent — second is a no-op ack", async () => {
@@ -445,9 +445,46 @@ describe("ClaudeSession — /stop", () => {
     await h.session.stop(spy.emit);
     expect(h.session._testGetState()).toBe("idle");
     expect(spy.events).toEqual([
-      { type: "text", text: "🛑 已停止" },
-      { type: "text", text: "🛑 已停止" },
+      { type: "stop_ack" },
+      { type: "stop_ack" },
     ]);
+  });
+
+  it("submit({kind:'stop'}) delegates to stop() and returns rejected", async () => {
+    // The command router parses "/stop" into `{kind: "stop"}`. The
+    // Phase 4 dispatcher currently routes /stop through `session.stop()`
+    // directly, but `session.submit()` also accepts `{kind: "stop"}` so
+    // a single code path can handle all three CommandRouterResult
+    // kinds uniformly. Exercise that contract here so the code path
+    // stays alive and regressions don't sneak in.
+    const h = makeHarness();
+    const spy = new SpyRenderer();
+    const outcome = await h.session.submit({ kind: "stop" }, spy.emit);
+    expect(outcome).toEqual({ kind: "rejected", reason: "stop" });
+    expect(spy.events).toEqual([{ type: "stop_ack" }]);
+    expect(h.session._testGetState()).toBe("idle");
+  });
+
+  it("submit({kind:'stop'}) interrupts a running turn just like session.stop()", async () => {
+    const h = makeHarness();
+    const spy1 = new SpyRenderer();
+    const stopSpy = new SpyRenderer();
+
+    const first = await h.session.submit(
+      { kind: "run", text: "one" },
+      spy1.emit,
+    );
+    if (first.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+
+    const stopOutcome = await h.session.submit({ kind: "stop" }, stopSpy.emit);
+    expect(stopOutcome).toEqual({ kind: "rejected", reason: "stop" });
+    expect(h.fakes[0]!.interrupted).toBe(true);
+
+    await expect(first.done).rejects.toThrow();
+    await flushMicrotasks();
+    expect(h.session._testGetState()).toBe("idle");
+    expect(stopSpy.events).toEqual([{ type: "stop_ack" }]);
   });
 
   it("stop during generating does NOT lose subsequently-submitted inputs", async () => {
@@ -680,7 +717,7 @@ describe("ClaudeSession — awaiting_permission stub", () => {
     await expect(first.done).rejects.toThrow();
     await flushMicrotasks();
     expect(h.session._testGetState()).toBe("idle");
-    expect(stopSpy.events).toEqual([{ type: "text", text: "🛑 已停止" }]);
+    expect(stopSpy.events).toEqual([{ type: "stop_ack" }]);
   });
 
   it("! prefix in awaiting_permission denies, drops queue, interrupts, then runs the new input", async () => {
