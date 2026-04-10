@@ -76,7 +76,10 @@ async function main(): Promise<void> {
     onMessage,
   });
 
+  let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     logger.info({ signal }, "Shutting down");
     try {
       await stateStore.markCleanShutdown();
@@ -89,6 +92,9 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
+  // Fatal-error handlers intentionally do not call markCleanShutdown — after an
+  // uncaught error the process state is unknown, so recording "clean" would be
+  // misleading.
   process.on("unhandledRejection", (reason) => {
     logger.fatal({ reason }, "Unhandled promise rejection");
     process.exit(1);
