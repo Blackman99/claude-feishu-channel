@@ -99,6 +99,14 @@ async function main(): Promise<void> {
 
   const onMessage = async (msg: IncomingMessage): Promise<void> => {
     logger.info({ chat_id: msg.chatId, len: msg.text.length }, "Message received");
+    // Immediate ACK so the user sees the bot is alive even before the SDK
+    // yields its first message (proxy first-byte latency can be several
+    // seconds). A failing ACK must not block the turn itself.
+    try {
+      await feishuClient.sendText(msg.chatId, "⏳ 收到，正在思考...");
+    } catch (err) {
+      logger.warn({ err, chat_id: msg.chatId }, "Failed to send ack message");
+    }
     const session = sessionManager.getOrCreate(msg.chatId);
     const emit = async (event: RenderEvent): Promise<void> => {
       switch (event.type) {

@@ -83,6 +83,7 @@ export class ClaudeSession {
   ): Promise<void> {
     await this.mutex.run(async () => {
       this.logger.info({ len: text.length }, "Claude turn start");
+      const turnStartMs = Date.now();
       const iter = this.queryFn({
         prompt: text,
         options: {
@@ -94,7 +95,20 @@ export class ClaudeSession {
       });
 
       let resultMsg: SDKMessageLike | undefined;
+      let firstMessageLogged = false;
       for await (const msg of iter) {
+        if (!firstMessageLogged) {
+          firstMessageLogged = true;
+          this.logger.info(
+            { firstMessageMs: Date.now() - turnStartMs, type: msg.type },
+            "Claude first message received",
+          );
+        } else {
+          this.logger.debug(
+            { type: msg.type, subtype: msg.subtype },
+            "Claude sdk message",
+          );
+        }
         if (msg.type === "assistant" && msg.message?.content) {
           for (const block of msg.message.content) {
             await this.emitAssistantBlock(block, emit);
