@@ -2,7 +2,7 @@
 
 Bridge a Claude Code session to a Feishu (Lark) bot so you can drive your local Claude Code from a phone chat.
 
-**Status: Phase 3 of 8** — single-turn Claude with streamed tool-call / tool-result Feishu cards, thinking blocks, and per-turn stats. No queue, no permission cards yet. See `docs/superpowers/specs/2026-04-10-claude-feishu-channel-design.md` for the full design.
+**Status: Phase 4 of 8** — explicit per-chat state machine with FIFO queue, `/stop` command, and `!` interrupt prefix on top of Phase 3's streaming. No permission cards yet. See `docs/superpowers/specs/2026-04-10-claude-feishu-channel-design.md` for the full design.
 
 ## Requirements
 
@@ -36,7 +36,7 @@ pnpm dev
 
 You should see a banner like:
 ```
-claude-feishu-channel Phase 3 ready
+claude-feishu-channel Phase 4 ready
 ```
 
 Send a text message to the bot from a whitelisted account in Feishu. Each turn now streams as multiple Feishu messages:
@@ -46,6 +46,14 @@ Send a text message to the bot from a whitelisted account in Feishu. Each turn n
 - A 💭 thinking message for extended-thinking blocks (unless `hide_thinking = true`)
 - Assistant text as plain text
 - A final `✅ 本轮耗时 ... tokens` stats tip (unless `show_turn_stats = false`)
+
+## State machine + queue
+
+Each `chat_id` runs an independent `ClaudeSession` whose state is one of `idle`, `generating`, or `awaiting_permission` (the last is a Phase 5 stub — the exit transitions are wired but the entry path arrives with the canUseTool bridge).
+
+- **FIFO queue** — messages that land while a turn is running are queued in order. The user gets a "📥 已加入队列 #N" reply right away, and the queued turn runs automatically once everything ahead of it finishes.
+- **`/stop`** — interrupts the current turn (if any), drops the entire queue, and replies "🛑 已停止". Safe to send while idle (no-op ack). Each dropped queue entry receives "⚠️ 你之前的消息在被 Claude 处理前已被后续指令打断丢弃" on its own message thread.
+- **`!` prefix** — same as `/stop` (interrupt + drop), but the message body after the `!` is enqueued as the next turn. Use it for "stop what you're doing and instead..." commands like `! 算了, 用 Go 重写`. With nothing running, `!hello` is equivalent to plain `hello`. Two `!` messages in quick succession behave correctly: the second replaces the first.
 
 ## Configuration
 
@@ -85,17 +93,21 @@ src/
   types.ts               # shared types
   access.ts              # whitelist filter
   claude/
-    session.ts           # streams RenderEvents from the CLI transport
+    session.ts           # state machine + processLoop + stop / !
     session-manager.ts   # chat_id → ClaudeSession
-    cli-query.ts         # spawns `claude --print --output-format stream-json`
+    query-handle.ts      # cancellable QueryHandle interface
+    cli-query.ts         # spawns `claude --print --output-format stream-json` + interrupt()
+    permission-broker.ts # PermissionBroker interface + NullPermissionBroker (Phase 5 stub)
     preflight.ts         # CLI binary availability check
-    render-event.ts      # RenderEvent tagged union
+    render-event.ts      # RenderEvent tagged union (text / tool / queued / interrupted / ...)
+  commands/
+    router.ts            # parses /stop and ! prefix into CommandRouterResult
   feishu/
     client.ts            # REST wrapper (sendText, sendCard)
     gateway.ts           # WSClient + event dispatch
     card-types.ts        # Feishu Card v2 TypeScript types
     cards.ts             # buildToolUseCard / buildToolResultCard
-    messages.ts          # thinking / stats / error text formatters
+    messages.ts          # thinking / stats / queued / drop / stop / error text formatters
     tool-formatters.ts   # per-tool input summaries
     tool-result.ts       # tool_result content extractor
     truncate.ts          # UTF-8 byte-aware truncation
@@ -113,9 +125,8 @@ test/
 
 ## Next phases
 
-- Phase 4: State machine + queue + `!` interrupt prefix
 - Phase 5: Permission bridging via interactive cards
-- Phase 6: Slash commands (/new, /cd, /stop, ...)
+- Phase 6: Slash commands (/new, /cd, ...)
 - Phase 7: Persistence of session_id + crash recovery
 - Phase 8: E2E polish
 
