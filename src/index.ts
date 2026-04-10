@@ -41,12 +41,12 @@ async function main(): Promise<void> {
   logger.info({ configPath }, "Config loaded");
 
   const stateStore = new StateStore(config.persistence.stateFile);
-  const initialState = await stateStore.load();
+  const state = await stateStore.load();
   logger.info(
-    { lastCleanShutdown: initialState.lastCleanShutdown },
+    { lastCleanShutdown: state.lastCleanShutdown },
     "State store loaded",
   );
-  await stateStore.markUncleanAtStartup();
+  await stateStore.markUncleanAtStartup(state);
 
   const access = new AccessControl({
     allowedOpenIds: config.access.allowedOpenIds,
@@ -82,7 +82,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     logger.info({ signal }, "Shutting down");
     try {
-      await stateStore.markCleanShutdown();
+      await stateStore.markCleanShutdown(state);
     } catch (err) {
       logger.error({ err }, "Failed to mark clean shutdown");
     }

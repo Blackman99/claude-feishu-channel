@@ -89,7 +89,8 @@ describe("StateStore", () => {
   it("markUncleanAtStartup sets lastCleanShutdown to false and persists", async () => {
     const store = new StateStore(statePath);
     await store.save({ ...EMPTY_STATE, lastCleanShutdown: true });
-    await store.markUncleanAtStartup();
+    const state = await store.load();
+    await store.markUncleanAtStartup(state);
     const fresh = await new StateStore(statePath).load();
     expect(fresh.lastCleanShutdown).toBe(false);
   });
@@ -97,7 +98,8 @@ describe("StateStore", () => {
   it("markCleanShutdown sets lastCleanShutdown to true and persists", async () => {
     const store = new StateStore(statePath);
     await store.save({ ...EMPTY_STATE, lastCleanShutdown: false });
-    await store.markCleanShutdown();
+    const state = await store.load();
+    await store.markCleanShutdown(state);
     const fresh = await new StateStore(statePath).load();
     expect(fresh.lastCleanShutdown).toBe(true);
   });

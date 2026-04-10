@@ -61,14 +61,12 @@ export class StateStore {
     await rename(tmp, this.path);
   }
 
-  async markUncleanAtStartup(): Promise<void> {
-    const state = await this.load();
+  async markUncleanAtStartup(state: State): Promise<void> {
     state.lastCleanShutdown = false;
     await this.save(state);
   }
 
-  async markCleanShutdown(): Promise<void> {
-    const state = await this.load();
+  async markCleanShutdown(state: State): Promise<void> {
     state.lastCleanShutdown = true;
     await this.save(state);
   }
