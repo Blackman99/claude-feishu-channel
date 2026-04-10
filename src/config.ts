@@ -24,6 +24,14 @@ const AccessSchema = z.object({
   unauthorized_behavior: z.enum(["ignore", "reject"]).default("ignore"),
 });
 
+const ClaudeSchema = z.object({
+  default_cwd: z.string().min(1),
+  default_permission_mode: z
+    .enum(["default", "acceptEdits", "plan", "bypassPermissions"])
+    .default("default"),
+  default_model: z.string().min(1).default("claude-opus-4-6"),
+});
+
 const PersistenceSchema = z
   .object({
     state_file: z.string().default("~/.claude-feishu-channel/state.json"),
@@ -45,6 +53,7 @@ const LoggingSchema = z
 const ConfigSchema = z.object({
   feishu: FeishuSchema,
   access: AccessSchema,
+  claude: ClaudeSchema,
   persistence: PersistenceSchema,
   logging: LoggingSchema,
 });
@@ -101,6 +110,11 @@ export async function loadConfig(path: string): Promise<AppConfig> {
     access: {
       allowedOpenIds: data.access.allowed_open_ids,
       unauthorizedBehavior: data.access.unauthorized_behavior,
+    },
+    claude: {
+      defaultCwd: expandHome(data.claude.default_cwd),
+      defaultPermissionMode: data.claude.default_permission_mode,
+      defaultModel: data.claude.default_model,
     },
     persistence: {
       stateFile: expandHome(data.persistence.state_file),

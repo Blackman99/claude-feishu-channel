@@ -31,7 +31,12 @@ allowed_open_ids = ["ou_test"]
 
 describe("loadConfig", () => {
   it("loads a minimal valid config with defaults filled in", async () => {
-    const path = writeConfig(MINIMAL_CONFIG);
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+`);
     const cfg = await loadConfig(path);
     expect(cfg.feishu.appId).toBe("cli_test");
     expect(cfg.feishu.appSecret).toBe("secret");
@@ -40,6 +45,7 @@ describe("loadConfig", () => {
     expect(cfg.access.allowedOpenIds).toEqual(["ou_test"]);
     expect(cfg.access.unauthorizedBehavior).toBe("ignore");
     expect(cfg.logging.level).toBe("info");
+    expect(cfg.claude.defaultCwd).toBe("/tmp/cfc-test");
   });
 
   it("expands ~ in persistence paths", async () => {
@@ -49,6 +55,9 @@ ${MINIMAL_CONFIG}
 [persistence]
 state_file = "~/.claude-feishu-channel/state.json"
 log_dir = "~/.claude-feishu-channel/logs"
+
+[claude]
+default_cwd = "/tmp/cfc-test"
 `);
     const cfg = await loadConfig(path);
     expect(cfg.persistence.stateFile).toBe(
@@ -95,8 +104,16 @@ allowed_open_ids = []
 
   it("accepts unauthorized_behavior = 'reject'", async () => {
     const path = writeConfig(`
-${MINIMAL_CONFIG}
+[feishu]
+app_id = "cli_test"
+app_secret = "secret"
+
+[access]
+allowed_open_ids = ["ou_test"]
 unauthorized_behavior = "reject"
+
+[claude]
+default_cwd = "/tmp/cfc-test"
 `);
     const cfg = await loadConfig(path);
     expect(cfg.access.unauthorizedBehavior).toBe("reject");
@@ -104,9 +121,85 @@ unauthorized_behavior = "reject"
 
   it("rejects unknown unauthorized_behavior value", async () => {
     const path = writeConfig(`
-${MINIMAL_CONFIG}
+[feishu]
+app_id = "cli_test"
+app_secret = "secret"
+
+[access]
+allowed_open_ids = ["ou_test"]
 unauthorized_behavior = "bogus"
+
+[claude]
+default_cwd = "/tmp/cfc-test"
 `);
     await expect(loadConfig(path)).rejects.toThrow(/unauthorized_behavior/);
+  });
+});
+
+describe("loadConfig [claude] section", () => {
+  const CLAUDE_CONFIG = `
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test-cwd"
+`;
+
+  it("loads [claude] with explicit defaults", async () => {
+    const path = writeConfig(CLAUDE_CONFIG);
+    const cfg = await loadConfig(path);
+    expect(cfg.claude.defaultCwd).toBe("/tmp/cfc-test-cwd");
+    expect(cfg.claude.defaultPermissionMode).toBe("default");
+    expect(cfg.claude.defaultModel).toBe("claude-opus-4-6");
+  });
+
+  it("expands ~ in default_cwd", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "~/some-project"
+`);
+    const cfg = await loadConfig(path);
+    expect(cfg.claude.defaultCwd).toBe(join(homedir(), "some-project"));
+  });
+
+  it("accepts custom permission_mode and model", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/x"
+default_permission_mode = "acceptEdits"
+default_model = "claude-sonnet-4-6"
+`);
+    const cfg = await loadConfig(path);
+    expect(cfg.claude.defaultPermissionMode).toBe("acceptEdits");
+    expect(cfg.claude.defaultModel).toBe("claude-sonnet-4-6");
+  });
+
+  it("rejects unknown permission_mode", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/x"
+default_permission_mode = "bogus"
+`);
+    await expect(loadConfig(path)).rejects.toThrow(/default_permission_mode/);
+  });
+
+  it("requires [claude] section to be present", async () => {
+    const path = writeConfig(MINIMAL_CONFIG);
+    await expect(loadConfig(path)).rejects.toThrow(/claude/);
+  });
+
+  it("requires default_cwd to be non-empty", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = ""
+`);
+    await expect(loadConfig(path)).rejects.toThrow(/default_cwd/);
   });
 });

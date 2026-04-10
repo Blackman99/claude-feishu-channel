@@ -27,6 +27,23 @@ allowed_open_ids = [
 # "reject" = reply with an error (noisy; reveals bot exists)
 unauthorized_behavior = "ignore"
 
+# ─── Claude runtime ──────────────────────────────────────────────────
+[claude]
+# Absolute path where Claude Code sessions should run (use ~ to expand
+# to your home directory). This is the cwd every new session starts in
+# until /cd lands in Phase 6.
+default_cwd = "~/my-projects"
+
+# Permission mode for new sessions. Options:
+#   default            — Claude asks for every tool use (recommended)
+#   acceptEdits        — auto-approve file edits, ask for shell
+#   plan               — plan mode, read-only
+#   bypassPermissions  — auto-approve everything (dangerous)
+default_permission_mode = "default"
+
+# Model id passed to query(). Any model the Claude Code runtime accepts.
+default_model = "claude-opus-4-6"
+
 # ─── Persistence paths ───────────────────────────────────────────────
 [persistence]
 state_file = "~/.claude-feishu-channel/state.json"

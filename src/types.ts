@@ -38,6 +38,11 @@ export interface AppConfig {
     allowedOpenIds: readonly string[];
     unauthorizedBehavior: "ignore" | "reject";
   };
+  claude: {
+    defaultCwd: string;
+    defaultPermissionMode: "default" | "acceptEdits" | "plan" | "bypassPermissions";
+    defaultModel: string;
+  };
   persistence: {
     stateFile: string;
     logDir: string;
