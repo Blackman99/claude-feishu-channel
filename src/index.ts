@@ -128,6 +128,13 @@ async function main(): Promise<void> {
     //
     // Final assistant text and the turn_end stat line stay as
     // separate messages.
+    //
+    // `thinkingDisabled` / `toolDisabled` are sticky latches: once we
+    // hit any send / stream / patch error for a given card type, we
+    // stop touching it for the rest of the turn. This bounds the blast
+    // radius — a persistently broken chat (e.g. bot removed but event
+    // still delivered, or a 230099 render failure) should not kill the
+    // final answer card or the status cursor.
     const turnState: {
       statusCardMessageId: string | null;
       statusCardId: string | null;
@@ -136,10 +143,12 @@ async function main(): Promise<void> {
       thinkingCardId: string | null;
       thinkingSequence: number;
       thinkingText: string;
+      thinkingDisabled: boolean;
       toolCardMessageId: string | null;
       toolCardId: string | null;
       toolSequence: number;
       toolEntries: ToolActivityEntry[];
+      toolDisabled: boolean;
     } = {
       statusCardMessageId: null,
       statusCardId: null,
@@ -148,10 +157,12 @@ async function main(): Promise<void> {
       thinkingCardId: null,
       thinkingSequence: 0,
       thinkingText: "",
+      thinkingDisabled: false,
       toolCardMessageId: null,
       toolCardId: null,
       toolSequence: 0,
       toolEntries: [],
+      toolDisabled: false,
     };
 
     // Send the status card up front so the user has an immediate
@@ -241,6 +252,7 @@ async function main(): Promise<void> {
           return;
         case "thinking": {
           if (config.render.hideThinking) return;
+          if (turnState.thinkingDisabled) return;
           await updateStatus("💭 思考中...");
           turnState.thinkingText =
             turnState.thinkingText.length === 0
@@ -252,10 +264,25 @@ async function main(): Promise<void> {
             // subsequent block can stream into it. idConvert failing
             // is not fatal — fall back to patchCard semantics for
             // the rest of the turn so the user still sees updates.
+            // sendCard failure IS fatal to the thinking card for this
+            // turn (we latch `thinkingDisabled`), but must not kill
+            // the whole turn — a broken chat or 230099 render failure
+            // should still let the final answer card go through.
             const card = buildThinkingCard(turnState.thinkingText, {
               inlineMaxBytes: config.render.inlineMaxBytes,
             });
-            const { messageId } = await feishuClient.sendCard(msg.chatId, card);
+            let messageId: string;
+            try {
+              const res = await feishuClient.sendCard(msg.chatId, card);
+              messageId = res.messageId;
+            } catch (err) {
+              logger.warn(
+                { err, chat_id: msg.chatId },
+                "thinking sendCard failed; disabling thinking card for this turn",
+              );
+              turnState.thinkingDisabled = true;
+              return;
+            }
             turnState.thinkingMessageId = messageId;
             try {
               turnState.thinkingCardId =
@@ -278,12 +305,20 @@ async function main(): Promise<void> {
               turnState.thinkingText,
               config.render.inlineMaxBytes,
             );
-            await feishuClient.streamElementContent({
-              cardId: turnState.thinkingCardId,
-              elementId: THINKING_ELEMENT_ID,
-              content: streamed,
-              sequence: turnState.thinkingSequence,
-            });
+            try {
+              await feishuClient.streamElementContent({
+                cardId: turnState.thinkingCardId,
+                elementId: THINKING_ELEMENT_ID,
+                content: streamed,
+                sequence: turnState.thinkingSequence,
+              });
+            } catch (err) {
+              logger.warn(
+                { err, chat_id: msg.chatId },
+                "thinking stream failed; disabling thinking card for this turn",
+              );
+              turnState.thinkingDisabled = true;
+            }
           } else {
             // Fallback path: idConvert failed on the first block, so
             // we can't stream — revert to full-card patch for the
@@ -291,7 +326,15 @@ async function main(): Promise<void> {
             const card = buildThinkingCard(turnState.thinkingText, {
               inlineMaxBytes: config.render.inlineMaxBytes,
             });
-            await feishuClient.patchCard(turnState.thinkingMessageId, card);
+            try {
+              await feishuClient.patchCard(turnState.thinkingMessageId, card);
+            } catch (err) {
+              logger.warn(
+                { err, chat_id: msg.chatId },
+                "thinking patchCard failed; disabling thinking card for this turn",
+              );
+              turnState.thinkingDisabled = true;
+            }
           }
           return;
         }
@@ -358,15 +401,30 @@ async function main(): Promise<void> {
     };
 
     const sendOrPatchToolCard = async (): Promise<void> => {
+      if (turnState.toolDisabled) return;
       if (turnState.toolCardMessageId === null) {
         // First tool event of the turn: send the initial card, then
         // hand it off to CardKit streaming for subsequent updates.
         // Symmetric with the thinking card: idConvert failing is
         // not fatal — the card stays on the patchCard path instead.
+        // sendCard failure latches `toolDisabled` for the rest of
+        // the turn so a persistently broken chat can still deliver
+        // its final answer card.
         const card = buildToolActivityCard(turnState.toolEntries, {
           inlineMaxBytes: config.render.inlineMaxBytes,
         });
-        const { messageId } = await feishuClient.sendCard(msg.chatId, card);
+        let messageId: string;
+        try {
+          const res = await feishuClient.sendCard(msg.chatId, card);
+          messageId = res.messageId;
+        } catch (err) {
+          logger.warn(
+            { err, chat_id: msg.chatId },
+            "tool activity sendCard failed; disabling tool card for this turn",
+          );
+          turnState.toolDisabled = true;
+          return;
+        }
         turnState.toolCardMessageId = messageId;
         try {
           turnState.toolCardId =
@@ -396,12 +454,20 @@ async function main(): Promise<void> {
           turnState.toolEntries,
           config.render.inlineMaxBytes,
         );
-        await feishuClient.streamElementContent({
-          cardId: turnState.toolCardId,
-          elementId: TOOL_ACTIVITY_ELEMENT_ID,
-          content: body,
-          sequence: turnState.toolSequence,
-        });
+        try {
+          await feishuClient.streamElementContent({
+            cardId: turnState.toolCardId,
+            elementId: TOOL_ACTIVITY_ELEMENT_ID,
+            content: body,
+            sequence: turnState.toolSequence,
+          });
+        } catch (err) {
+          logger.warn(
+            { err, chat_id: msg.chatId },
+            "tool activity stream failed; disabling tool card for this turn",
+          );
+          turnState.toolDisabled = true;
+        }
         return;
       }
       // Fallback: streaming never came up (idConvert failed on first
@@ -409,7 +475,15 @@ async function main(): Promise<void> {
       const card = buildToolActivityCard(turnState.toolEntries, {
         inlineMaxBytes: config.render.inlineMaxBytes,
       });
-      await feishuClient.patchCard(turnState.toolCardMessageId, card);
+      try {
+        await feishuClient.patchCard(turnState.toolCardMessageId, card);
+      } catch (err) {
+        logger.warn(
+          { err, chat_id: msg.chatId },
+          "tool activity patchCard failed; disabling tool card for this turn",
+        );
+        turnState.toolDisabled = true;
+      }
     };
     try {
       await session.handleMessage(msg.text, emit);
