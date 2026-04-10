@@ -2,7 +2,7 @@
 
 Bridge a Claude Code session to a Feishu (Lark) bot so you can drive your local Claude Code from a phone chat.
 
-**Status: Phase 1 of 8** — currently an echo bot (no Claude integration yet). See `docs/superpowers/specs/2026-04-10-claude-feishu-channel-design.md` for the full design.
+**Status: Phase 2 of 8** — single-turn Claude via `@anthropic-ai/claude-agent-sdk`. No queue, no tool rendering, no permission cards yet. See `docs/superpowers/specs/2026-04-10-claude-feishu-channel-design.md` for the full design.
 
 ## Requirements
 
@@ -11,6 +11,17 @@ Bridge a Claude Code session to a Feishu (Lark) bot so you can drive your local 
 - A Feishu developer account with a custom app
 - A Feishu bot added to the custom app, with the `im:message` and `im:message.receive_v1` event subscribed
 - WebSocket event delivery mode enabled (no public webhook URL required)
+
+## Credentials
+
+The Claude Agent SDK runs Claude Code in-process and needs an auth credential. Set one of:
+
+- `ANTHROPIC_API_KEY` — Anthropic API key (recommended for headless use)
+- `CLAUDE_CODE_OAUTH_TOKEN` — OAuth token from `claude login`
+- `CLAUDE_CODE_USE_BEDROCK=1` (+ AWS creds) — Bedrock
+- `CLAUDE_CODE_USE_VERTEX=1` (+ GCP creds) — Vertex
+
+The bridge fails fast at startup if none are present.
 
 ## Setup
 
@@ -29,12 +40,12 @@ pnpm dev
 
 You should see a banner like:
 ```
-claude-feishu-channel Phase 1 ready
+claude-feishu-channel Phase 2 ready
 ```
 
 Send a text message to the bot from a whitelisted account in Feishu. The bot replies:
 ```
-🤖 [Phase 1 echo] 收到: <your text>
+(Claude's actual response to your message)
 ```
 
 ## Test
@@ -61,9 +72,14 @@ src/
   config.ts              # TOML loader + zod schema
   types.ts               # shared types
   access.ts              # whitelist filter
+  claude/
+    session.ts           # single-turn Claude wrapper
+    session-manager.ts   # chat_id → ClaudeSession
+    preflight.ts         # credential check
   feishu/
     client.ts            # REST wrapper (send text)
     gateway.ts           # WSClient + event dispatch
+    renderer.ts          # assistant-text extractor
   persistence/
     state-store.ts       # atomic JSON state
   util/
@@ -78,7 +94,6 @@ test/
 
 ## Next phases
 
-- Phase 2: Claude Agent SDK integration (single-turn)
 - Phase 3: Tool call rendering as Feishu cards
 - Phase 4: State machine + queue + `!` interrupt prefix
 - Phase 5: Permission bridging via interactive cards
