@@ -10,6 +10,9 @@ import { FeishuGateway } from "./feishu/gateway.js";
 import { checkClaudeCli } from "./claude/preflight.js";
 import { createCliQueryFn } from "./claude/cli-query.js";
 import { ClaudeSessionManager } from "./claude/session-manager.js";
+import { NullPermissionBroker } from "./claude/permission-broker.js";
+import { RealClock } from "./util/clock.js";
+import { parseInput } from "./commands/router.js";
 import type { RenderEvent } from "./claude/render-event.js";
 import {
   buildAnswerCard,
@@ -104,6 +107,8 @@ async function main(): Promise<void> {
   const sessionManager = new ClaudeSessionManager({
     config: config.claude,
     queryFn,
+    clock: new RealClock(),
+    permissionBroker: new NullPermissionBroker(),
     logger,
   });
 
@@ -527,7 +532,21 @@ async function main(): Promise<void> {
       }
     };
     try {
-      await session.handleMessage(msg.text, emit);
+      const parsed = parseInput(msg.text);
+      // Phase 4 Task 6: only the `run` branch is wired. Tasks 8/9
+      // will wire /stop and ! properly through the state machine;
+      // until then, treat unknown branches as literal runs so the
+      // compile stays green and single-turn traffic keeps working.
+      const runInput: { kind: "run"; text: string } =
+        parsed.kind === "run"
+          ? parsed
+          : parsed.kind === "interrupt_and_run"
+            ? { kind: "run", text: parsed.text }
+            : { kind: "run", text: msg.text };
+      const outcome = await session.submit(runInput, emit);
+      if (outcome.kind === "started" || outcome.kind === "queued") {
+        await outcome.done;
+      }
     } catch (err) {
       logger.error({ err, chat_id: msg.chatId }, "Claude turn failed");
       const errorText = err instanceof Error ? err.message : String(err);

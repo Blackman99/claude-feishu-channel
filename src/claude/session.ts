@@ -1,15 +1,22 @@
 import type { Logger } from "pino";
 import { Mutex } from "../util/mutex.js";
+import { createDeferred, type Deferred } from "../util/deferred.js";
+import type { Clock } from "../util/clock.js";
 import type { AppConfig } from "../types.js";
 import type { RenderEvent } from "./render-event.js";
-import type { QueryFn } from "./query-handle.js";
-import { extractToolResultText, type ToolResultBlock } from "../feishu/tool-result.js";
+import type { QueryFn, QueryHandle } from "./query-handle.js";
+import type { PermissionBroker } from "./permission-broker.js";
+import type { CommandRouterResult } from "../commands/router.js";
+import {
+  extractToolResultText,
+  type ToolResultBlock,
+} from "../feishu/tool-result.js";
 
 /**
  * Shallow structural subset of the Claude Code stream-json message
- * union (same shape as the SDK's `SDKMessage`). Phase 3 narrows on
- * only the fields we read when dispatching RenderEvents, so any
- * transport — in-process SDK or CLI subprocess — can yield these.
+ * union. Narrowed to only the fields the session reads when
+ * dispatching RenderEvents, so any transport — in-process SDK or CLI
+ * subprocess — can yield these.
  */
 export interface SDKMessageLike {
   type: string;
@@ -35,49 +42,179 @@ export interface SDKContentBlock {
   content?: string | readonly ToolResultBlock[];
 }
 
-// Phase 4: `QueryFn`, `ClaudeQueryOptions`, and `QueryHandle` live in
-// `./query-handle.js` so the fakes + cli-query implementation don't
-// have to circularly depend on session.ts. We re-export them here so
-// existing import sites keep resolving.
-export type { ClaudeQueryOptions, QueryFn, QueryHandle } from "./query-handle.js";
+export type {
+  QueryFn,
+  QueryHandle,
+  ClaudeQueryOptions,
+} from "./query-handle.js";
+
+export type EmitFn = (event: RenderEvent) => Promise<void>;
+/** Retained for Phase 3 import compatibility. */
+export type RenderEventEmitter = EmitFn;
+
+export type SessionState = "idle" | "generating" | "awaiting_permission";
 
 export interface ClaudeSessionOptions {
   chatId: string;
   config: AppConfig["claude"];
   queryFn: QueryFn;
+  clock: Clock;
+  permissionBroker: PermissionBroker;
   logger: Logger;
 }
 
-export type RenderEventEmitter = (event: RenderEvent) => Promise<void>;
+/**
+ * Result of `session.submit(input, emit)`. The caller (dispatcher)
+ * uses the shape to decide what to send back to the user immediately,
+ * and awaits `done` for per-input backpressure and error propagation.
+ */
+export type SubmitOutcome =
+  | { kind: "started"; done: Promise<void> }
+  | { kind: "queued"; position: number; done: Promise<void> }
+  | { kind: "rejected"; reason: string };
 
 /**
- * Phase 3 ClaudeSession: streams RenderEvents as SDK messages arrive,
- * so the consumer can send each content block to Feishu as its own
- * message / card. Still single-turn (no cross-message resume). A per-
- * instance Mutex serializes concurrent handleMessage calls for the
- * same chat.
+ * Per-queue-entry state. Each submitted input owns one of these
+ * until its turn runs to completion (or is dropped by `!` / `/stop`).
+ */
+interface QueuedInput {
+  readonly text: string;
+  readonly emit: EmitFn;
+  readonly done: Deferred<void>;
+  /** Monotonic id for logging — not exposed to the outside. */
+  readonly seq: number;
+}
+
+/**
+ * Phase 4 ClaudeSession — explicit state machine with an input queue
+ * and a processLoop that drains one turn at a time. The mutex here
+ * only guards mutations to the state/queue fields; the turn itself
+ * runs outside the mutex so `submit()` and `stop()` stay responsive
+ * while a turn is in-flight.
  */
 export class ClaudeSession {
   private readonly config: AppConfig["claude"];
   private readonly queryFn: QueryFn;
+  // `clock` and `permissionBroker` are dependencies Phase 5 will use
+  // (timers + canUseTool). Phase 4 only keeps them in the constructor
+  // signature so Phase 5 is a drop-in addition without another
+  // constructor churn.
+  private readonly clock: Clock;
+  private readonly permissionBroker: PermissionBroker;
   private readonly logger: Logger;
   private readonly mutex = new Mutex();
+
+  private state: SessionState = "idle";
+  private readonly inputQueue: QueuedInput[] = [];
+  private currentTurn: {
+    input: QueuedInput;
+    handle: QueryHandle;
+  } | null = null;
+  private nextSeq = 1;
+  /**
+   * Has a `processLoop` invocation been scheduled but not yet
+   * finished? Used to avoid double-scheduling when multiple `submit`s
+   * race to kick off a drain.
+   */
+  private loopRunning = false;
 
   constructor(opts: ClaudeSessionOptions) {
     this.config = opts.config;
     this.queryFn = opts.queryFn;
+    this.clock = opts.clock;
+    this.permissionBroker = opts.permissionBroker;
     this.logger = opts.logger.child({ chat_id: opts.chatId });
+    // Touch the unused-for-now deps so the compiler doesn't warn.
+    void this.clock;
+    void this.permissionBroker;
   }
 
-  async handleMessage(
-    text: string,
-    emit: RenderEventEmitter,
-  ): Promise<void> {
-    await this.mutex.run(async () => {
-      this.logger.info({ len: text.length }, "Claude turn start");
-      const turnStartMs = Date.now();
+  /**
+   * Submit a parsed command to the session. Phase 4 Task 6 wires
+   * `run` only; `stop` and `interrupt_and_run` arrive in Tasks 8/9.
+   */
+  async submit(
+    input: CommandRouterResult,
+    emit: EmitFn,
+  ): Promise<SubmitOutcome> {
+    if (input.kind === "stop") {
+      throw new Error("submit({kind:'stop'}) not implemented yet (Task 8)");
+    }
+    if (input.kind === "interrupt_and_run") {
+      throw new Error(
+        "submit({kind:'interrupt_and_run'}) not implemented yet (Task 9)",
+      );
+    }
+
+    const entry: QueuedInput = {
+      text: input.text,
+      emit,
+      done: createDeferred<void>(),
+      seq: this.nextSeq++,
+    };
+
+    return await this.mutex.run(async () => {
+      this.inputQueue.push(entry);
+      const wasIdle = this.state === "idle";
+      if (wasIdle) {
+        this.state = "generating";
+      }
+      if (!this.loopRunning) {
+        this.loopRunning = true;
+        // Start the loop on a microtask so it runs after submit
+        // releases the mutex. Fire-and-forget — the loop catches
+        // its own errors.
+        queueMicrotask(() => {
+          void (async () => {
+            try {
+              await this.processLoop();
+            } catch (err) {
+              this.logger.error(
+                { err },
+                "processLoop crashed — state machine may be inconsistent",
+              );
+            }
+          })();
+        });
+      }
+      if (wasIdle) {
+        return { kind: "started", done: entry.done.promise };
+      }
+      // Task 7 will flip this to return { kind: "queued", ... }; for
+      // now, the happy-path tests only exercise the idle branch.
+      throw new Error("queue branch not implemented yet (Task 7)");
+    });
+  }
+
+  /** Phase 4 Task 8 will implement this. */
+  async stop(_emit: EmitFn): Promise<void> {
+    throw new Error("stop() not implemented yet (Task 8)");
+  }
+
+  // --- internals ---
+
+  private async processLoop(): Promise<void> {
+    while (true) {
+      // Decide whether to keep looping and grab the next input
+      // atomically. If the queue is empty, flip to idle and clear
+      // `loopRunning` in the same mutex critical section as submit's
+      // enqueue path — this guarantees submit will always either see
+      // `loopRunning=true` (and rely on this loop to pick it up) or
+      // `loopRunning=false` AND `state=idle` (and start a new loop).
+      const next = await this.mutex.run(async () => {
+        const head = this.inputQueue.shift();
+        if (!head) {
+          this.state = "idle";
+          this.currentTurn = null;
+          this.loopRunning = false;
+          return null;
+        }
+        return head;
+      });
+      if (next === null) return;
+
       const handle = this.queryFn({
-        prompt: text,
+        prompt: next.text,
         options: {
           cwd: this.config.defaultCwd,
           model: this.config.defaultModel,
@@ -85,73 +222,103 @@ export class ClaudeSession {
           settingSources: ["project"],
         },
       });
+      this.currentTurn = { input: next, handle };
 
-      let resultMsg: SDKMessageLike | undefined;
-      let firstMessageLogged = false;
-      for await (const msg of handle.messages) {
-        if (!firstMessageLogged) {
-          firstMessageLogged = true;
-          this.logger.info(
-            { firstMessageMs: Date.now() - turnStartMs, type: msg.type },
-            "Claude first message received",
-          );
-        } else {
-          this.logger.debug(
-            { type: msg.type, subtype: msg.subtype },
-            "Claude sdk message",
-          );
+      let turnError: unknown = null;
+      try {
+        await this.runTurn(next, handle);
+      } catch (err) {
+        this.logger.error({ err, seq: next.seq }, "Claude turn failed");
+        turnError = err;
+      }
+
+      // Flip to idle BEFORE resolving/rejecting the caller's Deferred
+      // if the queue is empty. Otherwise observers awaiting `done`
+      // would see a stale "generating" state in the window between
+      // resolve and the next loop iteration.
+      await this.mutex.run(async () => {
+        this.currentTurn = null;
+        if (this.inputQueue.length === 0) {
+          this.state = "idle";
         }
-        if (msg.type === "assistant" && msg.message?.content) {
-          for (const block of msg.message.content) {
-            await this.emitAssistantBlock(block, emit);
-          }
-        } else if (msg.type === "user" && msg.message?.content) {
-          for (const block of msg.message.content) {
-            if (block.type === "tool_result") {
-              await emit({
-                type: "tool_result",
-                toolUseId: block.tool_use_id ?? "",
-                isError: block.is_error === true,
-                text: extractToolResultText(block.content),
-              });
-            }
-          }
-        } else if (msg.type === "result") {
-          resultMsg = msg;
-          // Do NOT break here — let the generator finish naturally.
-        }
-      }
-
-      if (resultMsg === undefined) {
-        throw new Error("Claude turn ended without a result message");
-      }
-      if (resultMsg.subtype !== "success") {
-        const errs = resultMsg.errors?.join("; ") ?? "unknown error";
-        this.logger.error(
-          { subtype: resultMsg.subtype, errors: resultMsg.errors },
-          "Claude turn errored",
-        );
-        throw new Error(`Claude turn failed (${resultMsg.subtype}): ${errs}`);
-      }
-
-      await emit({
-        type: "turn_end",
-        durationMs: resultMsg.duration_ms ?? 0,
-        inputTokens: resultMsg.usage?.input_tokens ?? 0,
-        outputTokens: resultMsg.usage?.output_tokens ?? 0,
       });
-      this.logger.info(
-        { durationMs: resultMsg.duration_ms },
-        "Claude turn complete",
+
+      if (turnError === null) {
+        next.done.resolve();
+      } else {
+        next.done.reject(turnError);
+      }
+    }
+  }
+
+  private async runTurn(
+    input: QueuedInput,
+    handle: QueryHandle,
+  ): Promise<void> {
+    this.logger.info(
+      { len: input.text.length, seq: input.seq },
+      "Claude turn start",
+    );
+    let resultMsg: SDKMessageLike | undefined;
+
+    for await (const msg of handle.messages) {
+      if (msg.type === "assistant" && msg.message?.content) {
+        for (const block of msg.message.content) {
+          await this.emitAssistantBlock(block, input.emit);
+        }
+      } else if (msg.type === "user" && msg.message?.content) {
+        for (const block of msg.message.content) {
+          if (block.type === "tool_result") {
+            await input.emit({
+              type: "tool_result",
+              toolUseId: block.tool_use_id ?? "",
+              isError: block.is_error === true,
+              text: extractToolResultText(block.content),
+            });
+          }
+        }
+      } else if (msg.type === "result") {
+        resultMsg = msg;
+      }
+    }
+
+    if (resultMsg === undefined) {
+      throw new Error("Claude turn ended without a result message");
+    }
+    if (resultMsg.subtype !== "success") {
+      const errs = resultMsg.errors?.join("; ") ?? "unknown error";
+      this.logger.error(
+        {
+          subtype: resultMsg.subtype,
+          errors: resultMsg.errors,
+          seq: input.seq,
+        },
+        "Claude turn errored",
       );
+      throw new Error(`Claude turn failed (${resultMsg.subtype}): ${errs}`);
+    }
+
+    await input.emit({
+      type: "turn_end",
+      durationMs: resultMsg.duration_ms ?? 0,
+      inputTokens: resultMsg.usage?.input_tokens ?? 0,
+      outputTokens: resultMsg.usage?.output_tokens ?? 0,
     });
+    this.logger.info(
+      { durationMs: resultMsg.duration_ms, seq: input.seq },
+      "Claude turn complete",
+    );
   }
 
   private async emitAssistantBlock(
     block: SDKContentBlock,
-    emit: RenderEventEmitter,
+    emit: EmitFn,
   ): Promise<void> {
-    if (block.type === "text" && typeof block.text === "string" && block.text.length > 0) {
+    if (
+      block.type === "text" &&
+      typeof block.text === "string" &&
+      block.text.length > 0
+    ) {
       await emit({ type: "text", text: block.text });
       return;
     }
@@ -159,12 +326,30 @@ export class ClaudeSession {
       await emit({ type: "thinking", text: block.thinking });
       return;
     }
-    if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
-      await emit({ type: "tool_use", id: block.id, name: block.name, input: block.input });
+    if (
+      block.type === "tool_use" &&
+      typeof block.id === "string" &&
+      typeof block.name === "string"
+    ) {
+      await emit({
+        type: "tool_use",
+        id: block.id,
+        name: block.name,
+        input: block.input,
+      });
       return;
     }
-    // Unknown / empty blocks are silently dropped — Phase 3 explicitly
-    // ignores redacted_thinking, image blocks, etc. Phase 8 polish can
-    // add handling when a use case arises.
+  }
+
+  // --- test seams ---
+
+  /** @internal */
+  _testGetState(): SessionState {
+    return this.state;
+  }
+
+  /** @internal */
+  _testGetQueueLength(): number {
+    return this.inputQueue.length;
   }
 }

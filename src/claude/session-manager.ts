@@ -1,17 +1,21 @@
 import type { Logger } from "pino";
 import { ClaudeSession, type QueryFn } from "./session.js";
+import type { Clock } from "../util/clock.js";
+import type { PermissionBroker } from "./permission-broker.js";
 import type { AppConfig } from "../types.js";
 
 export interface ClaudeSessionManagerOptions {
   config: AppConfig["claude"];
   queryFn: QueryFn;
+  clock: Clock;
+  permissionBroker: PermissionBroker;
   logger: Logger;
 }
 
 /**
- * Lazy `chat_id → ClaudeSession` map. Phase 2 keeps sessions in memory
- * only; there is no cleanup and no persistence. Phase 7 will wire this
- * into `StateStore` so sessions survive restarts.
+ * Lazy `chat_id → ClaudeSession` map. Phase 2 keeps sessions in
+ * memory only; there is no cleanup and no persistence. Phase 7 will
+ * wire this into `StateStore` so sessions survive restarts.
  */
 export class ClaudeSessionManager {
   private readonly sessions = new Map<string, ClaudeSession>();
@@ -28,6 +32,8 @@ export class ClaudeSessionManager {
         chatId,
         config: this.opts.config,
         queryFn: this.opts.queryFn,
+        clock: this.opts.clock,
+        permissionBroker: this.opts.permissionBroker,
         logger: this.opts.logger,
       });
       this.sessions.set(chatId, session);
