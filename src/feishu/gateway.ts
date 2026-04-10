@@ -110,6 +110,9 @@ export class FeishuGateway {
       chatId: event.message.chat_id,
       senderOpenId: event.sender.sender_id.open_id,
       text,
+      // Feishu create_time is a stringified Unix milliseconds timestamp
+      // (confirmed via open.feishu.cn docs: "消息发送时间（毫秒）"). No
+      // conversion needed — IncomingMessage.receivedAt is also in ms.
       receivedAt: Number(event.message.create_time),
     };
 

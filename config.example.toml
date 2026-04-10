@@ -30,6 +30,7 @@ unauthorized_behavior = "ignore"
 # ─── Persistence paths ───────────────────────────────────────────────
 [persistence]
 state_file = "~/.claude-feishu-channel/state.json"
+# log_dir is reserved for Phase 2+ file logging. Phase 1 logs to stdout only.
 log_dir = "~/.claude-feishu-channel/logs"
 
 # ─── Logging ─────────────────────────────────────────────────────────
