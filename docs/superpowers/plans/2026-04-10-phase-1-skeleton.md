@@ -1299,7 +1299,17 @@ describe("StateStore", () => {
     const store = new StateStore(statePath);
     const fs = await import("node:fs/promises");
     await fs.writeFile(statePath, "{ not valid json");
-    await expect(store.load()).rejects.toThrow(/state file/i);
+    await expect(store.load()).rejects.toThrow(/malformed json/i);
+  });
+
+  it("throws a distinct error on unsupported version", async () => {
+    const store = new StateStore(statePath);
+    const fs = await import("node:fs/promises");
+    await fs.writeFile(
+      statePath,
+      JSON.stringify({ version: 2, lastCleanShutdown: true, sessions: {} }),
+    );
+    await expect(store.load()).rejects.toThrow(/unsupported state file version/i);
   });
 
   it("markUncleanAtStartup sets lastCleanShutdown to false and persists", async () => {
@@ -1372,17 +1382,20 @@ export class StateStore {
       );
     }
 
+    let parsed: State;
     try {
-      const parsed = JSON.parse(raw) as State;
-      if (parsed.version !== 1) {
-        throw new Error(`Unsupported state file version: ${parsed.version}`);
-      }
-      return parsed;
+      parsed = JSON.parse(raw) as State;
     } catch (err) {
       throw new Error(
-        `Invalid state file ${this.path}: ${(err as Error).message}`,
+        `Malformed JSON in state file ${this.path}: ${(err as Error).message}`,
       );
     }
+    if (parsed.version !== 1) {
+      throw new Error(
+        `Unsupported state file version ${parsed.version} in ${this.path}`,
+      );
+    }
+    return parsed;
   }
 
   async save(state: State): Promise<void> {
@@ -1412,7 +1425,7 @@ Run:
 ```bash
 pnpm test test/unit/persistence/state-store.test.ts
 ```
-Expected: all 7 tests pass.
+Expected: all 8 tests pass.
 
 - [ ] **Step 5: Commit**
 
