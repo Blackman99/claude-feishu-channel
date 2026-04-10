@@ -5,10 +5,14 @@ import {
 } from "../../../src/claude/session.js";
 import { FakeQueryHandle } from "./fakes/fake-query-handle.js";
 import { SpyRenderer } from "./fakes/spy-renderer.js";
-import { NullPermissionBroker } from "../../../src/claude/permission-broker.js";
+import {
+  NullPermissionBroker,
+  type PermissionResponse,
+} from "../../../src/claude/permission-broker.js";
 import { FakeClock } from "../../../src/util/clock.js";
 import { createLogger } from "../../../src/util/logger.js";
 import type { QueryFn, QueryHandle } from "../../../src/claude/query-handle.js";
+import { createDeferred } from "../../../src/util/deferred.js";
 
 const SILENT_LOGGER = createLogger({ level: "error", pretty: false });
 
@@ -623,5 +627,108 @@ describe("ClaudeSession — ! prefix interrupt", () => {
         (e) => e.type === "text" && e.text === "bang2 reply",
       ),
     ).toBe(true);
+  });
+});
+
+describe("ClaudeSession — awaiting_permission stub", () => {
+  it("state is 'awaiting_permission' after the test seam flips it", async () => {
+    const h = makeHarness();
+    const spy = new SpyRenderer();
+    const first = await h.session.submit(
+      { kind: "run", text: "one" },
+      spy.emit,
+    );
+    await flushMicrotasks();
+    if (first.kind !== "started") throw new Error("unreachable");
+
+    const permissionDeferred = createDeferred<PermissionResponse>();
+    h.session._testEnterAwaitingPermission(permissionDeferred);
+    expect(h.session._testGetState()).toBe("awaiting_permission");
+
+    // Clean up so the test doesn't hang: let the seam know we're done.
+    permissionDeferred.resolve({ behavior: "deny", message: "test-cleanup" });
+    h.session._testLeaveAwaitingPermission();
+    await flushMicrotasks();
+    await h.fakes[0]!.interrupt();
+    await expect(first.done).rejects.toThrow();
+  });
+
+  it("/stop in awaiting_permission denies the pending permission and interrupts", async () => {
+    const h = makeHarness();
+    const spy = new SpyRenderer();
+    const stopSpy = new SpyRenderer();
+    const first = await h.session.submit(
+      { kind: "run", text: "one" },
+      spy.emit,
+    );
+    await flushMicrotasks();
+    if (first.kind !== "started") throw new Error("unreachable");
+
+    const permissionDeferred = createDeferred<PermissionResponse>();
+    h.session._testEnterAwaitingPermission(permissionDeferred);
+
+    await h.session.stop(stopSpy.emit);
+
+    // Permission deferred was resolved with a deny response.
+    const resp = await permissionDeferred.promise;
+    expect(resp).toEqual({
+      behavior: "deny",
+      message: "user_cancelled",
+    });
+    // Turn handle was interrupted.
+    expect(h.fakes[0]!.interrupted).toBe(true);
+    await expect(first.done).rejects.toThrow();
+    await flushMicrotasks();
+    expect(h.session._testGetState()).toBe("idle");
+    expect(stopSpy.events).toEqual([{ type: "text", text: "🛑 已停止" }]);
+  });
+
+  it("! prefix in awaiting_permission denies, drops queue, interrupts, then runs the new input", async () => {
+    const h = makeHarness();
+    const spy1 = new SpyRenderer();
+    const spy2 = new SpyRenderer();
+    const spyBang = new SpyRenderer();
+    const first = await h.session.submit(
+      { kind: "run", text: "one" },
+      spy1.emit,
+    );
+    await flushMicrotasks();
+    const second = await h.session.submit(
+      { kind: "run", text: "two" },
+      spy2.emit,
+    );
+    if (first.kind !== "started" || second.kind !== "queued") {
+      throw new Error("unreachable");
+    }
+
+    const permissionDeferred = createDeferred<PermissionResponse>();
+    h.session._testEnterAwaitingPermission(permissionDeferred);
+
+    const bang = await h.session.submit(
+      { kind: "interrupt_and_run", text: "urgent" },
+      spyBang.emit,
+    );
+    if (bang.kind !== "started") throw new Error("unreachable");
+
+    // Permission deferred was denied.
+    const resp = await permissionDeferred.promise;
+    expect(resp.behavior).toBe("deny");
+
+    // Queue was cleared.
+    await expect(second.done).rejects.toThrow(/bang_prefix|interrupted/i);
+
+    // Turn interrupted → first.done rejects.
+    await expect(first.done).rejects.toThrow();
+    await flushMicrotasks();
+
+    // Next turn runs bang.
+    expect(h.fakes).toHaveLength(2);
+    h.fakes[1]!.finishWithSuccess({
+      durationMs: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    await bang.done;
+    expect(h.session._testGetState()).toBe("idle");
   });
 });
