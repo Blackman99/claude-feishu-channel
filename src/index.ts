@@ -24,7 +24,12 @@ import {
   type ToolActivityEntry,
 } from "./feishu/cards.js";
 import { formatToolParams } from "./feishu/tool-formatters.js";
-import { formatResultTip, formatErrorText } from "./feishu/messages.js";
+import {
+  formatResultTip,
+  formatErrorText,
+  formatQueuedTip,
+  formatInterruptDropAck,
+} from "./feishu/messages.js";
 import type { IncomingMessage } from "./types.js";
 
 function resolveConfigPath(): string {
@@ -390,6 +395,42 @@ async function main(): Promise<void> {
               outputTokens: event.outputTokens,
             }),
           );
+          return;
+        case "queued":
+          // Out-of-band notice from the session: the user's input landed in
+          // a non-empty queue. Rendered as a plain text message so it
+          // doesn't get lost inside a card.
+          try {
+            await feishuClient.sendText(
+              msg.chatId,
+              formatQueuedTip(event.position),
+            );
+          } catch (err) {
+            logger.warn(
+              { err, chat_id: msg.chatId },
+              "queued notice send failed",
+            );
+          }
+          return;
+        case "interrupted":
+          // The session is telling us this input was dropped before it ran.
+          // Only the "bang_prefix" branch actually needs a user notice —
+          // "stop" already goes through the /stop ack path in the
+          // dispatcher. Keep both in the switch so the enum is exhaustive
+          // and the ack is explicit.
+          if (event.reason === "bang_prefix") {
+            try {
+              await feishuClient.sendText(
+                msg.chatId,
+                formatInterruptDropAck(),
+              );
+            } catch (err) {
+              logger.warn(
+                { err, chat_id: msg.chatId },
+                "interrupted notice send failed",
+              );
+            }
+          }
           return;
         default: {
           // Exhaustiveness check — a future RenderEvent variant will make

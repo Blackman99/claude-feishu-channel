@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   formatResultTip,
   formatErrorText,
+  formatQueuedTip,
+  formatStopAck,
+  formatInterruptDropAck,
 } from "../../../src/feishu/messages.js";
 
 describe("formatResultTip", () => {
@@ -46,5 +49,38 @@ describe("formatErrorText", () => {
   it("handles multiline errors", () => {
     expect(formatErrorText("line one\nline two"))
       .toBe("❌ 错误: line one\nline two");
+  });
+});
+
+describe("formatQueuedTip", () => {
+  it("renders the queue position with a hint that the user can /stop", () => {
+    expect(formatQueuedTip(1)).toBe(
+      "📥 已加入队列 #1（当前有一个轮次在运行，发 `/stop` 可取消）",
+    );
+  });
+
+  it("renders higher positions without shifting", () => {
+    expect(formatQueuedTip(5)).toBe(
+      "📥 已加入队列 #5（当前有一个轮次在运行，发 `/stop` 可取消）",
+    );
+  });
+
+  it("throws on position < 1 — queue positions are 1-indexed", () => {
+    expect(() => formatQueuedTip(0)).toThrow(/position/);
+    expect(() => formatQueuedTip(-1)).toThrow(/position/);
+  });
+});
+
+describe("formatStopAck", () => {
+  it("renders a neutral stop acknowledgement", () => {
+    expect(formatStopAck()).toBe("🛑 已停止");
+  });
+});
+
+describe("formatInterruptDropAck", () => {
+  it("renders a neutral 'your message was dropped' ack", () => {
+    expect(formatInterruptDropAck()).toBe(
+      "⚠️ 你之前的消息在被 Claude 处理前已被后续指令打断丢弃",
+    );
   });
 });
