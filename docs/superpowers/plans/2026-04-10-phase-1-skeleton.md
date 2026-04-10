@@ -1620,6 +1620,18 @@ describe("FeishuClient.sendText", () => {
     );
   });
 
+  it("throws when code is zero but message_id is missing", async () => {
+    const mock = makeMockLarkClient();
+    mock.im.v1.message.create = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {},
+    });
+    const client = new FeishuClient(mock as never);
+    await expect(client.sendText("oc_1", "hi")).rejects.toThrow(
+      /message_id/i,
+    );
+  });
+
   it("escapes newlines and quotes in text content", async () => {
     const mock = makeMockLarkClient();
     const client = new FeishuClient(mock as never);
@@ -1642,6 +1654,8 @@ pnpm test test/unit/feishu/client.test.ts
 Expected: FAIL with "Cannot find module".
 
 - [ ] **Step 3: Write minimal implementation**
+
+The SDK (`@larksuiteoapi/node-sdk`) already types `response.data` with `message_id?: string | undefined`, so no type cast is needed — `response.data?.message_id` is fully typed.
 
 Create `src/feishu/client.ts`:
 ```ts
@@ -1670,7 +1684,14 @@ export class FeishuClient {
       );
     }
 
-    return { messageId: (response.data as { message_id?: string } | undefined)?.message_id ?? "" };
+    const messageId = response.data?.message_id;
+    if (!messageId) {
+      throw new Error(
+        `Feishu send returned code=0 but no message_id (chatId=${chatId})`,
+      );
+    }
+
+    return { messageId };
   }
 }
 ```
@@ -1681,7 +1702,7 @@ Run:
 ```bash
 pnpm test test/unit/feishu/client.test.ts
 ```
-Expected: all 3 tests pass.
+Expected: all 4 tests pass.
 
 - [ ] **Step 5: Commit**
 
