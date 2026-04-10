@@ -77,3 +77,50 @@ describe("FeishuClient.sendText", () => {
     expect(parsed.text).toBe('line1\nline2 with "quotes"');
   });
 });
+
+describe("FeishuClient.sendCard", () => {
+  it("posts msg_type=interactive with JSON-stringified card content", async () => {
+    const mock = makeMockLarkClient();
+    const fc = new FeishuClient(mock as never);
+    const card = {
+      version: "1.0" as const,
+      elements: [{ tag: "markdown" as const, content: "hi" }],
+    };
+    const res = await fc.sendCard("oc_x", card);
+    expect(res.messageId).toBe("om_1");
+    expect(mock.im.v1.message.create).toHaveBeenCalledOnce();
+    const arg = mock.im.v1.message.create.mock.calls[0]![0] as {
+      params: { receive_id_type: string };
+      data: { receive_id: string; msg_type: string; content: string };
+    };
+    expect(arg.params.receive_id_type).toBe("chat_id");
+    expect(arg.data.receive_id).toBe("oc_x");
+    expect(arg.data.msg_type).toBe("interactive");
+    const parsed = JSON.parse(arg.data.content) as typeof card;
+    expect(parsed).toEqual(card);
+  });
+
+  it("throws on non-zero response code", async () => {
+    const mock = makeMockLarkClient();
+    mock.im.v1.message.create = vi.fn().mockResolvedValue({
+      code: 99991663,
+      msg: "too busy",
+    });
+    const fc = new FeishuClient(mock as never);
+    await expect(
+      fc.sendCard("oc_x", { version: "1.0", elements: [] }),
+    ).rejects.toThrow(/99991663.*too busy/);
+  });
+
+  it("throws on code=0 but missing message_id", async () => {
+    const mock = makeMockLarkClient();
+    mock.im.v1.message.create = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {},
+    });
+    const fc = new FeishuClient(mock as never);
+    await expect(
+      fc.sendCard("oc_x", { version: "1.0", elements: [] }),
+    ).rejects.toThrow(/no message_id/);
+  });
+});
