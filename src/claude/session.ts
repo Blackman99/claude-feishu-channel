@@ -11,6 +11,20 @@ import {
   extractToolResultText,
   type ToolResultBlock,
 } from "../feishu/tool-result.js";
+import { formatStopAck } from "../feishu/messages.js";
+
+/**
+ * Error rejected on a QueuedInput's `done` promise when its turn was
+ * dropped before it ran (either by `/stop` or by a `!` prefix). The
+ * `reason` field matches the RenderEvent `interrupted` variant so
+ * dispatchers can render both consistently.
+ */
+export class InterruptedError extends Error {
+  constructor(public readonly reason: "stop" | "bang_prefix") {
+    super(`turn interrupted: ${reason}`);
+    this.name = "InterruptedError";
+  }
+}
 
 /**
  * Shallow structural subset of the Claude Code stream-json message
@@ -209,9 +223,61 @@ export class ClaudeSession {
     return outcome;
   }
 
-  /** Phase 4 Task 8 will implement this. */
-  async stop(_emit: EmitFn): Promise<void> {
-    throw new Error("stop() not implemented yet (Task 8)");
+  /**
+   * Cancel any in-flight turn and drop every queued input. Safe to
+   * call in any state — in `idle` it's a no-op that just emits the
+   * stop ack. Returns once the queue has been drained and the
+   * interrupt has been dispatched; the currently running turn may
+   * still take a beat to finish unwinding its iterator.
+   */
+  async stop(emit: EmitFn): Promise<void> {
+    // Gather the interrupt target + drain the queue under the lock.
+    // We don't await the interrupt INSIDE the lock so other submits
+    // aren't blocked on the child's exit.
+    const toDrop: QueuedInput[] = [];
+    let toInterrupt: QueryHandle | null = null;
+
+    await this.mutex.run(async () => {
+      if (this.state === "idle") {
+        // Nothing to stop. Ack and return.
+        return;
+      }
+      toInterrupt = this.currentTurn?.handle ?? null;
+      while (this.inputQueue.length > 0) {
+        toDrop.push(this.inputQueue.shift()!);
+      }
+      // The currentTurn's Deferred is NOT rejected here — it will
+      // reject naturally when runTurn observes the interrupted iterator.
+    });
+
+    // 1. Notify each dropped input via its own emit, then reject its done.
+    for (const dropped of toDrop) {
+      try {
+        await dropped.emit({ type: "interrupted", reason: "stop" });
+      } catch (err) {
+        this.logger.warn(
+          { err, seq: dropped.seq },
+          "emit interrupted event threw — continuing to reject done",
+        );
+      }
+      dropped.done.reject(new InterruptedError("stop"));
+    }
+
+    // 2. Ask the in-flight turn to terminate.
+    if (toInterrupt !== null) {
+      try {
+        await (toInterrupt as QueryHandle).interrupt();
+      } catch (err) {
+        this.logger.warn({ err }, "currentTurn.interrupt() threw");
+      }
+    }
+
+    // 3. Ack the caller.
+    try {
+      await emit({ type: "text", text: formatStopAck() });
+    } catch (err) {
+      this.logger.warn({ err }, "stop ack emit threw");
+    }
   }
 
   // --- internals ---

@@ -381,3 +381,101 @@ describe("ClaudeSession — FIFO queue", () => {
     expect(h.session._testGetState()).toBe("idle");
   });
 });
+
+describe("ClaudeSession — /stop", () => {
+  it("stop in idle emits stop ack and stays idle", async () => {
+    const h = makeHarness();
+    const spy = new SpyRenderer();
+    await h.session.stop(spy.emit);
+    expect(h.session._testGetState()).toBe("idle");
+    expect(spy.events).toEqual([{ type: "text", text: "🛑 已停止" }]);
+  });
+
+  it("stop in generating interrupts the current turn, clears the queue, and returns to idle", async () => {
+    const h = makeHarness();
+    const spy1 = new SpyRenderer();
+    const spy2 = new SpyRenderer();
+    const stopSpy = new SpyRenderer();
+
+    const first = await h.session.submit(
+      { kind: "run", text: "one" },
+      spy1.emit,
+    );
+    await flushMicrotasks();
+    const second = await h.session.submit(
+      { kind: "run", text: "two" },
+      spy2.emit,
+    );
+    if (first.kind !== "started" || second.kind !== "queued") {
+      throw new Error("unreachable");
+    }
+
+    // Fire the stop.
+    await h.session.stop(stopSpy.emit);
+
+    // The running turn's first handle was interrupted.
+    expect(h.fakes[0]!.interrupted).toBe(true);
+    // The queued second input got an "interrupted" out-of-band event
+    // on its own emit and its done promise rejected with the stop reason.
+    expect(spy2.events).toEqual([
+      { type: "queued", position: 1 },
+      { type: "interrupted", reason: "stop" },
+    ]);
+    await expect(second.done).rejects.toThrow(/stop|interrupted/i);
+
+    // Turn 1 ends abnormally → first.done rejects.
+    await expect(first.done).rejects.toThrow();
+
+    // After the in-flight turn's iterator drains, state returns to idle.
+    await flushMicrotasks();
+    expect(h.session._testGetState()).toBe("idle");
+
+    // Stop ack was emitted via the caller's emit.
+    expect(stopSpy.events).toEqual([{ type: "text", text: "🛑 已停止" }]);
+  });
+
+  it("two /stop calls in a row are idempotent — second is a no-op ack", async () => {
+    const h = makeHarness();
+    const spy = new SpyRenderer();
+    await h.session.stop(spy.emit);
+    await h.session.stop(spy.emit);
+    expect(h.session._testGetState()).toBe("idle");
+    expect(spy.events).toEqual([
+      { type: "text", text: "🛑 已停止" },
+      { type: "text", text: "🛑 已停止" },
+    ]);
+  });
+
+  it("stop during generating does NOT lose subsequently-submitted inputs", async () => {
+    const h = makeHarness();
+    const spy1 = new SpyRenderer();
+    const stopSpy = new SpyRenderer();
+    const spy2 = new SpyRenderer();
+
+    const first = await h.session.submit(
+      { kind: "run", text: "one" },
+      spy1.emit,
+    );
+    if (first.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    await h.session.stop(stopSpy.emit);
+    await expect(first.done).rejects.toThrow();
+    await flushMicrotasks();
+    expect(h.session._testGetState()).toBe("idle");
+
+    const second = await h.session.submit(
+      { kind: "run", text: "two" },
+      spy2.emit,
+    );
+    expect(second.kind).toBe("started");
+    if (second.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    h.fakes[1]!.finishWithSuccess({
+      durationMs: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    await second.done;
+    expect(h.session._testGetState()).toBe("idle");
+  });
+});
