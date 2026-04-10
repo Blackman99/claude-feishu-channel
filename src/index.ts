@@ -10,6 +10,7 @@ import { FeishuGateway } from "./feishu/gateway.js";
 import { checkClaudeCli } from "./claude/preflight.js";
 import { createCliQueryFn } from "./claude/cli-query.js";
 import { ClaudeSessionManager } from "./claude/session-manager.js";
+import { InterruptedError } from "./claude/session.js";
 import { NullPermissionBroker } from "./claude/permission-broker.js";
 import { RealClock } from "./util/clock.js";
 import { parseInput } from "./commands/router.js";
@@ -533,20 +534,30 @@ async function main(): Promise<void> {
     };
     try {
       const parsed = parseInput(msg.text);
-      // Phase 4 Task 6: only the `run` branch is wired. Tasks 8/9
-      // will wire /stop and ! properly through the state machine;
-      // until then, treat unknown branches as literal runs so the
-      // compile stays green and single-turn traffic keeps working.
-      const runInput: { kind: "run"; text: string } =
-        parsed.kind === "run"
-          ? parsed
-          : parsed.kind === "interrupt_and_run"
-            ? { kind: "run", text: parsed.text }
-            : { kind: "run", text: msg.text };
-      const outcome = await session.submit(runInput, emit);
-      if (outcome.kind === "started" || outcome.kind === "queued") {
-        await outcome.done;
+      if (parsed.kind === "stop") {
+        await session.stop(emit);
+        return;
       }
+      const outcome = await session.submit(parsed, emit);
+      if (outcome.kind === "started" || outcome.kind === "queued") {
+        try {
+          await outcome.done;
+        } catch (err) {
+          if (err instanceof InterruptedError) {
+            // The session already emitted the appropriate
+            // "interrupted" notice on the same emit channel — just
+            // log and swallow so the outer catch doesn't surface a
+            // generic error reply.
+            logger.info(
+              { chat_id: msg.chatId, reason: err.reason },
+              "turn interrupted by user",
+            );
+            return;
+          }
+          throw err;
+        }
+      }
+      // kind === "rejected" (stop synthesized via submit) → nothing to do.
     } catch (err) {
       logger.error({ err, chat_id: msg.chatId }, "Claude turn failed");
       const errorText = err instanceof Error ? err.message : String(err);
@@ -609,7 +620,7 @@ async function main(): Promise<void> {
       hide_thinking: config.render.hideThinking,
       show_turn_stats: config.render.showTurnStats,
     },
-    "claude-feishu-channel Phase 3 ready",
+    "claude-feishu-channel Phase 4 ready",
   );
 }
 
