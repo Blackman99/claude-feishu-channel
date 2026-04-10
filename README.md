@@ -2,7 +2,7 @@
 
 Bridge a Claude Code session to a Feishu (Lark) bot so you can drive your local Claude Code from a phone chat.
 
-**Status: Phase 2 of 8** — single-turn Claude via `@anthropic-ai/claude-agent-sdk`. No queue, no tool rendering, no permission cards yet. See `docs/superpowers/specs/2026-04-10-claude-feishu-channel-design.md` for the full design.
+**Status: Phase 3 of 8** — single-turn Claude with streamed tool-call / tool-result Feishu cards, thinking blocks, and per-turn stats. No queue, no permission cards yet. See `docs/superpowers/specs/2026-04-10-claude-feishu-channel-design.md` for the full design.
 
 ## Requirements
 
@@ -17,6 +17,7 @@ Bridge a Claude Code session to a Feishu (Lark) bot so you can drive your local 
 The Claude Agent SDK runs Claude Code in-process and needs an auth credential. Set one of:
 
 - `ANTHROPIC_API_KEY` — Anthropic API key (recommended for headless use)
+- `ANTHROPIC_AUTH_TOKEN` — bearer token for an Anthropic-compatible endpoint (combine with `ANTHROPIC_BASE_URL`)
 - `CLAUDE_CODE_OAUTH_TOKEN` — OAuth token from `claude login`
 - `CLAUDE_CODE_USE_BEDROCK=1` (+ AWS creds) — Bedrock
 - `CLAUDE_CODE_USE_VERTEX=1` (+ GCP creds) — Vertex
@@ -40,13 +41,25 @@ pnpm dev
 
 You should see a banner like:
 ```
-claude-feishu-channel Phase 2 ready
+claude-feishu-channel Phase 3 ready
 ```
 
-Send a text message to the bot from a whitelisted account in Feishu. The bot replies:
-```
-(Claude's actual response to your message)
-```
+Send a text message to the bot from a whitelisted account in Feishu. Each turn now streams as multiple Feishu messages:
+
+- A 🔧 blue card per tool call Claude makes (Bash / Read / Edit / Write / Grep / generic fallback)
+- A ✅ green / ❌ red card per tool result
+- A 💭 thinking message for extended-thinking blocks (unless `hide_thinking = true`)
+- Assistant text as plain text
+- A final `✅ 本轮耗时 ... tokens` stats tip (unless `show_turn_stats = false`)
+
+## Configuration
+
+Config lives at `~/.claude-feishu-channel/config.toml` (or `$CLAUDE_FEISHU_CONFIG`). See `config.example.toml` for the full template. Notable Phase 3 section:
+
+- `[render]` — card rendering knobs:
+  - `inline_max_bytes` (default `2048`): UTF-8 byte limit for inline tool params / tool output previews before truncation
+  - `hide_thinking` (default `false`): skip Claude's extended-thinking blocks entirely
+  - `show_turn_stats` (default `true`): append `"✅ 本轮耗时 12.3s · 输入 1.2k / 输出 3.4k tokens"` after each turn
 
 ## Test
 
@@ -68,18 +81,24 @@ Send a message, copy the `open_id` from the log, add it to `allowed_open_ids` in
 
 ```
 src/
-  index.ts               # main entry
+  index.ts               # main entry + RenderEvent dispatcher
   config.ts              # TOML loader + zod schema
   types.ts               # shared types
   access.ts              # whitelist filter
   claude/
-    session.ts           # single-turn Claude wrapper
+    session.ts           # streams RenderEvents from SDK
     session-manager.ts   # chat_id → ClaudeSession
     preflight.ts         # credential check
+    render-event.ts      # RenderEvent tagged union
   feishu/
-    client.ts            # REST wrapper (send text)
+    client.ts            # REST wrapper (sendText, sendCard)
     gateway.ts           # WSClient + event dispatch
-    renderer.ts          # assistant-text extractor
+    card-types.ts        # Feishu Card v2 TypeScript types
+    cards.ts             # buildToolUseCard / buildToolResultCard
+    messages.ts          # thinking / stats / error text formatters
+    tool-formatters.ts   # per-tool input summaries
+    tool-result.ts       # tool_result content extractor
+    truncate.ts          # UTF-8 byte-aware truncation
   persistence/
     state-store.ts       # atomic JSON state
   util/
@@ -94,7 +113,6 @@ test/
 
 ## Next phases
 
-- Phase 3: Tool call rendering as Feishu cards
 - Phase 4: State machine + queue + `!` interrupt prefix
 - Phase 5: Permission bridging via interactive cards
 - Phase 6: Slash commands (/new, /cd, /stop, ...)
