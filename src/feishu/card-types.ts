@@ -1,14 +1,23 @@
 /**
- * Narrow TypeScript interface for Feishu Card v2 JSON. The Lark Node
- * SDK does not export any card types, so we define exactly the subset
- * Phase 3 needs and pass card objects to the SDK as
+ * Narrow TypeScript interface for Feishu Card v2 (消息卡片 2.0) JSON.
+ * The Lark Node SDK does not export any card types, so we define the
+ * subset Phase 3 needs and pass card objects to the SDK as
  * `JSON.stringify(card)`.
  *
- * Reference: Feishu open-platform docs, "消息卡片 v2 元素级"
+ * Top-level v2 shape: `{ schema: "2.0", header?, body? }`. Elements
+ * live under `body.elements` — NOT at the top level (that's v1 and
+ * rejected by the current API with 230099 "Failed to create card
+ * content").
+ *
+ * Reference: https://open.feishu.cn/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/card-json-v2-structure
  */
 export interface FeishuCardV2 {
-  version: "1.0";
+  schema: "2.0";
   header?: FeishuHeader;
+  body?: FeishuCardBody;
+}
+
+export interface FeishuCardBody {
   elements: FeishuElement[];
 }
 

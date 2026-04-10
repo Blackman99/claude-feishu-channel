@@ -4,21 +4,27 @@ import {
   buildToolResultCard,
 } from "../../../src/feishu/cards.js";
 
+function firstMarkdownContent(card: {
+  body?: { elements: readonly { tag: string }[] };
+}): string {
+  const elements = card.body?.elements ?? [];
+  const first = elements[0] as { tag: string; content?: string } | undefined;
+  if (!first || first.tag !== "markdown" || typeof first.content !== "string") {
+    throw new Error("expected first body element to be a markdown element");
+  }
+  return first.content;
+}
+
 describe("buildToolUseCard", () => {
-  it("renders a blue-header card with tool name and param summary", () => {
+  it("renders a blue-header Card v2 with tool name and param summary", () => {
     const card = buildToolUseCard(
       { id: "tu_1", name: "Bash", input: { command: "npm test" } },
       { inlineMaxBytes: 2048 },
     );
-    expect(card.version).toBe("1.0");
+    expect(card.schema).toBe("2.0");
     expect(card.header?.title.content).toBe("🔧 Bash");
     expect(card.header?.template).toBe("blue");
-    // Body should mention the command summary.
-    const bodyText = card.elements
-      .filter((e): e is { tag: "markdown"; content: string } => e.tag === "markdown")
-      .map((e) => e.content)
-      .join("\n");
-    expect(bodyText).toContain("$ npm test");
+    expect(firstMarkdownContent(card)).toContain("$ npm test");
   });
 
   it("uses the per-tool formatter (Read → path:start-end)", () => {
@@ -26,8 +32,7 @@ describe("buildToolUseCard", () => {
       { id: "tu_2", name: "Read", input: { file_path: "src/a.ts", offset: 1, limit: 10 } },
       { inlineMaxBytes: 2048 },
     );
-    const body = (card.elements[0] as { content: string }).content;
-    expect(body).toContain("src/a.ts:1-10");
+    expect(firstMarkdownContent(card)).toContain("src/a.ts:1-10");
   });
 
   it("truncates inline body at inlineMaxBytes", () => {
@@ -36,26 +41,26 @@ describe("buildToolUseCard", () => {
       { id: "tu_3", name: "WeirdTool", input: hugeInput },
       { inlineMaxBytes: 100 },
     );
-    const body = (card.elements[0] as { content: string }).content;
     // Body should be at most ~100 bytes plus the "(N more bytes omitted)" footer.
-    expect(body).toContain("more bytes omitted");
+    expect(firstMarkdownContent(card)).toContain("more bytes omitted");
   });
 });
 
 describe("buildToolResultCard", () => {
-  it("renders a green-header card on success", () => {
+  it("renders a green-header Card v2 on success", () => {
     const card = buildToolResultCard({
       toolUseId: "tu_1",
       isError: false,
       text: "42 files changed",
       inlineMaxBytes: 2048,
     });
+    expect(card.schema).toBe("2.0");
     expect(card.header?.title.content).toBe("✅ Result");
     expect(card.header?.template).toBe("green");
-    expect((card.elements[0] as { content: string }).content).toContain("42 files changed");
+    expect(firstMarkdownContent(card)).toContain("42 files changed");
   });
 
-  it("renders a red-header card on error", () => {
+  it("renders a red-header Card v2 on error", () => {
     const card = buildToolResultCard({
       toolUseId: "tu_1",
       isError: true,
@@ -64,7 +69,7 @@ describe("buildToolResultCard", () => {
     });
     expect(card.header?.title.content).toBe("❌ Error");
     expect(card.header?.template).toBe("red");
-    expect((card.elements[0] as { content: string }).content).toContain("Permission denied");
+    expect(firstMarkdownContent(card)).toContain("Permission denied");
   });
 
   it("truncates long output", () => {
@@ -74,8 +79,7 @@ describe("buildToolResultCard", () => {
       text: "x".repeat(10000),
       inlineMaxBytes: 100,
     });
-    const body = (card.elements[0] as { content: string }).content;
-    expect(body).toContain("more bytes omitted");
+    expect(firstMarkdownContent(card)).toContain("more bytes omitted");
   });
 
   it("shows an empty placeholder when result text is blank", () => {
@@ -85,7 +89,6 @@ describe("buildToolResultCard", () => {
       text: "",
       inlineMaxBytes: 2048,
     });
-    const body = (card.elements[0] as { content: string }).content;
-    expect(body).toBe("_(no output)_");
+    expect(firstMarkdownContent(card)).toBe("_(no output)_");
   });
 });

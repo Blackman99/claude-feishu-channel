@@ -83,8 +83,10 @@ describe("FeishuClient.sendCard", () => {
     const mock = makeMockLarkClient();
     const fc = new FeishuClient(mock as never);
     const card = {
-      version: "1.0" as const,
-      elements: [{ tag: "markdown" as const, content: "hi" }],
+      schema: "2.0" as const,
+      body: {
+        elements: [{ tag: "markdown" as const, content: "hi" }],
+      },
     };
     const res = await fc.sendCard("oc_x", card);
     expect(res.messageId).toBe("om_1");
@@ -108,7 +110,7 @@ describe("FeishuClient.sendCard", () => {
     });
     const fc = new FeishuClient(mock as never);
     await expect(
-      fc.sendCard("oc_x", { version: "1.0", elements: [] }),
+      fc.sendCard("oc_x", { schema: "2.0", body: { elements: [] } }),
     ).rejects.toThrow(/99991663.*too busy/);
   });
 
@@ -120,7 +122,7 @@ describe("FeishuClient.sendCard", () => {
     });
     const fc = new FeishuClient(mock as never);
     await expect(
-      fc.sendCard("oc_x", { version: "1.0", elements: [] }),
+      fc.sendCard("oc_x", { schema: "2.0", body: { elements: [] } }),
     ).rejects.toThrow(/no message_id/);
   });
 });

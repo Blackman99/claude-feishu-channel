@@ -22,14 +22,16 @@ export function buildToolUseCard(
   config: CardRenderConfig,
 ): FeishuCardV2 {
   const summary = formatToolParams(block.name, block.input);
-  const body = truncateForInline(summary, config.inlineMaxBytes);
+  const bodyText = truncateForInline(summary, config.inlineMaxBytes);
   return {
-    version: "1.0",
+    schema: "2.0",
     header: {
       title: { content: `🔧 ${block.name}`, tag: "plain_text" },
       template: "blue",
     },
-    elements: [{ tag: "markdown", content: body }],
+    body: {
+      elements: [{ tag: "markdown", content: bodyText }],
+    },
   };
 }
 
@@ -48,16 +50,18 @@ export interface ToolResultCardParams {
 export function buildToolResultCard(params: ToolResultCardParams): FeishuCardV2 {
   const headerTitle = params.isError ? "❌ Error" : "✅ Result";
   const template = params.isError ? "red" : "green";
-  const body =
+  const bodyText =
     params.text.length === 0
       ? "_(no output)_"
       : truncateForInline(params.text, params.inlineMaxBytes);
   return {
-    version: "1.0",
+    schema: "2.0",
     header: {
       title: { content: headerTitle, tag: "plain_text" },
       template,
     },
-    elements: [{ tag: "markdown", content: body }],
+    body: {
+      elements: [{ tag: "markdown", content: bodyText }],
+    },
   };
 }
