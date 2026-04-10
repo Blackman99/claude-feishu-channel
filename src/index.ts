@@ -1,12 +1,16 @@
 import { Client as LarkClient } from "@larksuiteoapi/node-sdk";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadConfig, ConfigError } from "./config.js";
 import { createLogger } from "./util/logger.js";
 import { StateStore } from "./persistence/state-store.js";
 import { AccessControl } from "./access.js";
 import { FeishuClient } from "./feishu/client.js";
 import { FeishuGateway } from "./feishu/gateway.js";
+import { checkCredentials } from "./claude/preflight.js";
+import { ClaudeSessionManager } from "./claude/session-manager.js";
+import type { QueryFn, SDKMessageLike } from "./claude/session.js";
 import type { IncomingMessage } from "./types.js";
 
 function resolveConfigPath(): string {
@@ -40,6 +44,12 @@ async function main(): Promise<void> {
 
   logger.info({ configPath }, "Config loaded");
 
+  const preflight = checkCredentials(process.env);
+  if (!preflight.ok) {
+    console.error(`[preflight] ${preflight.reason}`);
+    process.exit(1);
+  }
+
   const stateStore = new StateStore(config.persistence.stateFile);
   const state = await stateStore.load();
   logger.info(
@@ -59,12 +69,43 @@ async function main(): Promise<void> {
   });
   const feishuClient = new FeishuClient(lark);
 
+  // Wrap the real SDK `query` into our structural QueryFn interface.
+  // The SDK's return type (`Query extends AsyncGenerator<SDKMessage, void>`)
+  // is assignable to `AsyncIterable<SDKMessageLike>` because SDKMessage is
+  // a superset of our shallow SDKMessageLike.
+  const queryFn: QueryFn = (params) =>
+    query({
+      prompt: params.prompt,
+      options: {
+        cwd: params.options.cwd,
+        model: params.options.model,
+        permissionMode: params.options.permissionMode,
+        settingSources: params.options.settingSources as ("project" | "user" | "local")[],
+      },
+    }) as unknown as AsyncIterable<SDKMessageLike>;
+
+  const sessionManager = new ClaudeSessionManager({
+    config: config.claude,
+    queryFn,
+    logger,
+  });
+
   const onMessage = async (msg: IncomingMessage): Promise<void> => {
-    logger.info({ chat_id: msg.chatId, text: msg.text }, "Message received");
-    await feishuClient.sendText(
-      msg.chatId,
-      `🤖 [Phase 1 echo] 收到: ${msg.text}`,
-    );
+    logger.info({ chat_id: msg.chatId, len: msg.text.length }, "Message received");
+    const session = sessionManager.getOrCreate(msg.chatId);
+    try {
+      const reply = await session.handleMessage(msg.text);
+      const text = reply.length > 0 ? reply : "(Claude returned no text)";
+      await feishuClient.sendText(msg.chatId, text);
+    } catch (err) {
+      logger.error({ err, chat_id: msg.chatId }, "Claude turn failed");
+      const errorText = err instanceof Error ? err.message : String(err);
+      try {
+        await feishuClient.sendText(msg.chatId, `❌ 错误: ${errorText}`);
+      } catch (sendErr) {
+        logger.error({ err: sendErr }, "Failed to deliver error reply");
+      }
+    }
   };
 
   const gateway = new FeishuGateway({
@@ -110,8 +151,11 @@ async function main(): Promise<void> {
     {
       allowed_count: config.access.allowedOpenIds.length,
       unauthorized_behavior: config.access.unauthorizedBehavior,
+      default_cwd: config.claude.defaultCwd,
+      default_model: config.claude.defaultModel,
+      permission_mode: config.claude.defaultPermissionMode,
     },
-    "claude-feishu-channel Phase 1 ready",
+    "claude-feishu-channel Phase 2 ready",
   );
 }
 
