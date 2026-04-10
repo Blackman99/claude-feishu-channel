@@ -35,13 +35,15 @@ interface ReceiveV1Event {
 }
 
 export class FeishuGateway {
-  private wsClient: WSClient;
+  private readonly lark: LarkClient;
+  private readonly wsClient: WSClient;
   private readonly dedup = new LruDedup(1000);
   private readonly logger: Logger;
   private readonly access: AccessControl;
   private readonly onMessage: MessageHandler;
 
   constructor(opts: FeishuGatewayOptions) {
+    this.lark = opts.lark;
     this.logger = opts.logger.child({ component: "feishu-gateway" });
     this.access = opts.access;
     this.onMessage = opts.onMessage;
@@ -62,7 +64,7 @@ export class FeishuGateway {
     });
 
     this.logger.info("Starting Feishu WebSocket client");
-    this.wsClient.start({ eventDispatcher: dispatcher });
+    await this.wsClient.start({ eventDispatcher: dispatcher });
   }
 
   private async handleReceiveV1(event: ReceiveV1Event): Promise<void> {
