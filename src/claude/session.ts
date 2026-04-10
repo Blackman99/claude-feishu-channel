@@ -152,12 +152,12 @@ export class ClaudeSession {
     emit: EmitFn,
   ): Promise<SubmitOutcome> {
     if (input.kind === "stop") {
-      throw new Error("submit({kind:'stop'}) not implemented yet (Task 8)");
-    }
-    if (input.kind === "interrupt_and_run") {
-      throw new Error(
-        "submit({kind:'interrupt_and_run'}) not implemented yet (Task 9)",
-      );
+      // Route through stop() so both the /stop command and a direct
+      // caller get the same behavior. stop() doesn't return a
+      // SubmitOutcome, so synthesize one so the dispatcher can handle
+      // all three submit kinds uniformly.
+      await this.stop(emit);
+      return { kind: "rejected", reason: "stop" };
     }
 
     const entry: QueuedInput = {
@@ -167,6 +167,11 @@ export class ClaudeSession {
       seq: this.nextSeq++,
     };
 
+    if (input.kind === "interrupt_and_run") {
+      return await this.submitInterruptAndRun(entry);
+    }
+
+    // Plain run.
     const outcome = await this.mutex.run(
       async (): Promise<SubmitOutcome> => {
         this.inputQueue.push(entry);
@@ -174,24 +179,7 @@ export class ClaudeSession {
         if (wasIdle) {
           this.state = "generating";
         }
-        if (!this.loopRunning) {
-          this.loopRunning = true;
-          // Start the loop on a microtask so it runs after submit
-          // releases the mutex. Fire-and-forget — the loop catches
-          // its own errors.
-          queueMicrotask(() => {
-            void (async () => {
-              try {
-                await this.processLoop();
-              } catch (err) {
-                this.logger.error(
-                  { err },
-                  "processLoop crashed — state machine may be inconsistent",
-                );
-              }
-            })();
-          });
-        }
+        this.kickLoopIfNeeded();
         if (wasIdle) {
           return { kind: "started", done: entry.done.promise };
         }
@@ -221,6 +209,89 @@ export class ClaudeSession {
       }
     }
     return outcome;
+  }
+
+  /**
+   * `!` prefix path: drop whatever is queued, interrupt the currently
+   * running turn, and enqueue the new input so it runs NEXT. Always
+   * returns { kind: "started" } — bang never queues.
+   */
+  private async submitInterruptAndRun(
+    entry: QueuedInput,
+  ): Promise<SubmitOutcome> {
+    const toDrop: QueuedInput[] = [];
+    let toInterrupt: QueryHandle | null = null;
+
+    await this.mutex.run(async () => {
+      // Drop everything currently queued ahead of us.
+      while (this.inputQueue.length > 0) {
+        toDrop.push(this.inputQueue.shift()!);
+      }
+      toInterrupt = this.currentTurn?.handle ?? null;
+      // Push the new input.
+      this.inputQueue.push(entry);
+      // If the session is idle, bang is equivalent to plain run.
+      if (this.state === "idle") {
+        this.state = "generating";
+      }
+      this.kickLoopIfNeeded();
+      // If non-idle, processLoop is already draining — it will pick
+      // up the new entry after the current turn's iterator unwinds.
+    });
+
+    // Notify dropped inputs + reject their promises.
+    for (const dropped of toDrop) {
+      try {
+        await dropped.emit({ type: "interrupted", reason: "bang_prefix" });
+      } catch (err) {
+        this.logger.warn(
+          { err, seq: dropped.seq },
+          "emit interrupted event threw — continuing to reject done",
+        );
+      }
+      dropped.done.reject(new InterruptedError("bang_prefix"));
+    }
+
+    // Ask the in-flight turn to terminate (if any). The new input
+    // waits in the queue until runTurn throws and the processLoop
+    // drains it.
+    if (toInterrupt !== null) {
+      try {
+        await (toInterrupt as QueryHandle).interrupt();
+      } catch (err) {
+        this.logger.warn(
+          { err },
+          "interrupt_and_run: currentTurn.interrupt() threw",
+        );
+      }
+    }
+
+    return { kind: "started", done: entry.done.promise };
+  }
+
+  /**
+   * Start the processLoop if it isn't already running. Must be called
+   * inside the mutex — it sets `loopRunning` atomically with the push
+   * that made the queue non-empty.
+   */
+  private kickLoopIfNeeded(): void {
+    if (this.loopRunning) return;
+    this.loopRunning = true;
+    // Start the loop on a microtask so it runs after the current
+    // mutex-protected block releases. Fire-and-forget — the loop
+    // catches its own errors.
+    queueMicrotask(() => {
+      void (async () => {
+        try {
+          await this.processLoop();
+        } catch (err) {
+          this.logger.error(
+            { err },
+            "processLoop crashed — state machine may be inconsistent",
+          );
+        }
+      })();
+    });
   }
 
   /**

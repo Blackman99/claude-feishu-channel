@@ -479,3 +479,149 @@ describe("ClaudeSession — /stop", () => {
     expect(h.session._testGetState()).toBe("idle");
   });
 });
+
+describe("ClaudeSession — ! prefix interrupt", () => {
+  it("interrupt_and_run in idle is equivalent to run", async () => {
+    const h = makeHarness();
+    const spy = new SpyRenderer();
+    const outcome = await h.session.submit(
+      { kind: "interrupt_and_run", text: "urgent" },
+      spy.emit,
+    );
+    expect(outcome.kind).toBe("started");
+    await flushMicrotasks();
+    expect(h.fakes).toHaveLength(1);
+    expect(h.session._testGetState()).toBe("generating");
+  });
+
+  it("interrupt_and_run in generating: drops queue, interrupts turn, runs new input next", async () => {
+    const h = makeHarness();
+    const spy1 = new SpyRenderer();
+    const spy2 = new SpyRenderer();
+    const spy3 = new SpyRenderer();
+    const spyBang = new SpyRenderer();
+
+    const first = await h.session.submit(
+      { kind: "run", text: "one" },
+      spy1.emit,
+    );
+    await flushMicrotasks();
+    const second = await h.session.submit(
+      { kind: "run", text: "two" },
+      spy2.emit,
+    );
+    const third = await h.session.submit(
+      { kind: "run", text: "three" },
+      spy3.emit,
+    );
+    if (
+      first.kind !== "started" ||
+      second.kind !== "queued" ||
+      third.kind !== "queued"
+    ) {
+      throw new Error("unreachable");
+    }
+
+    // Fire the bang.
+    const bang = await h.session.submit(
+      { kind: "interrupt_and_run", text: "urgent" },
+      spyBang.emit,
+    );
+    expect(bang.kind).toBe("started");
+    expect(h.fakes[0]!.interrupted).toBe(true);
+
+    // Previously-queued inputs are rejected with bang_prefix.
+    expect(spy2.events).toContainEqual({
+      type: "interrupted",
+      reason: "bang_prefix",
+    });
+    expect(spy3.events).toContainEqual({
+      type: "interrupted",
+      reason: "bang_prefix",
+    });
+    await expect(second.done).rejects.toThrow(/bang_prefix|interrupted/i);
+    await expect(third.done).rejects.toThrow(/bang_prefix|interrupted/i);
+
+    // First turn's iterator drains (interrupted) → first.done rejects.
+    await expect(first.done).rejects.toThrow();
+    await flushMicrotasks();
+
+    // Next turn is the bang input.
+    expect(h.fakes).toHaveLength(2);
+    h.fakes[1]!.emitMessage({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "urgent reply" }] },
+    });
+    h.fakes[1]!.finishWithSuccess({
+      durationMs: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    if (bang.kind !== "started") throw new Error("unreachable");
+    await bang.done;
+
+    expect(
+      spyBang.events.some(
+        (e) => e.type === "text" && e.text === "urgent reply",
+      ),
+    ).toBe(true);
+    expect(h.session._testGetState()).toBe("idle");
+  });
+
+  it("interrupt_and_run on top of another interrupt_and_run replaces the new input", async () => {
+    const h = makeHarness();
+    const spy1 = new SpyRenderer();
+    const spyBang1 = new SpyRenderer();
+    const spyBang2 = new SpyRenderer();
+
+    const first = await h.session.submit(
+      { kind: "run", text: "one" },
+      spy1.emit,
+    );
+    await flushMicrotasks();
+
+    const bang1 = await h.session.submit(
+      { kind: "interrupt_and_run", text: "bang1" },
+      spyBang1.emit,
+    );
+    const bang2 = await h.session.submit(
+      { kind: "interrupt_and_run", text: "bang2" },
+      spyBang2.emit,
+    );
+    if (
+      first.kind !== "started" ||
+      bang1.kind !== "started" ||
+      bang2.kind !== "started"
+    ) {
+      throw new Error("unreachable");
+    }
+
+    // bang1 was dropped by bang2 (since it was queued when bang2 arrived).
+    await expect(bang1.done).rejects.toThrow(/bang_prefix|interrupted/i);
+    expect(spyBang1.events).toContainEqual({
+      type: "interrupted",
+      reason: "bang_prefix",
+    });
+
+    // The in-flight first turn was interrupted by whichever bang landed first.
+    await expect(first.done).rejects.toThrow();
+    await flushMicrotasks();
+
+    // Turn 2 runs bang2.
+    h.fakes[1]!.emitMessage({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "bang2 reply" }] },
+    });
+    h.fakes[1]!.finishWithSuccess({
+      durationMs: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    await bang2.done;
+    expect(
+      spyBang2.events.some(
+        (e) => e.type === "text" && e.text === "bang2 reply",
+      ),
+    ).toBe(true);
+  });
+});
