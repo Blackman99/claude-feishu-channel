@@ -26,16 +26,25 @@ describe("checkCredentials", () => {
     });
   });
 
+  it("accepts CLAUDE_CODE_USE_FOUNDRY=1", () => {
+    expect(checkCredentials({ CLAUDE_CODE_USE_FOUNDRY: "1" })).toEqual({
+      ok: true,
+    });
+  });
+
   it("rejects when no credential source is present", () => {
     const result = checkCredentials({});
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toMatch(/ANTHROPIC_API_KEY/);
-    }
+    expect(result).toEqual({
+      ok: false,
+      reason: expect.stringMatching(/ANTHROPIC_API_KEY/),
+    });
   });
 
   it("treats empty string env var as unset", () => {
     const result = checkCredentials({ ANTHROPIC_API_KEY: "" });
-    expect(result.ok).toBe(false);
+    expect(result).toEqual({
+      ok: false,
+      reason: expect.stringMatching(/ANTHROPIC_API_KEY/),
+    });
   });
 });
