@@ -94,8 +94,14 @@ async function main(): Promise<void> {
     logger.info({ chat_id: msg.chatId, len: msg.text.length }, "Message received");
     const session = sessionManager.getOrCreate(msg.chatId);
     try {
-      const reply = await session.handleMessage(msg.text);
-      const text = reply.length > 0 ? reply : "(Claude returned no text)";
+      // Temporary Phase 3 Task 8 shim — replaced in Task 10 with full dispatcher.
+      // Collects text events and sends a single concatenated message so the app
+      // remains minimally functional until Task 10 wires up per-event dispatch.
+      const parts: string[] = [];
+      await session.handleMessage(msg.text, async (event) => {
+        if (event.type === "text") parts.push(event.text);
+      });
+      const text = parts.length > 0 ? parts.join("\n\n") : "(Claude returned no text)";
       await feishuClient.sendText(msg.chatId, text);
     } catch (err) {
       logger.error({ err, chat_id: msg.chatId }, "Claude turn failed");

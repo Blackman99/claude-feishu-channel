@@ -1,21 +1,35 @@
 import type { Logger } from "pino";
 import { Mutex } from "../util/mutex.js";
-import { extractAssistantText } from "../feishu/renderer.js";
 import type { AppConfig } from "../types.js";
+import type { RenderEvent } from "./render-event.js";
+import { extractToolResultText, type ToolResultBlock } from "../feishu/tool-result.js";
 
 /**
  * Shallow structural subset of `@anthropic-ai/claude-agent-sdk`'s `SDKMessage`
- * union. Only the fields Phase 2 narrows on are declared; the SDK's real type
- * is a superset and is assignable to this interface. Phase 3+ will replace
- * this with richer typing as tool/thinking rendering lands.
+ * union. Phase 3 narrows on the fields we read to dispatch RenderEvents.
  */
 export interface SDKMessageLike {
   type: string;
   subtype?: string;
   is_error?: boolean;
-  message?: { content?: readonly { type: string; text?: string }[] };
+  message?: { content?: readonly SDKContentBlock[] };
   result?: string;
   errors?: readonly string[];
+  duration_ms?: number;
+  usage?: { input_tokens?: number; output_tokens?: number };
+}
+
+export interface SDKContentBlock {
+  type: string;
+  text?: string;
+  thinking?: string;
+  signature?: string;
+  id?: string;
+  name?: string;
+  input?: unknown;
+  tool_use_id?: string;
+  is_error?: boolean;
+  content?: string | readonly ToolResultBlock[];
 }
 
 export interface ClaudeQueryOptions {
@@ -42,28 +56,32 @@ export interface ClaudeSessionOptions {
   logger: Logger;
 }
 
+export type RenderEventEmitter = (event: RenderEvent) => Promise<void>;
+
 /**
- * Phase 2 ClaudeSession: one message in → one `query()` call → concatenated
- * assistant text out. No cross-message resume, no queue, no state machine.
- * Concurrent `handleMessage` calls for the same chat are serialized by a
- * Mutex so that a second message cannot preempt an in-flight turn.
+ * Phase 3 ClaudeSession: streams RenderEvents as SDK messages arrive,
+ * so the consumer can send each content block to Feishu as its own
+ * message / card. Still single-turn (no cross-message resume). A per-
+ * instance Mutex serializes concurrent handleMessage calls for the
+ * same chat.
  */
 export class ClaudeSession {
-  private readonly chatId: string;
   private readonly config: AppConfig["claude"];
   private readonly queryFn: QueryFn;
   private readonly logger: Logger;
   private readonly mutex = new Mutex();
 
   constructor(opts: ClaudeSessionOptions) {
-    this.chatId = opts.chatId;
     this.config = opts.config;
     this.queryFn = opts.queryFn;
     this.logger = opts.logger.child({ chat_id: opts.chatId });
   }
 
-  async handleMessage(text: string): Promise<string> {
-    return this.mutex.run(async () => {
+  async handleMessage(
+    text: string,
+    emit: RenderEventEmitter,
+  ): Promise<void> {
+    await this.mutex.run(async () => {
       this.logger.info({ len: text.length }, "Claude turn start");
       const iter = this.queryFn({
         prompt: text,
@@ -75,26 +93,33 @@ export class ClaudeSession {
         },
       });
 
-      const chunks: string[] = [];
       let resultMsg: SDKMessageLike | undefined;
       for await (const msg of iter) {
         if (msg.type === "assistant" && msg.message?.content) {
-          const partial = extractAssistantText(msg.message.content);
-          if (partial !== null) chunks.push(partial);
+          for (const block of msg.message.content) {
+            await this.emitAssistantBlock(block, emit);
+          }
+        } else if (msg.type === "user" && msg.message?.content) {
+          for (const block of msg.message.content) {
+            if (block.type === "tool_result") {
+              await emit({
+                type: "tool_result",
+                toolUseId: block.tool_use_id ?? "",
+                isError: block.is_error === true,
+                text: extractToolResultText(block.content),
+              });
+            }
+          }
         } else if (msg.type === "result") {
           resultMsg = msg;
-          // Do NOT break or return here — allow the generator to finish
-          // so any post-yield teardown in the generator runs naturally.
+          // Do NOT break here — let the generator finish naturally.
         }
       }
-      if (resultMsg !== undefined) {
-        if (resultMsg.subtype === "success") {
-          this.logger.info(
-            { chunks: chunks.length },
-            "Claude turn complete",
-          );
-          return chunks.join("\n");
-        }
+
+      if (resultMsg === undefined) {
+        throw new Error("Claude turn ended without a result message");
+      }
+      if (resultMsg.subtype !== "success") {
         const errs = resultMsg.errors?.join("; ") ?? "unknown error";
         this.logger.error(
           { subtype: resultMsg.subtype, errors: resultMsg.errors },
@@ -102,7 +127,38 @@ export class ClaudeSession {
         );
         throw new Error(`Claude turn failed (${resultMsg.subtype}): ${errs}`);
       }
-      throw new Error("Claude turn ended without a result message");
+
+      await emit({
+        type: "turn_end",
+        durationMs: resultMsg.duration_ms ?? 0,
+        inputTokens: resultMsg.usage?.input_tokens ?? 0,
+        outputTokens: resultMsg.usage?.output_tokens ?? 0,
+      });
+      this.logger.info(
+        { durationMs: resultMsg.duration_ms },
+        "Claude turn complete",
+      );
     });
+  }
+
+  private async emitAssistantBlock(
+    block: SDKContentBlock,
+    emit: RenderEventEmitter,
+  ): Promise<void> {
+    if (block.type === "text" && typeof block.text === "string" && block.text.length > 0) {
+      await emit({ type: "text", text: block.text });
+      return;
+    }
+    if (block.type === "thinking" && typeof block.thinking === "string") {
+      await emit({ type: "thinking", text: block.thinking });
+      return;
+    }
+    if (block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
+      await emit({ type: "tool_use", id: block.id, name: block.name, input: block.input });
+      return;
+    }
+    // Unknown / empty blocks are silently dropped — Phase 3 explicitly
+    // ignores redacted_thinking, image blocks, etc. Phase 8 polish can
+    // add handling when a use case arises.
   }
 }

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { ClaudeSession, type QueryFn, type SDKMessageLike } from "../../../src/claude/session.js";
+import {
+  ClaudeSession,
+  type QueryFn,
+  type SDKMessageLike,
+} from "../../../src/claude/session.js";
+import type { RenderEvent } from "../../../src/claude/render-event.js";
 import { createLogger } from "../../../src/util/logger.js";
 
 const SILENT_LOGGER = createLogger({ level: "error", pretty: false });
@@ -18,69 +23,204 @@ function fakeQueryReturning(msgs: SDKMessageLike[]): QueryFn {
   });
 }
 
+function collectEvents(
+  queryFn: QueryFn,
+  prompt = "hi",
+): { session: ClaudeSession; run: () => Promise<RenderEvent[]> } {
+  const session = new ClaudeSession({
+    chatId: "oc_x",
+    config: BASE_CLAUDE_CONFIG,
+    queryFn,
+    logger: SILENT_LOGGER,
+  });
+  const run = async (): Promise<RenderEvent[]> => {
+    const events: RenderEvent[] = [];
+    await session.handleMessage(prompt, async (e) => {
+      events.push(e);
+    });
+    return events;
+  };
+  return { session, run };
+}
+
 describe("ClaudeSession", () => {
-  it("returns concatenated assistant text on a successful turn", async () => {
+  it("emits one text event per text block on a successful turn", async () => {
     const queryFn = fakeQueryReturning([
       { type: "system", subtype: "init" },
       {
         type: "assistant",
-        message: { content: [{ type: "text", text: "hello from Claude" }] },
+        message: {
+          content: [
+            { type: "text", text: "part one" },
+            { type: "text", text: "part two" },
+          ],
+        },
       },
-      { type: "result", subtype: "success", result: "hello from Claude" },
+      {
+        type: "result",
+        subtype: "success",
+        result: "part one\npart two",
+        duration_ms: 1234,
+        usage: { input_tokens: 100, output_tokens: 50 },
+      },
     ]);
-    const session = new ClaudeSession({
-      chatId: "oc_x",
-      config: BASE_CLAUDE_CONFIG,
-      queryFn,
-      logger: SILENT_LOGGER,
-    });
-    const reply = await session.handleMessage("hi");
-    expect(reply).toBe("hello from Claude");
+    const { run } = collectEvents(queryFn);
+    const events = await run();
+    expect(events).toEqual([
+      { type: "text", text: "part one" },
+      { type: "text", text: "part two" },
+      { type: "turn_end", durationMs: 1234, inputTokens: 100, outputTokens: 50 },
+    ]);
   });
 
-  it("joins multiple assistant messages", async () => {
+  it("emits a thinking event with the `thinking` field (not `text`)", async () => {
     const queryFn = fakeQueryReturning([
       {
         type: "assistant",
-        message: { content: [{ type: "text", text: "part one" }] },
+        message: {
+          content: [
+            { type: "thinking", thinking: "let me think...", signature: "sig" },
+            { type: "text", text: "answer" },
+          ],
+        },
       },
       {
-        type: "assistant",
-        message: { content: [{ type: "text", text: "part two" }] },
+        type: "result",
+        subtype: "success",
+        duration_ms: 100,
+        usage: { input_tokens: 0, output_tokens: 0 },
       },
-      { type: "result", subtype: "success", result: "ignored" },
     ]);
-    const session = new ClaudeSession({
-      chatId: "oc_x",
-      config: BASE_CLAUDE_CONFIG,
-      queryFn,
-      logger: SILENT_LOGGER,
-    });
-    expect(await session.handleMessage("hi")).toBe("part one\npart two");
+    const events = await collectEvents(queryFn).run();
+    expect(events).toEqual([
+      { type: "thinking", text: "let me think..." },
+      { type: "text", text: "answer" },
+      { type: "turn_end", durationMs: 100, inputTokens: 0, outputTokens: 0 },
+    ]);
   });
 
-  it("ignores assistant messages that have no text (tool_use only)", async () => {
+  it("emits a tool_use event with id, name, input", async () => {
     const queryFn = fakeQueryReturning([
       {
         type: "assistant",
-        message: { content: [{ type: "tool_use" }] },
+        message: {
+          content: [
+            { type: "tool_use", id: "tu_1", name: "Bash", input: { command: "ls" } },
+          ],
+        },
       },
       {
-        type: "assistant",
-        message: { content: [{ type: "text", text: "final answer" }] },
+        type: "result",
+        subtype: "success",
+        duration_ms: 50,
+        usage: { input_tokens: 0, output_tokens: 0 },
       },
-      { type: "result", subtype: "success", result: "final answer" },
     ]);
-    const session = new ClaudeSession({
-      chatId: "oc_x",
-      config: BASE_CLAUDE_CONFIG,
-      queryFn,
-      logger: SILENT_LOGGER,
+    const events = await collectEvents(queryFn).run();
+    expect(events).toContainEqual({
+      type: "tool_use",
+      id: "tu_1",
+      name: "Bash",
+      input: { command: "ls" },
     });
-    expect(await session.handleMessage("hi")).toBe("final answer");
   });
 
-  it("throws when the result is an error subtype", async () => {
+  it("emits a tool_result event from a user-type SDK message", async () => {
+    const queryFn = fakeQueryReturning([
+      {
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tu_1",
+              is_error: false,
+              content: "42 files",
+            },
+          ],
+        },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        duration_ms: 50,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    ]);
+    const events = await collectEvents(queryFn).run();
+    expect(events).toContainEqual({
+      type: "tool_result",
+      toolUseId: "tu_1",
+      isError: false,
+      text: "42 files",
+    });
+  });
+
+  it("emits tool_result with isError=true on error flag", async () => {
+    const queryFn = fakeQueryReturning([
+      {
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tu_2",
+              is_error: true,
+              content: "permission denied",
+            },
+          ],
+        },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        duration_ms: 0,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    ]);
+    const events = await collectEvents(queryFn).run();
+    expect(events.find((e) => e.type === "tool_result")).toEqual({
+      type: "tool_result",
+      toolUseId: "tu_2",
+      isError: true,
+      text: "permission denied",
+    });
+  });
+
+  it("handles tool_result content as an array of blocks", async () => {
+    const queryFn = fakeQueryReturning([
+      {
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tu_3",
+              content: [
+                { type: "text", text: "line 1" },
+                { type: "text", text: "line 2" },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        duration_ms: 0,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    ]);
+    const events = await collectEvents(queryFn).run();
+    expect(events.find((e) => e.type === "tool_result")).toEqual({
+      type: "tool_result",
+      toolUseId: "tu_3",
+      isError: false,
+      text: "line 1\nline 2",
+    });
+  });
+
+  it("throws when result subtype is an error", async () => {
     const queryFn = fakeQueryReturning([
       {
         type: "result",
@@ -89,13 +229,8 @@ describe("ClaudeSession", () => {
         errors: ["boom", "kaboom"],
       },
     ]);
-    const session = new ClaudeSession({
-      chatId: "oc_x",
-      config: BASE_CLAUDE_CONFIG,
-      queryFn,
-      logger: SILENT_LOGGER,
-    });
-    await expect(session.handleMessage("hi")).rejects.toThrow(/boom.*kaboom/);
+    const { run } = collectEvents(queryFn);
+    await expect(run()).rejects.toThrow(/boom.*kaboom/);
   });
 
   it("throws when the iterator ends without a result", async () => {
@@ -105,13 +240,8 @@ describe("ClaudeSession", () => {
         message: { content: [{ type: "text", text: "oops" }] },
       },
     ]);
-    const session = new ClaudeSession({
-      chatId: "oc_x",
-      config: BASE_CLAUDE_CONFIG,
-      queryFn,
-      logger: SILENT_LOGGER,
-    });
-    await expect(session.handleMessage("hi")).rejects.toThrow(/without a result/);
+    const { run } = collectEvents(queryFn);
+    await expect(run()).rejects.toThrow(/without a result/);
   });
 
   it("passes cwd, model, permissionMode, and settingSources to queryFn", async () => {
@@ -124,7 +254,8 @@ describe("ClaudeSession", () => {
         yield {
           type: "result",
           subtype: "success",
-          result: "ok",
+          duration_ms: 1,
+          usage: { input_tokens: 0, output_tokens: 0 },
         } satisfies SDKMessageLike;
       },
     }));
@@ -138,7 +269,7 @@ describe("ClaudeSession", () => {
       queryFn,
       logger: SILENT_LOGGER,
     });
-    await session.handleMessage("hi");
+    await session.handleMessage("hi", async () => {});
     expect(queryFn).toHaveBeenCalledOnce();
     const call = queryFn.mock.calls[0]![0];
     expect(call.prompt).toBe("hi");
@@ -166,7 +297,8 @@ describe("ClaudeSession", () => {
         yield {
           type: "result",
           subtype: "success",
-          result: label,
+          duration_ms: 0,
+          usage: { input_tokens: 0, output_tokens: 0 },
         } as SDKMessageLike;
         events.push(`${label}:end`);
       },
@@ -177,9 +309,8 @@ describe("ClaudeSession", () => {
       queryFn,
       logger: SILENT_LOGGER,
     });
-    const p1 = session.handleMessage("first");
-    const p2 = session.handleMessage("second");
-    // Give the event loop a chance to let p2 race past if the mutex weren't there.
+    const p1 = session.handleMessage("first", async () => {});
+    const p2 = session.handleMessage("second", async () => {});
     await new Promise((r) => setImmediate(r));
     expect(events).toEqual(["A:start"]);
     release1();
