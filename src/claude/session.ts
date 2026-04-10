@@ -2,6 +2,7 @@ import type { Logger } from "pino";
 import { Mutex } from "../util/mutex.js";
 import type { AppConfig } from "../types.js";
 import type { RenderEvent } from "./render-event.js";
+import type { QueryFn } from "./query-handle.js";
 import { extractToolResultText, type ToolResultBlock } from "../feishu/tool-result.js";
 
 /**
@@ -34,22 +35,11 @@ export interface SDKContentBlock {
   content?: string | readonly ToolResultBlock[];
 }
 
-export interface ClaudeQueryOptions {
-  cwd: string;
-  model: string;
-  permissionMode: AppConfig["claude"]["defaultPermissionMode"];
-  /** Which setting sources the SDK should load (CLAUDE.md, etc). */
-  settingSources: readonly ("project" | "user" | "local")[];
-}
-
-/**
- * Structural interface of the SDK's `query` function. `src/index.ts` wraps
- * the real SDK `query` into this shape so unit tests can inject a fake.
- */
-export type QueryFn = (params: {
-  prompt: string;
-  options: ClaudeQueryOptions;
-}) => AsyncIterable<SDKMessageLike>;
+// Phase 4: `QueryFn`, `ClaudeQueryOptions`, and `QueryHandle` live in
+// `./query-handle.js` so the fakes + cli-query implementation don't
+// have to circularly depend on session.ts. We re-export them here so
+// existing import sites keep resolving.
+export type { ClaudeQueryOptions, QueryFn, QueryHandle } from "./query-handle.js";
 
 export interface ClaudeSessionOptions {
   chatId: string;
@@ -86,7 +76,7 @@ export class ClaudeSession {
     await this.mutex.run(async () => {
       this.logger.info({ len: text.length }, "Claude turn start");
       const turnStartMs = Date.now();
-      const iter = this.queryFn({
+      const handle = this.queryFn({
         prompt: text,
         options: {
           cwd: this.config.defaultCwd,
@@ -98,7 +88,7 @@ export class ClaudeSession {
 
       let resultMsg: SDKMessageLike | undefined;
       let firstMessageLogged = false;
-      for await (const msg of iter) {
+      for await (const msg of handle.messages) {
         if (!firstMessageLogged) {
           firstMessageLogged = true;
           this.logger.info(

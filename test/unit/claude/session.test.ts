@@ -18,9 +18,12 @@ const BASE_CLAUDE_CONFIG = {
 
 function fakeQueryReturning(msgs: SDKMessageLike[]): QueryFn {
   return () => ({
-    async *[Symbol.asyncIterator]() {
-      for (const m of msgs) yield m;
+    messages: {
+      async *[Symbol.asyncIterator]() {
+        for (const m of msgs) yield m;
+      },
     },
+    interrupt: async () => {},
   });
 }
 
@@ -247,18 +250,21 @@ describe("ClaudeSession", () => {
 
   it("passes cwd, model, permissionMode, and settingSources to queryFn", async () => {
     const queryFn = vi.fn<QueryFn>(() => ({
-      async *[Symbol.asyncIterator]() {
-        yield {
-          type: "assistant",
-          message: { content: [{ type: "text", text: "ok" }] },
-        } satisfies SDKMessageLike;
-        yield {
-          type: "result",
-          subtype: "success",
-          duration_ms: 1,
-          usage: { input_tokens: 0, output_tokens: 0 },
-        } satisfies SDKMessageLike;
+      messages: {
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: "assistant",
+            message: { content: [{ type: "text", text: "ok" }] },
+          } satisfies SDKMessageLike;
+          yield {
+            type: "result",
+            subtype: "success",
+            duration_ms: 1,
+            usage: { input_tokens: 0, output_tokens: 0 },
+          } satisfies SDKMessageLike;
+        },
       },
+      interrupt: async () => {},
     }));
     const session = new ClaudeSession({
       chatId: "oc_x",
@@ -287,23 +293,26 @@ describe("ClaudeSession", () => {
     const gate1 = new Promise<void>((r) => (release1 = r));
     let callCount = 0;
     const queryFn: QueryFn = () => ({
-      async *[Symbol.asyncIterator]() {
-        callCount += 1;
-        const label = callCount === 1 ? "A" : "B";
-        events.push(`${label}:start`);
-        if (label === "A") await gate1;
-        yield {
-          type: "assistant",
-          message: { content: [{ type: "text", text: label }] },
-        } as SDKMessageLike;
-        yield {
-          type: "result",
-          subtype: "success",
-          duration_ms: 0,
-          usage: { input_tokens: 0, output_tokens: 0 },
-        } as SDKMessageLike;
-        events.push(`${label}:end`);
+      messages: {
+        async *[Symbol.asyncIterator]() {
+          callCount += 1;
+          const label = callCount === 1 ? "A" : "B";
+          events.push(`${label}:start`);
+          if (label === "A") await gate1;
+          yield {
+            type: "assistant",
+            message: { content: [{ type: "text", text: label }] },
+          } as SDKMessageLike;
+          yield {
+            type: "result",
+            subtype: "success",
+            duration_ms: 0,
+            usage: { input_tokens: 0, output_tokens: 0 },
+          } as SDKMessageLike;
+          events.push(`${label}:end`);
+        },
       },
+      interrupt: async () => {},
     });
     const session = new ClaudeSession({
       chatId: "oc_x",
@@ -323,28 +332,31 @@ describe("ClaudeSession", () => {
   it("releases the mutex after a throwing turn so the session stays usable", async () => {
     let callCount = 0;
     const queryFn: QueryFn = () => ({
-      async *[Symbol.asyncIterator]() {
-        callCount += 1;
-        if (callCount === 1) {
+      messages: {
+        async *[Symbol.asyncIterator]() {
+          callCount += 1;
+          if (callCount === 1) {
+            yield {
+              type: "result",
+              subtype: "error_during_execution",
+              is_error: true,
+              errors: ["first turn boom"],
+            } satisfies SDKMessageLike;
+            return;
+          }
+          yield {
+            type: "assistant",
+            message: { content: [{ type: "text", text: "recovered" }] },
+          } satisfies SDKMessageLike;
           yield {
             type: "result",
-            subtype: "error_during_execution",
-            is_error: true,
-            errors: ["first turn boom"],
+            subtype: "success",
+            duration_ms: 1,
+            usage: { input_tokens: 0, output_tokens: 0 },
           } satisfies SDKMessageLike;
-          return;
-        }
-        yield {
-          type: "assistant",
-          message: { content: [{ type: "text", text: "recovered" }] },
-        } satisfies SDKMessageLike;
-        yield {
-          type: "result",
-          subtype: "success",
-          duration_ms: 1,
-          usage: { input_tokens: 0, output_tokens: 0 },
-        } satisfies SDKMessageLike;
+        },
       },
+      interrupt: async () => {},
     });
     const session = new ClaudeSession({
       chatId: "oc_x",

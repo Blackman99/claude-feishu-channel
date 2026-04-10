@@ -10,6 +10,7 @@ import type {
   ClaudeQueryOptions,
   SDKMessageLike,
 } from "../../../src/claude/session.js";
+import type { QueryHandle } from "../../../src/claude/query-handle.js";
 import { createLogger } from "../../../src/util/logger.js";
 
 const SILENT_LOGGER = createLogger({ level: "error", pretty: false });
@@ -91,10 +92,10 @@ function makeFakeChild(script: FakeChildScript): ChildProcess {
 }
 
 async function collectMessages(
-  iterable: AsyncIterable<SDKMessageLike>,
+  handle: QueryHandle,
 ): Promise<SDKMessageLike[]> {
   const out: SDKMessageLike[] = [];
-  for await (const msg of iterable) out.push(msg);
+  for await (const msg of handle.messages) out.push(msg);
   return out;
 }
 
@@ -355,5 +356,130 @@ describe("createCliQueryFn", () => {
     const dashIdx = receivedArgs!.indexOf("--");
     expect(dashIdx).toBeGreaterThanOrEqual(0);
     expect(receivedArgs!.slice(dashIdx + 1)).toEqual([prompt]);
+  });
+
+  describe("interrupt()", () => {
+    it("sends SIGTERM to the child and resolves after close", async () => {
+      // Use a long-running child (lineDelayMs) so we can interrupt mid-stream.
+      let killedWithSignal: string | number | undefined;
+      const spawnFn: SpawnFn = vi.fn(() => {
+        const child = makeFakeChild({
+          stdoutLines: [
+            JSON.stringify({ type: "system", subtype: "init" }),
+            JSON.stringify({
+              type: "assistant",
+              message: { content: [{ type: "text", text: "partial" }] },
+            }),
+            // This line never gets read because we kill first.
+            JSON.stringify({
+              type: "result",
+              subtype: "success",
+              duration_ms: 9999,
+            }),
+          ],
+          lineDelayMs: 50,
+          exitCode: 143, // 128 + SIGTERM(15)
+        });
+        const origKill = child.kill.bind(child);
+        child.kill = ((signal?: number | NodeJS.Signals) => {
+          killedWithSignal = signal;
+          return origKill(signal);
+        }) as ChildProcess["kill"];
+        return child;
+      });
+      const queryFn = createCliQueryFn({
+        cliPath: "claude",
+        logger: SILENT_LOGGER,
+        spawnFn,
+      });
+      const handle = queryFn({ prompt: "x", options: BASE_OPTIONS });
+      // Start iterating in the background; we interrupt after the first
+      // message lands so the generator is mid-loop when interrupt hits.
+      const received: SDKMessageLike[] = [];
+      const iterPromise = (async () => {
+        for await (const m of handle.messages) {
+          received.push(m);
+          if (received.length === 1) {
+            // Interrupt after first message — don't await inside the loop
+            // so the kill races with readline.
+            void handle.interrupt();
+          }
+        }
+      })();
+      await iterPromise;
+      expect(killedWithSignal).toBe("SIGTERM");
+      // The iterator must have ended without throwing (interrupt swallows
+      // the non-zero exit). At minimum we saw the first message.
+      expect(received.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("is idempotent — second call is a no-op and still resolves", async () => {
+      let killCount = 0;
+      const spawnFn: SpawnFn = vi.fn(() => {
+        const child = makeFakeChild({
+          stdoutLines: [
+            JSON.stringify({
+              type: "result",
+              subtype: "success",
+              duration_ms: 0,
+            }),
+          ],
+          lineDelayMs: 20,
+          exitCode: 143,
+        });
+        const origKill = child.kill.bind(child);
+        child.kill = ((signal?: number | NodeJS.Signals) => {
+          killCount += 1;
+          return origKill(signal);
+        }) as ChildProcess["kill"];
+        return child;
+      });
+      const queryFn = createCliQueryFn({
+        cliPath: "claude",
+        logger: SILENT_LOGGER,
+        spawnFn,
+      });
+      const handle = queryFn({ prompt: "x", options: BASE_OPTIONS });
+      // Start draining so the generator attaches readline.
+      const drain = collectMessages(handle).catch(() => {});
+      // Fire interrupt twice in rapid succession.
+      await Promise.all([handle.interrupt(), handle.interrupt()]);
+      await drain;
+      // kill() was called at most once — second interrupt short-circuited.
+      expect(killCount).toBeLessThanOrEqual(1);
+    });
+
+    it("is a no-op after the child has exited naturally", async () => {
+      let killCount = 0;
+      const spawnFn: SpawnFn = vi.fn(() => {
+        const child = makeFakeChild({
+          stdoutLines: [
+            JSON.stringify({
+              type: "result",
+              subtype: "success",
+              duration_ms: 0,
+            }),
+          ],
+          exitCode: 0,
+        });
+        const origKill = child.kill.bind(child);
+        child.kill = ((signal?: number | NodeJS.Signals) => {
+          killCount += 1;
+          return origKill(signal);
+        }) as ChildProcess["kill"];
+        return child;
+      });
+      const queryFn = createCliQueryFn({
+        cliPath: "claude",
+        logger: SILENT_LOGGER,
+        spawnFn,
+      });
+      const handle = queryFn({ prompt: "x", options: BASE_OPTIONS });
+      const messages = await collectMessages(handle);
+      expect(messages).toHaveLength(1);
+      // Now interrupt — must not throw and must not call kill().
+      await handle.interrupt();
+      expect(killCount).toBe(0);
+    });
   });
 });

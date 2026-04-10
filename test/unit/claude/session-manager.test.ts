@@ -13,9 +13,12 @@ const BASE_CLAUDE_CONFIG = {
 };
 
 const NOOP_QUERY: QueryFn = () => ({
-  async *[Symbol.asyncIterator](): AsyncGenerator<SDKMessageLike, void> {
-    yield { type: "result", subtype: "success", result: "" };
+  messages: {
+    async *[Symbol.asyncIterator](): AsyncGenerator<SDKMessageLike, void> {
+      yield { type: "result", subtype: "success", result: "" };
+    },
   },
+  interrupt: async () => {},
 });
 
 describe("ClaudeSessionManager", () => {
