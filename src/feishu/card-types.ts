@@ -76,7 +76,10 @@ export type FeishuHeaderColor =
 export type FeishuElement =
   | FeishuMarkdownElement
   | FeishuDividerElement
-  | FeishuCollapsiblePanelElement;
+  | FeishuCollapsiblePanelElement
+  | FeishuButtonElement
+  | FeishuColumnSetElement
+  | FeishuColumnElement;
 
 export interface FeishuMarkdownElement {
   tag: "markdown";
@@ -151,4 +154,48 @@ export interface FeishuCollapsiblePanelElement {
     corner_radius?: string;
   };
   elements: FeishuElement[];
+}
+
+/**
+ * A clickable button. Click events are delivered via Feishu's
+ * `card.action.trigger` event, with the `value` object echoed back in
+ * the event payload. Phase 5 uses this for the permission card.
+ *
+ * - `tag`: always `"button"`
+ * - `text.content`: visible label (supports emoji)
+ * - `type`: button style — `"primary"`, `"danger"`, `"default"`
+ * - `value`: arbitrary JSON sent back on click. MUST be a plain
+ *   object, not an array or primitive — Feishu reserializes it.
+ */
+export interface FeishuButtonElement {
+  tag: "button";
+  text: { tag: "plain_text"; content: string };
+  type?: "primary" | "danger" | "default" | "primary_filled" | "default_filled";
+  value?: Record<string, unknown>;
+  /** Optional width constraint — "default" | "fill". */
+  width?: "default" | "fill";
+}
+
+/**
+ * A single column inside a `column_set`. Holds a small list of
+ * elements rendered vertically within the column's width.
+ */
+export interface FeishuColumnElement {
+  tag: "column";
+  width?: "weighted" | "auto" | string;
+  weight?: number;
+  vertical_align?: "top" | "center" | "bottom";
+  elements: FeishuElement[];
+}
+
+/**
+ * A row of columns — Phase 5's permission card uses two
+ * `column_set` rows of 2 columns each to lay out the 4 buttons in a
+ * compact 2×2 grid.
+ */
+export interface FeishuColumnSetElement {
+  tag: "column_set";
+  horizontal_spacing?: string;
+  flex_mode?: "none" | "stretch" | "flow" | "bisect" | "trisect";
+  columns: FeishuColumnElement[];
 }
