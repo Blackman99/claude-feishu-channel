@@ -8,10 +8,10 @@ import { AccessControl } from "./access.js";
 import { FeishuClient } from "./feishu/client.js";
 import { FeishuGateway } from "./feishu/gateway.js";
 import { checkClaudeCli } from "./claude/preflight.js";
-import { createCliQueryFn } from "./claude/cli-query.js";
+import { createSdkQueryFn } from "./claude/sdk-query.js";
 import { ClaudeSessionManager } from "./claude/session-manager.js";
 import { InterruptedError } from "./claude/session.js";
-import { TransitionalStubBroker } from "./claude/permission-broker.js";
+import { FeishuPermissionBroker } from "./claude/feishu-permission-broker.js";
 import { RealClock } from "./util/clock.js";
 import { parseInput } from "./commands/router.js";
 import type { RenderEvent } from "./claude/render-event.js";
@@ -97,20 +97,27 @@ async function main(): Promise<void> {
   });
   const feishuClient = new FeishuClient(lark);
 
-  // Phase 3 (CLI transport): spawn the local `claude` CLI in
-  // non-interactive stream-json mode per turn, instead of using the
-  // in-process SDK. The CLI handles OAuth / keychain credentials on
-  // its own, which is more robust than direct HTTP from undici.
-  const queryFn = createCliQueryFn({
+  // Phase 5 (SDK transport): in-process @anthropic-ai/claude-agent-sdk via createSdkQueryFn. The session's canUseTool closure routes through FeishuPermissionBroker for tool approval.
+  const queryFn = createSdkQueryFn({
     cliPath: config.claude.cliPath,
     logger,
+  });
+
+  const permissionBroker = new FeishuPermissionBroker({
+    feishu: feishuClient,
+    clock: new RealClock(),
+    logger,
+    config: {
+      timeoutMs: config.claude.permissionTimeoutMs,
+      warnBeforeMs: config.claude.permissionWarnBeforeMs,
+    },
   });
 
   const sessionManager = new ClaudeSessionManager({
     config: config.claude,
     queryFn,
     clock: new RealClock(),
-    permissionBroker: new TransitionalStubBroker(),
+    permissionBroker,
     logger,
   });
 
@@ -628,6 +635,54 @@ async function main(): Promise<void> {
     }
   };
 
+  const onCardAction = async ({
+    senderOpenId,
+    value,
+  }: {
+    senderOpenId: string;
+    value: Record<string, unknown>;
+  }): Promise<void> => {
+    if (value.kind !== "permission") {
+      logger.warn({ value }, "Card action with unknown kind, ignoring");
+      return;
+    }
+    const requestId = value.request_id;
+    const choice = value.choice;
+    if (typeof requestId !== "string") {
+      logger.warn({ value }, "Card action missing request_id");
+      return;
+    }
+    if (
+      choice !== "allow" &&
+      choice !== "deny" &&
+      choice !== "allow_turn" &&
+      choice !== "allow_session"
+    ) {
+      logger.warn({ value }, "Card action has invalid choice");
+      return;
+    }
+    const result = await permissionBroker.resolveByCard({
+      requestId,
+      senderOpenId,
+      choice,
+    });
+    if (result.kind === "forbidden") {
+      logger.warn(
+        {
+          request_id: requestId,
+          clicker: senderOpenId,
+          owner: result.ownerOpenId,
+        },
+        "Non-owner permission card click — ignored",
+      );
+    } else if (result.kind === "not_found") {
+      logger.info(
+        { request_id: requestId },
+        "Card action for unknown request — likely already resolved",
+      );
+    }
+  };
+
   const gateway = new FeishuGateway({
     appId: config.feishu.appId,
     appSecret: config.feishu.appSecret,
@@ -635,9 +690,7 @@ async function main(): Promise<void> {
     lark,
     access,
     onMessage,
-    onCardAction: async () => {
-      // Wired in Task 15.
-    },
+    onCardAction,
   });
 
   let shuttingDown = false;
@@ -678,12 +731,20 @@ async function main(): Promise<void> {
       default_cwd: config.claude.defaultCwd,
       default_model: config.claude.defaultModel,
       permission_mode: config.claude.defaultPermissionMode,
+      permission_timeout_ms: config.claude.permissionTimeoutMs,
       inline_max_bytes: config.render.inlineMaxBytes,
       hide_thinking: config.render.hideThinking,
       show_turn_stats: config.render.showTurnStats,
     },
-    "claude-feishu-channel Phase 4 ready",
+    "claude-feishu-channel Phase 5 ready",
   );
+
+  if (config.claude.defaultPermissionMode === "bypassPermissions") {
+    logger.warn(
+      { permission_mode: "bypassPermissions" },
+      "Phase 5 shipped — permission brokering is ACTIVE only when default_permission_mode != 'bypassPermissions'. Your current config bypasses the broker; tool calls will not prompt for approval.",
+    );
+  }
 }
 
 main().catch((err) => {
