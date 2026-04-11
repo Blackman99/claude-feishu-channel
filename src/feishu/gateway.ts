@@ -10,6 +10,22 @@ import { LruDedup } from "../util/dedup.js";
 
 export type MessageHandler = (msg: IncomingMessage) => Promise<void>;
 
+export interface CardActionEvent {
+  operator: {
+    open_id: string;
+  };
+  action: {
+    value: Record<string, unknown>;
+  };
+  // The event carries more fields (token, tenant_key, form_value...)
+  // but Phase 5 only reads operator.open_id + action.value.
+}
+
+export type CardActionHandler = (action: {
+  senderOpenId: string;
+  value: Record<string, unknown>;
+}) => Promise<void>;
+
 export interface FeishuGatewayOptions {
   appId: string;
   appSecret: string;
@@ -17,6 +33,7 @@ export interface FeishuGatewayOptions {
   lark: LarkClient;
   access: AccessControl;
   onMessage: MessageHandler;
+  onCardAction: CardActionHandler;
 }
 
 interface ReceiveV1Event {
@@ -41,12 +58,14 @@ export class FeishuGateway {
   private readonly logger: Logger;
   private readonly access: AccessControl;
   private readonly onMessage: MessageHandler;
+  private readonly onCardAction: CardActionHandler;
 
   constructor(opts: FeishuGatewayOptions) {
     this.lark = opts.lark;
     this.logger = opts.logger.child({ component: "feishu-gateway" });
     this.access = opts.access;
     this.onMessage = opts.onMessage;
+    this.onCardAction = opts.onCardAction;
 
     this.wsClient = new WSClient({
       appId: opts.appId,
@@ -60,6 +79,10 @@ export class FeishuGateway {
       "im.message.receive_v1": async (data: unknown) => {
         const event = data as ReceiveV1Event;
         await this.handleReceiveV1(event);
+      },
+      "card.action.trigger": async (data: unknown) => {
+        await this.handleCardAction(data as CardActionEvent);
+        return {};
       },
     });
 
@@ -120,6 +143,26 @@ export class FeishuGateway {
       await this.onMessage(incoming);
     } catch (err) {
       log.error({ err }, "Message handler threw");
+    }
+  }
+
+  private async handleCardAction(event: CardActionEvent): Promise<void> {
+    const log = this.logger.child({ open_id: event.operator.open_id });
+    const decision = this.access.check(event.operator.open_id);
+    if (!decision.allowed) {
+      log.warn(
+        { action: decision.action },
+        "Unauthorized card action, ignoring",
+      );
+      return;
+    }
+    try {
+      await this.onCardAction({
+        senderOpenId: event.operator.open_id,
+        value: event.action.value,
+      });
+    } catch (err) {
+      log.error({ err }, "Card action handler threw");
     }
   }
 }

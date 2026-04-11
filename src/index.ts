@@ -635,6 +635,9 @@ async function main(): Promise<void> {
     lark,
     access,
     onMessage,
+    onCardAction: async () => {
+      // Wired in Task 15.
+    },
   });
 
   let shuttingDown = false;
