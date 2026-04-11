@@ -192,8 +192,8 @@ async function main(): Promise<void> {
     // a flashing empty "⏳ 正在处理..." card.
     const sendStatusCard = async (): Promise<void> => {
       try {
-        const { messageId } = await feishuClient.sendCard(
-          msg.chatId,
+        const { messageId } = await feishuClient.replyCard(
+          msg.messageId,
           buildStatusCard(""),
         );
         turnState.statusCardMessageId = messageId;
@@ -270,7 +270,10 @@ async function main(): Promise<void> {
           // show the markup literally — use a card instead so Feishu
           // renders it.
           await updateStatus("✅ 完成");
-          await feishuClient.sendCard(msg.chatId, buildAnswerCard(event.text));
+          await feishuClient.replyCard(
+            msg.messageId,
+            buildAnswerCard(event.text),
+          );
           return;
         case "thinking": {
           if (config.render.hideThinking) return;
@@ -295,12 +298,12 @@ async function main(): Promise<void> {
             });
             let messageId: string;
             try {
-              const res = await feishuClient.sendCard(msg.chatId, card);
+              const res = await feishuClient.replyCard(msg.messageId, card);
               messageId = res.messageId;
             } catch (err) {
               logger.warn(
                 { err, chat_id: msg.chatId },
-                "thinking sendCard failed; disabling thinking card for this turn",
+                "thinking replyCard failed; disabling thinking card for this turn",
               );
               turnState.thinkingDisabled = true;
               return;
@@ -404,8 +407,8 @@ async function main(): Promise<void> {
         }
         case "turn_end":
           if (!config.render.showTurnStats) return;
-          await feishuClient.sendText(
-            msg.chatId,
+          await feishuClient.replyText(
+            msg.messageId,
             formatResultTip({
               durationMs: event.durationMs,
               inputTokens: event.inputTokens,
@@ -415,11 +418,11 @@ async function main(): Promise<void> {
           return;
         case "queued":
           // Out-of-band notice from the session: the user's input landed in
-          // a non-empty queue. Rendered as a plain text message so it
-          // doesn't get lost inside a card.
+          // a non-empty queue. Rendered as a plain text reply so it
+          // threads under the user message that just got queued.
           try {
-            await feishuClient.sendText(
-              msg.chatId,
+            await feishuClient.replyText(
+              msg.messageId,
               formatQueuedTip(event.position),
             );
           } catch (err) {
@@ -437,8 +440,8 @@ async function main(): Promise<void> {
           // and the ack is explicit.
           if (event.reason === "bang_prefix") {
             try {
-              await feishuClient.sendText(
-                msg.chatId,
+              await feishuClient.replyText(
+                msg.messageId,
                 formatInterruptDropAck(),
               );
             } catch (err) {
@@ -450,12 +453,12 @@ async function main(): Promise<void> {
           }
           return;
         case "stop_ack":
-          // Dedicated /stop ack. Sent as plain text so it doesn't get
-          // promoted to "✅ 完成" on the status card or wrapped in
-          // `buildAnswerCard` — stopping is not completing, and the
-          // one-liner should look distinct from a finished turn.
+          // Dedicated /stop ack. Sent as a plain-text reply so it
+          // threads under the /stop message itself, doesn't get
+          // promoted to "✅ 完成" on the status card, and isn't wrapped
+          // in `buildAnswerCard` — stopping is not completing.
           try {
-            await feishuClient.sendText(msg.chatId, formatStopAck());
+            await feishuClient.replyText(msg.messageId, formatStopAck());
           } catch (err) {
             logger.warn(
               { err, chat_id: msg.chatId },
@@ -487,12 +490,12 @@ async function main(): Promise<void> {
         });
         let messageId: string;
         try {
-          const res = await feishuClient.sendCard(msg.chatId, card);
+          const res = await feishuClient.replyCard(msg.messageId, card);
           messageId = res.messageId;
         } catch (err) {
           logger.warn(
             { err, chat_id: msg.chatId },
-            "tool activity sendCard failed; disabling tool card for this turn",
+            "tool activity replyCard failed; disabling tool card for this turn",
           );
           turnState.toolDisabled = true;
           return;
@@ -608,7 +611,10 @@ async function main(): Promise<void> {
       logger.error({ err, chat_id: msg.chatId }, "Claude turn failed");
       const errorText = err instanceof Error ? err.message : String(err);
       try {
-        await feishuClient.sendText(msg.chatId, formatErrorText(errorText));
+        await feishuClient.replyText(
+          msg.messageId,
+          formatErrorText(errorText),
+        );
       } catch (sendErr) {
         logger.error({ err: sendErr }, "Failed to deliver error reply");
       }

@@ -64,6 +64,80 @@ export class FeishuClient {
   }
 
   /**
+   * Send a plain-text message as a *reply* to a specific user message,
+   * via `im.v1.message.reply`. The reply is rendered with a visible
+   * quote of the parent message in Feishu, which lets the bot's
+   * responses thread under the exact user message that triggered them
+   * — useful in busy group chats where multiple people are talking to
+   * the bot at once.
+   *
+   * The chat is implied by the parent `messageId`, so unlike `sendText`
+   * there's no `chatId` parameter. `reply_in_thread` is omitted (default
+   * `false`) — we want a quoted reply in the main timeline, not a
+   * Slack-style sub-thread.
+   */
+  async replyText(
+    parentMessageId: string,
+    text: string,
+  ): Promise<SendTextResult> {
+    const response = await this.lark.im.v1.message.reply({
+      path: { message_id: parentMessageId },
+      data: {
+        msg_type: "text",
+        content: JSON.stringify({ text }),
+      },
+    });
+
+    if (response.code !== 0) {
+      throw new Error(
+        `Feishu replyText failed: code=${response.code} msg=${response.msg ?? ""} (parent_message_id=${parentMessageId})`,
+      );
+    }
+
+    const messageId = response.data?.message_id;
+    if (!messageId) {
+      throw new Error(
+        `Feishu replyText returned code=0 but no message_id (parent_message_id=${parentMessageId})`,
+      );
+    }
+
+    return { messageId };
+  }
+
+  /**
+   * Send an interactive card as a *reply* to a specific user message.
+   * Same threading semantics as `replyText` — see that method's doc
+   * comment for the rationale.
+   */
+  async replyCard(
+    parentMessageId: string,
+    card: FeishuCardV2,
+  ): Promise<SendTextResult> {
+    const response = await this.lark.im.v1.message.reply({
+      path: { message_id: parentMessageId },
+      data: {
+        msg_type: "interactive",
+        content: JSON.stringify(card),
+      },
+    });
+
+    if (response.code !== 0) {
+      throw new Error(
+        `Feishu replyCard failed: code=${response.code} msg=${response.msg ?? ""} (parent_message_id=${parentMessageId})`,
+      );
+    }
+
+    const messageId = response.data?.message_id;
+    if (!messageId) {
+      throw new Error(
+        `Feishu replyCard returned code=0 but no message_id (parent_message_id=${parentMessageId})`,
+      );
+    }
+
+    return { messageId };
+  }
+
+  /**
    * Update a previously-sent interactive card in place via
    * `im.v1.message.patch`. The original card MUST have been sent with
    * `config.update_multi: true` — Feishu rejects patches on cards that

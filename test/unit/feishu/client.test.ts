@@ -7,6 +7,7 @@ type MockLarkClient = {
       message: {
         create: ReturnType<typeof vi.fn>;
         patch: ReturnType<typeof vi.fn>;
+        reply: ReturnType<typeof vi.fn>;
       };
     };
   };
@@ -32,6 +33,10 @@ function makeMockLarkClient(): MockLarkClient {
             data: { message_id: "om_1" },
           }),
           patch: vi.fn().mockResolvedValue({ code: 0, data: {} }),
+          reply: vi.fn().mockResolvedValue({
+            code: 0,
+            data: { message_id: "om_reply_1" },
+          }),
         },
       },
     },
@@ -148,6 +153,99 @@ describe("FeishuClient.sendCard", () => {
     const fc = new FeishuClient(mock as never);
     await expect(
       fc.sendCard("oc_x", { schema: "2.0", body: { elements: [] } }),
+    ).rejects.toThrow(/no message_id/);
+  });
+});
+
+describe("FeishuClient.replyText", () => {
+  it("calls im.v1.message.reply with the parent message_id in path and msg_type=text", async () => {
+    const mock = makeMockLarkClient();
+    const fc = new FeishuClient(mock as never);
+    const result = await fc.replyText("om_parent_123", "hello");
+    expect(mock.im.v1.message.reply).toHaveBeenCalledWith({
+      path: { message_id: "om_parent_123" },
+      data: {
+        msg_type: "text",
+        content: JSON.stringify({ text: "hello" }),
+      },
+    });
+    expect(result.messageId).toBe("om_reply_1");
+  });
+
+  it("escapes newlines and quotes in text content", async () => {
+    const mock = makeMockLarkClient();
+    const fc = new FeishuClient(mock as never);
+    await fc.replyText("om_parent_1", 'line1\nline2 with "quotes"');
+    const call = mock.im.v1.message.reply.mock.calls[0]![0];
+    const parsed = JSON.parse(call.data.content);
+    expect(parsed.text).toBe('line1\nline2 with "quotes"');
+  });
+
+  it("throws when lark API returns non-zero code, including the parent message_id in the message", async () => {
+    const mock = makeMockLarkClient();
+    mock.im.v1.message.reply = vi.fn().mockResolvedValue({
+      code: 230002,
+      msg: "message not found",
+    });
+    const fc = new FeishuClient(mock as never);
+    await expect(fc.replyText("om_missing", "hi")).rejects.toThrow(
+      /230002.*message not found.*om_missing/,
+    );
+  });
+
+  it("throws when code is zero but message_id is missing", async () => {
+    const mock = makeMockLarkClient();
+    mock.im.v1.message.reply = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {},
+    });
+    const fc = new FeishuClient(mock as never);
+    await expect(fc.replyText("om_parent", "hi")).rejects.toThrow(
+      /no message_id/i,
+    );
+  });
+});
+
+describe("FeishuClient.replyCard", () => {
+  it("calls im.v1.message.reply with msg_type=interactive and JSON-stringified card", async () => {
+    const mock = makeMockLarkClient();
+    const fc = new FeishuClient(mock as never);
+    const card = {
+      schema: "2.0" as const,
+      body: { elements: [{ tag: "markdown" as const, content: "hi" }] },
+    };
+    const res = await fc.replyCard("om_parent_xyz", card);
+    expect(res.messageId).toBe("om_reply_1");
+    const arg = mock.im.v1.message.reply.mock.calls[0]![0] as {
+      path: { message_id: string };
+      data: { msg_type: string; content: string };
+    };
+    expect(arg.path.message_id).toBe("om_parent_xyz");
+    expect(arg.data.msg_type).toBe("interactive");
+    expect(JSON.parse(arg.data.content)).toEqual(card);
+  });
+
+  it("throws on non-zero response code", async () => {
+    const mock = makeMockLarkClient();
+    mock.im.v1.message.reply = vi.fn().mockResolvedValue({
+      code: 99991663,
+      msg: "too busy",
+    });
+    const fc = new FeishuClient(mock as never);
+    await expect(
+      fc.replyCard("om_parent", { schema: "2.0", body: { elements: [] } }),
+    ).rejects.toThrow(/99991663.*too busy/);
+  });
+
+  it("throws on code=0 but missing message_id", async () => {
+    const mock = makeMockLarkClient();
+    mock.im.v1.message.reply = vi.fn().mockResolvedValue({
+      code: 0,
+      data: {},
+    });
+    const fc = new FeishuClient(mock as never);
+    await expect(
+      fc.replyCard("om_parent", { schema: "2.0", body: { elements: [] } }),
     ).rejects.toThrow(/no message_id/);
   });
 });
