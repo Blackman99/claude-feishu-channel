@@ -1,6 +1,6 @@
 import { createDeferred, type Deferred } from "../../../../src/util/deferred.js";
 import type { SDKMessageLike } from "../../../../src/claude/session.js";
-import type { QueryHandle } from "../../../../src/claude/query-handle.js";
+import type { ClaudeQueryOptions, QueryHandle } from "../../../../src/claude/query-handle.js";
 
 type PendingValue = { kind: "msg"; msg: SDKMessageLike } | { kind: "end" };
 
@@ -31,7 +31,7 @@ export class FakeQueryHandle implements QueryHandle {
   lastFinishReason: "success" | "error" | "interrupted" | null = null;
   messagesConsumed = 0;
   /** Recorded permissionMode changes from the session under test. */
-  readonly permissionModeChanges: string[] = [];
+  readonly permissionModeChanges: ClaudeQueryOptions["permissionMode"][] = [];
 
   private readonly queue: PendingValue[] = [];
   private readonly waiters: Deferred<PendingValue>[] = [];
@@ -100,7 +100,7 @@ export class FakeQueryHandle implements QueryHandle {
     }
   }
 
-  setPermissionMode(mode: string): void {
+  setPermissionMode(mode: ClaudeQueryOptions["permissionMode"]): void {
     this.permissionModeChanges.push(mode);
   }
 
