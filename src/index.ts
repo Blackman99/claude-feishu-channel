@@ -569,7 +569,14 @@ async function main(): Promise<void> {
         await session.stop(emit);
         return;
       }
-      const outcome = await session.submit(parsed, emit);
+      const outcome = await session.submit(
+        {
+          ...parsed,
+          senderOpenId: msg.senderOpenId,
+          parentMessageId: msg.messageId,
+        },
+        emit,
+      );
       // Only the input that actually starts a turn on this message
       // gets a status card. Queued `run`s get the "📥 已加入队列" text
       // reply instead (emitted from inside `session.submit`), so a

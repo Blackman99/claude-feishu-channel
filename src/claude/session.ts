@@ -95,11 +95,23 @@ export type SubmitOutcome =
  */
 interface QueuedInput {
   readonly text: string;
+  readonly senderOpenId: string;
+  readonly parentMessageId: string;
   readonly emit: EmitFn;
   readonly done: Deferred<void>;
   /** Monotonic id for logging — not exposed to the outside. */
   readonly seq: number;
 }
+
+/**
+ * Extended submit() input: `CommandRouterResult` widened with the
+ * fields the broker needs to check ownership and thread replies.
+ * The dispatcher builds one of these per incoming Feishu message.
+ */
+export type SubmitInput = CommandRouterResult & {
+  senderOpenId: string;
+  parentMessageId: string;
+};
 
 /**
  * Phase 4 ClaudeSession — explicit state machine with an input queue
@@ -157,7 +169,7 @@ export class ClaudeSession {
    * `run` only; `stop` and `interrupt_and_run` arrive in Tasks 8/9.
    */
   async submit(
-    input: CommandRouterResult,
+    input: SubmitInput,
     emit: EmitFn,
   ): Promise<SubmitOutcome> {
     if (input.kind === "stop") {
@@ -171,6 +183,8 @@ export class ClaudeSession {
 
     const entry: QueuedInput = {
       text: input.text,
+      senderOpenId: input.senderOpenId,
+      parentMessageId: input.parentMessageId,
       emit,
       done: createDeferred<void>(),
       seq: this.nextSeq++,

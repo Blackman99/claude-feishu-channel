@@ -68,7 +68,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
 
     expect(h.session._testGetState()).toBe("idle");
     const outcome = await h.session.submit(
-      { kind: "run", text: "hello" },
+      { kind: "run", text: "hello", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy.emit,
     );
     expect(outcome.kind).toBe("started");
@@ -83,7 +83,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     const spy = new SpyRenderer();
 
     const outcome = await h.session.submit(
-      { kind: "run", text: "hi" },
+      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy.emit,
     );
     expect(outcome.kind).toBe("started");
@@ -128,7 +128,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     });
     const spy = new SpyRenderer();
     const outcome = await session.submit(
-      { kind: "run", text: "hi" },
+      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy.emit,
     );
     if (outcome.kind !== "started") throw new Error("unreachable");
@@ -154,7 +154,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     const h = makeHarness();
     const spy = new SpyRenderer();
     const outcome = await h.session.submit(
-      { kind: "run", text: "boom" },
+      { kind: "run", text: "boom", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy.emit,
     );
     if (outcome.kind !== "started") throw new Error("unreachable");
@@ -173,7 +173,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     const h = makeHarness();
     const spy = new SpyRenderer();
     const outcome = await h.session.submit(
-      { kind: "run", text: "incomplete" },
+      { kind: "run", text: "incomplete", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy.emit,
     );
     if (outcome.kind !== "started") throw new Error("unreachable");
@@ -188,7 +188,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     const spy = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy.emit,
     );
     if (first.kind !== "started") throw new Error("unreachable");
@@ -202,7 +202,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     expect(h.session._testGetState()).toBe("idle");
 
     const second = await h.session.submit(
-      { kind: "run", text: "two" },
+      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy.emit,
     );
     expect(second.kind).toBe("started");
@@ -226,7 +226,7 @@ describe("ClaudeSession — FIFO queue", () => {
     const spy2 = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy1.emit,
     );
     await flushMicrotasks();
@@ -234,7 +234,7 @@ describe("ClaudeSession — FIFO queue", () => {
     expect(first.kind).toBe("started");
 
     const second = await h.session.submit(
-      { kind: "run", text: "two" },
+      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy2.emit,
     );
     expect(second.kind).toBe("queued");
@@ -254,13 +254,13 @@ describe("ClaudeSession — FIFO queue", () => {
     const spy3 = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy1.emit,
     );
     await flushMicrotasks();
-    await h.session.submit({ kind: "run", text: "two" }, spy2.emit);
+    await h.session.submit({ kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" }, spy2.emit);
     const third = await h.session.submit(
-      { kind: "run", text: "three" },
+      { kind: "run", text: "three", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy3.emit,
     );
 
@@ -278,16 +278,16 @@ describe("ClaudeSession — FIFO queue", () => {
     const spy3 = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy1.emit,
     );
     await flushMicrotasks();
     const second = await h.session.submit(
-      { kind: "run", text: "two" },
+      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy2.emit,
     );
     const third = await h.session.submit(
-      { kind: "run", text: "three" },
+      { kind: "run", text: "three", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy3.emit,
     );
     if (
@@ -357,12 +357,12 @@ describe("ClaudeSession — FIFO queue", () => {
     const spy2 = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "bad" },
+      { kind: "run", text: "bad", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy1.emit,
     );
     await flushMicrotasks();
     const second = await h.session.submit(
-      { kind: "run", text: "good" },
+      { kind: "run", text: "good", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy2.emit,
     );
     if (first.kind !== "started" || second.kind !== "queued") {
@@ -404,12 +404,12 @@ describe("ClaudeSession — /stop", () => {
     const stopSpy = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy1.emit,
     );
     await flushMicrotasks();
     const second = await h.session.submit(
-      { kind: "run", text: "two" },
+      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy2.emit,
     );
     if (first.kind !== "started" || second.kind !== "queued") {
@@ -461,7 +461,7 @@ describe("ClaudeSession — /stop", () => {
     // stays alive and regressions don't sneak in.
     const h = makeHarness();
     const spy = new SpyRenderer();
-    const outcome = await h.session.submit({ kind: "stop" }, spy.emit);
+    const outcome = await h.session.submit({ kind: "stop", senderOpenId: "ou_test", parentMessageId: "om_test" }, spy.emit);
     expect(outcome).toEqual({ kind: "rejected", reason: "stop" });
     expect(spy.events).toEqual([{ type: "stop_ack" }]);
     expect(h.session._testGetState()).toBe("idle");
@@ -473,13 +473,13 @@ describe("ClaudeSession — /stop", () => {
     const stopSpy = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy1.emit,
     );
     if (first.kind !== "started") throw new Error("unreachable");
     await flushMicrotasks();
 
-    const stopOutcome = await h.session.submit({ kind: "stop" }, stopSpy.emit);
+    const stopOutcome = await h.session.submit({ kind: "stop", senderOpenId: "ou_test", parentMessageId: "om_test" }, stopSpy.emit);
     expect(stopOutcome).toEqual({ kind: "rejected", reason: "stop" });
     expect(h.fakes[0]!.interrupted).toBe(true);
 
@@ -496,7 +496,7 @@ describe("ClaudeSession — /stop", () => {
     const spy2 = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy1.emit,
     );
     if (first.kind !== "started") throw new Error("unreachable");
@@ -507,7 +507,7 @@ describe("ClaudeSession — /stop", () => {
     expect(h.session._testGetState()).toBe("idle");
 
     const second = await h.session.submit(
-      { kind: "run", text: "two" },
+      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy2.emit,
     );
     expect(second.kind).toBe("started");
@@ -528,7 +528,7 @@ describe("ClaudeSession — ! prefix interrupt", () => {
     const h = makeHarness();
     const spy = new SpyRenderer();
     const outcome = await h.session.submit(
-      { kind: "interrupt_and_run", text: "urgent" },
+      { kind: "interrupt_and_run", text: "urgent", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy.emit,
     );
     expect(outcome.kind).toBe("started");
@@ -545,16 +545,16 @@ describe("ClaudeSession — ! prefix interrupt", () => {
     const spyBang = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy1.emit,
     );
     await flushMicrotasks();
     const second = await h.session.submit(
-      { kind: "run", text: "two" },
+      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy2.emit,
     );
     const third = await h.session.submit(
-      { kind: "run", text: "three" },
+      { kind: "run", text: "three", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy3.emit,
     );
     if (
@@ -567,7 +567,7 @@ describe("ClaudeSession — ! prefix interrupt", () => {
 
     // Fire the bang.
     const bang = await h.session.submit(
-      { kind: "interrupt_and_run", text: "urgent" },
+      { kind: "interrupt_and_run", text: "urgent", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spyBang.emit,
     );
     expect(bang.kind).toBe("started");
@@ -618,17 +618,17 @@ describe("ClaudeSession — ! prefix interrupt", () => {
     const spyBang2 = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy1.emit,
     );
     await flushMicrotasks();
 
     const bang1 = await h.session.submit(
-      { kind: "interrupt_and_run", text: "bang1" },
+      { kind: "interrupt_and_run", text: "bang1", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spyBang1.emit,
     );
     const bang2 = await h.session.submit(
-      { kind: "interrupt_and_run", text: "bang2" },
+      { kind: "interrupt_and_run", text: "bang2", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spyBang2.emit,
     );
     if (
@@ -674,7 +674,7 @@ describe("ClaudeSession — awaiting_permission stub", () => {
     const h = makeHarness();
     const spy = new SpyRenderer();
     const first = await h.session.submit(
-      { kind: "run", text: "one" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy.emit,
     );
     await flushMicrotasks();
@@ -697,7 +697,7 @@ describe("ClaudeSession — awaiting_permission stub", () => {
     const spy = new SpyRenderer();
     const stopSpy = new SpyRenderer();
     const first = await h.session.submit(
-      { kind: "run", text: "one" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy.emit,
     );
     await flushMicrotasks();
@@ -728,12 +728,12 @@ describe("ClaudeSession — awaiting_permission stub", () => {
     const spy2 = new SpyRenderer();
     const spyBang = new SpyRenderer();
     const first = await h.session.submit(
-      { kind: "run", text: "one" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy1.emit,
     );
     await flushMicrotasks();
     const second = await h.session.submit(
-      { kind: "run", text: "two" },
+      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spy2.emit,
     );
     if (first.kind !== "started" || second.kind !== "queued") {
@@ -744,7 +744,7 @@ describe("ClaudeSession — awaiting_permission stub", () => {
     h.session._testEnterAwaitingPermission(permissionDeferred);
 
     const bang = await h.session.submit(
-      { kind: "interrupt_and_run", text: "urgent" },
+      { kind: "interrupt_and_run", text: "urgent", senderOpenId: "ou_test", parentMessageId: "om_test" },
       spyBang.emit,
     );
     if (bang.kind !== "started") throw new Error("unreachable");
