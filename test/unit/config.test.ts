@@ -215,6 +215,43 @@ default_cwd = ""
 `);
     await expect(loadConfig(path)).rejects.toThrow(/default_cwd/);
   });
+
+  describe("permission timeout config", () => {
+    it("loads default permission timeout values when not specified", async () => {
+      const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+`);
+      const cfg = await loadConfig(path);
+      expect(cfg.claude.permissionTimeoutMs).toBe(300_000);
+      expect(cfg.claude.permissionWarnBeforeMs).toBe(60_000);
+    });
+
+    it("multiplies permission_timeout_seconds by 1000", async () => {
+      const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+permission_timeout_seconds = 120
+`);
+      const cfg = await loadConfig(path);
+      expect(cfg.claude.permissionTimeoutMs).toBe(120_000);
+    });
+
+    it("rejects permission_timeout_seconds = 0", async () => {
+      const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+permission_timeout_seconds = 0
+`);
+      await expect(loadConfig(path)).rejects.toThrow(/permission_timeout_seconds/);
+    });
+  });
 });
 
 describe("render config", () => {

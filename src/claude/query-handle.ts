@@ -1,3 +1,4 @@
+import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import type { AppConfig } from "../types.js";
 import type { SDKMessageLike } from "./session.js";
 
@@ -6,7 +7,44 @@ export interface ClaudeQueryOptions {
   model: string;
   permissionMode: AppConfig["claude"]["defaultPermissionMode"];
   settingSources: readonly ("project" | "user" | "local")[];
+  /**
+   * In-process MCP servers to register for this turn. Phase 5 uses a
+   * single `mcp__feishu__ask_user` server so Claude has a Feishu-
+   * native replacement for the built-in `AskUserQuestion` tool. The
+   * session builds a fresh server per turn so the tool handler can
+   * close over that turn's `senderOpenId` / `parentMessageId`.
+   */
+  mcpServers?: readonly McpSdkServerConfigWithInstance[];
+  /**
+   * Tool names to strip from Claude's available tool set. Phase 5
+   * passes `["AskUserQuestion"]` so Claude never sees the built-in
+   * version — only the `mcp__feishu__ask_user` shim.
+   */
+  disallowedTools?: readonly string[];
 }
+
+/**
+ * Per-turn permission callback the session hands to the transport. The
+ * SDK invokes this on every `tool_use` event that Claude emits while
+ * the turn is running. Contract: MUST NOT reject under normal
+ * operation — timeouts, cancellations, and user denials all return
+ * `{behavior: "deny", message}`. Rejections are treated as programming
+ * bugs and will abort the turn.
+ *
+ * Return type is intentionally narrower than the broker's internal
+ * `PermissionResponse`: the SDK only understands `allow` / `deny`, so
+ * the session's closure translates broker-level `allow_turn` /
+ * `allow_session` responses into `{allow}` plus side effects
+ * (`handle.setPermissionMode` and/or sticky flag) before returning.
+ */
+export type CanUseToolFn = (
+  toolName: string,
+  input: Record<string, unknown>,
+  opts: { signal: AbortSignal; toolUseID: string },
+) => Promise<
+  | { behavior: "allow"; updatedInput?: Record<string, unknown> }
+  | { behavior: "deny"; message: string }
+>;
 
 /**
  * Handle exposed by a `QueryFn` for one turn. Consumers iterate
@@ -23,19 +61,29 @@ export interface ClaudeQueryOptions {
  * exited / iterator ended), so the state machine can safely assume
  * that once the returned Promise resolves, no more messages will be
  * emitted for this turn.
+ *
+ * `setPermissionMode()` mirrors the SDK's `query.setPermissionMode`
+ * and changes the default permission policy for the REMAINING tool
+ * calls in this turn. Used to implement the "本轮 acceptEdits" button:
+ * the session flips the mode mid-turn so subsequent Edit/Write tool
+ * uses are auto-allowed without re-prompting. Idempotent; calling
+ * with the current mode is a no-op.
  */
 export interface QueryHandle {
   readonly messages: AsyncIterable<SDKMessageLike>;
   interrupt(): Promise<void>;
+  setPermissionMode(mode: ClaudeQueryOptions["permissionMode"]): void;
 }
 
 /**
  * Structural signature of the function that creates a per-turn
- * `QueryHandle`. `src/claude/cli-query.ts` implements this for the
- * real CLI subprocess; tests inject `FakeQueryHandle` via this same
- * type.
+ * `QueryHandle`. The `canUseTool` callback is a parameter (not a
+ * method on the handle) because the session constructs a fresh
+ * closure per turn that captures the owning message's `senderOpenId`
+ * / `parentMessageId`, and hands it in when it opens the turn.
  */
 export type QueryFn = (params: {
   prompt: string;
   options: ClaudeQueryOptions;
+  canUseTool: CanUseToolFn;
 }) => QueryHandle;

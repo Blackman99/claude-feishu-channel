@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { ClaudeSessionManager } from "../../../src/claude/session-manager.js";
 import type { QueryFn, SDKMessageLike } from "../../../src/claude/session.js";
-import { NullPermissionBroker } from "../../../src/claude/permission-broker.js";
+import { FakePermissionBroker } from "./fakes/fake-permission-broker.js";
+import { FakeQuestionBroker } from "./fakes/fake-question-broker.js";
 import { FakeClock } from "../../../src/util/clock.js";
 import { createLogger } from "../../../src/util/logger.js";
 
@@ -12,6 +13,8 @@ const BASE_CLAUDE_CONFIG = {
   defaultPermissionMode: "default" as const,
   defaultModel: "claude-opus-4-6",
   cliPath: "claude",
+  permissionTimeoutMs: 300_000,
+  permissionWarnBeforeMs: 60_000,
 };
 
 const NOOP_QUERY: QueryFn = () => ({
@@ -21,6 +24,7 @@ const NOOP_QUERY: QueryFn = () => ({
     },
   },
   interrupt: async () => {},
+  setPermissionMode: () => {},
 });
 
 describe("ClaudeSessionManager", () => {
@@ -29,7 +33,8 @@ describe("ClaudeSessionManager", () => {
       config: BASE_CLAUDE_CONFIG,
       queryFn: NOOP_QUERY,
       clock: new FakeClock(),
-      permissionBroker: new NullPermissionBroker(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
       logger: SILENT_LOGGER,
     });
     const a = mgr.getOrCreate("oc_1");
@@ -42,7 +47,8 @@ describe("ClaudeSessionManager", () => {
       config: BASE_CLAUDE_CONFIG,
       queryFn: NOOP_QUERY,
       clock: new FakeClock(),
-      permissionBroker: new NullPermissionBroker(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
       logger: SILENT_LOGGER,
     });
     const a = mgr.getOrCreate("oc_1");

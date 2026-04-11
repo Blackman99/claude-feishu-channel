@@ -31,6 +31,8 @@ const ClaudeSchema = z.object({
     .default("default"),
   default_model: z.string().min(1).default("claude-opus-4-6"),
   cli_path: z.string().min(1).default("claude"),
+  permission_timeout_seconds: z.number().int().positive().default(300),
+  permission_warn_before_seconds: z.number().int().positive().default(60),
 });
 
 const RenderSchema = z
@@ -130,6 +132,8 @@ export async function loadConfig(path: string): Promise<AppConfig> {
       defaultPermissionMode: data.claude.default_permission_mode,
       defaultModel: data.claude.default_model,
       cliPath: data.claude.cli_path,
+      permissionTimeoutMs: data.claude.permission_timeout_seconds * 1000,
+      permissionWarnBeforeMs: data.claude.permission_warn_before_seconds * 1000,
     },
     render: {
       inlineMaxBytes: data.render.inline_max_bytes,

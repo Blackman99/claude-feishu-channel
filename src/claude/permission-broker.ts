@@ -1,6 +1,6 @@
 /**
- * A pending permission check — Phase 5 will construct one of these
- * from the SDK's `canUseTool` callback parameters.
+ * A pending permission check — the session constructs one of these in
+ * its `canUseTool` closure and hands it to `broker.request`.
  */
 export interface PermissionRequest {
   /** Name of the tool Claude wants to call, e.g. "Bash", "Edit". */
@@ -9,26 +9,45 @@ export interface PermissionRequest {
   input: unknown;
   /** Feishu chat that owns this request (for card routing). */
   chatId: string;
+  /**
+   * Open id of the user who sent the message that kicked off this
+   * turn. Only this user may click the permission buttons — everyone
+   * else in the group gets a `forbidden` response.
+   */
+  ownerOpenId: string;
+  /**
+   * Feishu `message_id` of the user message that kicked off this
+   * turn. The broker posts the permission card as a reply to it so
+   * the card threads under the exact request that caused it.
+   */
+  parentMessageId: string;
 }
 
 /**
- * The response the broker returns to Claude. "allow" lets the tool
- * run (optionally with a modified input); "deny" aborts with a user-
- * visible message that Claude will see as the tool_result.
+ * Broker-internal response. The session's `canUseTool` closure
+ * receives this and translates the last two variants to `{allow}` +
+ * side effects before returning to the SDK (which only understands
+ * `allow`/`deny`).
  */
 export type PermissionResponse =
-  | { behavior: "allow"; updatedInput?: unknown }
-  | { behavior: "deny"; message: string };
+  | { behavior: "allow" }
+  | { behavior: "deny"; message: string }
+  | { behavior: "allow_turn" }
+  | { behavior: "allow_session" };
+
+/** Choice value encoded on each permission card button. */
+export type CardChoice = "allow" | "deny" | "allow_turn" | "allow_session";
+
+/** Result of routing a `card.action.trigger` event to the broker. */
+export type CardActionResult =
+  | { kind: "resolved" }
+  | { kind: "not_found" }
+  | { kind: "forbidden"; ownerOpenId: string };
 
 /**
  * Bridges between the SDK's `canUseTool` callback and the Feishu
- * permission card UX. Phase 5 will ship the real implementation that
- * creates a `Deferred<PermissionResponse>`, sends a permission card,
- * and resolves the deferred on button click / timeout.
- *
- * Phase 4 only declares the interface + a stub that throws. The
- * `ClaudeSession` constructor takes a `PermissionBroker` so the
- * Phase 5 wiring is a drop-in replacement with no session-side churn.
+ * permission card UX. Phase 5 ships `FeishuPermissionBroker` as the
+ * real implementation; tests use `FakePermissionBroker`.
  */
 export interface PermissionBroker {
   /**
@@ -38,18 +57,24 @@ export interface PermissionBroker {
    * with `deny`. Only programming bugs should reject.
    */
   request(req: PermissionRequest): Promise<PermissionResponse>;
-}
 
-/**
- * Placeholder broker that throws on use. Phase 4 production wiring
- * injects this — if anything actually calls it, that's a bug (the
- * CLI transport doesn't surface canUseTool yet, and the Phase 4 test
- * seam bypasses the broker entirely via `_testEnterAwaitingPermission`).
- */
-export class NullPermissionBroker implements PermissionBroker {
-  async request(_req: PermissionRequest): Promise<PermissionResponse> {
-    throw new Error(
-      "NullPermissionBroker.request called — permission bridge not wired yet (Phase 5)",
-    );
-  }
+  /**
+   * Handle a card button click. Called by the gateway after
+   * access-control passes on the `card.action.trigger` event.
+   * Returns a result the gateway uses to decide whether to log or
+   * surface anything back to the user.
+   */
+  resolveByCard(args: {
+    requestId: string;
+    senderOpenId: string;
+    choice: CardChoice;
+  }): Promise<CardActionResult>;
+
+  /**
+   * Bulk-deny all pending requests with the given reason. Called by
+   * `session.stop()` / `!` prefix so interrupting the turn also
+   * unblocks any outstanding `canUseTool` calls. The reason becomes
+   * the deny `message` that Claude sees as the tool_result.
+   */
+  cancelAll(reason: string): void;
 }
