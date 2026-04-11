@@ -78,29 +78,3 @@ export interface PermissionBroker {
    */
   cancelAll(reason: string): void;
 }
-
-/**
- * Transitional stub used only by `src/index.ts` until Task 15 wires
- * the real `FeishuPermissionBroker`. Throws on every method so an
- * accidental call during this window is loud. Delete once the real
- * broker is wired.
- */
-export class TransitionalStubBroker implements PermissionBroker {
-  async request(_req: PermissionRequest): Promise<PermissionResponse> {
-    throw new Error(
-      "TransitionalStubBroker.request called — real broker not wired yet (Task 15)",
-    );
-  }
-  async resolveByCard(_args: {
-    requestId: string;
-    senderOpenId: string;
-    choice: CardChoice;
-  }): Promise<CardActionResult> {
-    throw new Error(
-      "TransitionalStubBroker.resolveByCard called — real broker not wired yet (Task 15)",
-    );
-  }
-  cancelAll(_reason: string): void {
-    // no-op during transition — stop/! still works because session.pendingPermission carries the cancel path until Task 13.
-  }
-}

@@ -11,11 +11,10 @@ export interface SdkQueryFnOptions {
 
 /**
  * Build a `QueryFn` that drives turns through `@anthropic-ai/claude-agent-sdk`'s
- * `query()`. Replaces the hand-rolled CLI subprocess adapter in
- * `cli-query.ts` — the SDK still spawns the `claude` binary under the
- * hood (via `pathToClaudeCodeExecutable`), but manages the stream-json
- * protocol and exposes `canUseTool` as a TypeScript callback, which is
- * what Phase 5's permission broker needs.
+ * `query()`. The SDK spawns the `claude` binary under the hood (via
+ * `pathToClaudeCodeExecutable`), manages the stream-json protocol, and
+ * exposes `canUseTool` as a TypeScript callback — which is what Phase 5's
+ * permission broker needs.
  *
  * Environment variable inheritance (including `ANTHROPIC_BASE_URL` /
  * `ANTHROPIC_AUTH_TOKEN` for self-hosted endpoints) happens by passing
