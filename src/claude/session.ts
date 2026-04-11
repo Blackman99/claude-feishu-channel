@@ -6,6 +6,8 @@ import type { AppConfig } from "../types.js";
 import type { RenderEvent } from "./render-event.js";
 import type { CanUseToolFn, QueryFn, QueryHandle } from "./query-handle.js";
 import type { PermissionBroker } from "./permission-broker.js";
+import type { QuestionBroker } from "./question-broker.js";
+import { createAskUserMcpServer } from "./ask-user-mcp.js";
 import type { CommandRouterResult } from "../commands/router.js";
 import {
   extractToolResultText,
@@ -73,6 +75,7 @@ export interface ClaudeSessionOptions {
   queryFn: QueryFn;
   clock: Clock;
   permissionBroker: PermissionBroker;
+  questionBroker: QuestionBroker;
   logger: Logger;
 }
 
@@ -126,6 +129,7 @@ export class ClaudeSession {
   // addition without another constructor churn.
   private readonly clock: Clock;
   private readonly permissionBroker: PermissionBroker;
+  private readonly questionBroker: QuestionBroker;
   private readonly logger: Logger;
   private readonly mutex = new Mutex();
 
@@ -158,6 +162,7 @@ export class ClaudeSession {
     this.queryFn = opts.queryFn;
     this.clock = opts.clock;
     this.permissionBroker = opts.permissionBroker;
+    this.questionBroker = opts.questionBroker;
     this.logger = opts.logger.child({ chat_id: opts.chatId });
     // Touch clock so the compiler doesn't warn about an unused field.
     void this.clock;
@@ -264,6 +269,12 @@ export class ClaudeSession {
     if (needCancelPending) {
       this.permissionBroker.cancelAll("User sent ! prefix");
     }
+    // Questions can be pending at any time during a turn (not just
+    // in `awaiting_permission`), so always cancel the question
+    // broker whenever we interrupt the current turn.
+    if (toInterrupt !== null) {
+      this.questionBroker.cancelAll("User sent ! prefix");
+    }
 
     for (const dropped of toDrop) {
       try {
@@ -343,6 +354,12 @@ export class ClaudeSession {
     if (needCancelPending) {
       this.permissionBroker.cancelAll("User issued /stop");
     }
+    // Cancel question broker whenever we have a turn to interrupt —
+    // an `ask_user` call might be pending without the session being
+    // in `awaiting_permission`.
+    if (toInterrupt !== null) {
+      this.questionBroker.cancelAll("User issued /stop");
+    }
 
     for (const dropped of toDrop) {
       try {
@@ -396,6 +413,17 @@ export class ClaudeSession {
       const permissionMode = this.sessionAcceptEditsSticky
         ? ("acceptEdits" as const)
         : this.config.defaultPermissionMode;
+      // Per-turn MCP server binds the ask_user tool handler to the
+      // current input's senderOpenId / parentMessageId so the
+      // question card threads under the triggering message and only
+      // the original sender can click.
+      const askUserMcp = createAskUserMcpServer({
+        broker: this.questionBroker,
+        chatId: this.chatId,
+        ownerOpenId: next.senderOpenId,
+        parentMessageId: next.parentMessageId,
+        logger: this.logger,
+      });
       const handle = this.queryFn({
         prompt: next.text,
         options: {
@@ -403,6 +431,8 @@ export class ClaudeSession {
           model: this.config.defaultModel,
           permissionMode,
           settingSources: ["user", "project"],
+          mcpServers: [askUserMcp],
+          disallowedTools: ["AskUserQuestion"],
         },
         canUseTool: this.buildCanUseToolClosure(next),
       });
@@ -549,6 +579,25 @@ export class ClaudeSession {
 
   private buildCanUseToolClosure(input: QueuedInput): CanUseToolFn {
     return async (toolName, rawInput, _sdkOpts) => {
+      this.logger.info(
+        { tool_name: toolName, input_keys: Object.keys(rawInput) },
+        "canUseTool called",
+      );
+      // In-process MCP tools we inject ourselves (the `feishu` server —
+      // currently just `ask_user`) must bypass the permission broker.
+      // These are UX affordances the bot owns, not arbitrary tool calls
+      // the user needs to approve; running them through the permission
+      // card would pop up "Claude wants to call mcp__feishu__ask_user"
+      // on top of the actual ask_user question card, which is both
+      // nonsensical and blocks the real card from appearing.
+      if (toolName.startsWith("mcp__feishu__")) {
+        this.logger.info(
+          { tool_name: toolName },
+          "canUseTool: auto-allow mcp__feishu__*",
+        );
+        return { behavior: "allow", updatedInput: rawInput };
+      }
+
       // Flip into awaiting_permission while we wait on the broker.
       await this.mutex.run(async () => {
         if (this.state === "generating") {

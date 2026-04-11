@@ -2,6 +2,7 @@ import type { Logger } from "pino";
 import { ClaudeSession, type QueryFn } from "./session.js";
 import type { Clock } from "../util/clock.js";
 import type { PermissionBroker } from "./permission-broker.js";
+import type { QuestionBroker } from "./question-broker.js";
 import type { AppConfig } from "../types.js";
 
 export interface ClaudeSessionManagerOptions {
@@ -9,6 +10,7 @@ export interface ClaudeSessionManagerOptions {
   queryFn: QueryFn;
   clock: Clock;
   permissionBroker: PermissionBroker;
+  questionBroker: QuestionBroker;
   logger: Logger;
 }
 
@@ -34,6 +36,7 @@ export class ClaudeSessionManager {
         queryFn: this.opts.queryFn,
         clock: this.opts.clock,
         permissionBroker: this.opts.permissionBroker,
+        questionBroker: this.opts.questionBroker,
         logger: this.opts.logger,
       });
       this.sessions.set(chatId, session);

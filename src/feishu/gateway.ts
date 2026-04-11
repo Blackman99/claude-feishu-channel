@@ -6,6 +6,7 @@ import {
 import type { Logger } from "pino";
 import type { IncomingMessage } from "../types.js";
 import type { AccessControl } from "../access.js";
+import type { FeishuCardV2 } from "./card-types.js";
 import { LruDedup } from "../util/dedup.js";
 
 export type MessageHandler = (msg: IncomingMessage) => Promise<void>;
@@ -21,10 +22,20 @@ export interface CardActionEvent {
   // but Phase 5 only reads operator.open_id + action.value.
 }
 
+/**
+ * Result of handling a card action. If a `card` is returned, the
+ * gateway sends it back in the `card.action.trigger` callback response
+ * body as `{ card: { type: "raw", data: card } }`, which is the
+ * documented mechanism Feishu uses to update the displayed card after
+ * a button click. Returning `void` (or undefined) leaves the card
+ * unchanged.
+ */
+export type CardActionResult = { card?: FeishuCardV2 } | void;
+
 export type CardActionHandler = (action: {
   senderOpenId: string;
   value: Record<string, unknown>;
-}) => Promise<void>;
+}) => Promise<CardActionResult>;
 
 export interface FeishuGatewayOptions {
   appId: string;
@@ -81,7 +92,16 @@ export class FeishuGateway {
         await this.handleReceiveV1(event);
       },
       "card.action.trigger": async (data: unknown) => {
-        await this.handleCardAction(data as CardActionEvent);
+        const result = await this.handleCardAction(data as CardActionEvent);
+        // Feishu's card callback response schema supports
+        // `{ card: { type: "raw", data: <FeishuCardV2> } }` to update
+        // the displayed card in place. The Lark WSClient base64-encodes
+        // whatever we return here into the response payload (see
+        // WSClient.handleEventData in the node-sdk), so this is the
+        // supported click-to-update mechanism.
+        if (result && result.card) {
+          return { card: { type: "raw", data: result.card } };
+        }
         return {};
       },
     });
@@ -146,8 +166,14 @@ export class FeishuGateway {
     }
   }
 
-  private async handleCardAction(event: CardActionEvent): Promise<void> {
+  private async handleCardAction(
+    event: CardActionEvent,
+  ): Promise<CardActionResult> {
     const log = this.logger.child({ open_id: event.operator.open_id });
+    log.info(
+      { value: event.action.value },
+      "card.action.trigger received",
+    );
     const decision = this.access.check(event.operator.open_id);
     if (!decision.allowed) {
       log.warn(
@@ -157,12 +183,13 @@ export class FeishuGateway {
       return;
     }
     try {
-      await this.onCardAction({
+      return await this.onCardAction({
         senderOpenId: event.operator.open_id,
         value: event.action.value,
       });
     } catch (err) {
       log.error({ err }, "Card action handler threw");
+      return;
     }
   }
 }

@@ -1,3 +1,4 @@
+import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import type { AppConfig } from "../types.js";
 import type { SDKMessageLike } from "./session.js";
 
@@ -6,6 +7,20 @@ export interface ClaudeQueryOptions {
   model: string;
   permissionMode: AppConfig["claude"]["defaultPermissionMode"];
   settingSources: readonly ("project" | "user" | "local")[];
+  /**
+   * In-process MCP servers to register for this turn. Phase 5 uses a
+   * single `mcp__feishu__ask_user` server so Claude has a Feishu-
+   * native replacement for the built-in `AskUserQuestion` tool. The
+   * session builds a fresh server per turn so the tool handler can
+   * close over that turn's `senderOpenId` / `parentMessageId`.
+   */
+  mcpServers?: readonly McpSdkServerConfigWithInstance[];
+  /**
+   * Tool names to strip from Claude's available tool set. Phase 5
+   * passes `["AskUserQuestion"]` so Claude never sees the built-in
+   * version — only the `mcp__feishu__ask_user` shim.
+   */
+  disallowedTools?: readonly string[];
 }
 
 /**

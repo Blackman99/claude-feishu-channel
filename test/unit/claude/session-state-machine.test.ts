@@ -5,6 +5,7 @@ import {
 } from "../../../src/claude/session.js";
 import { FakeQueryHandle } from "./fakes/fake-query-handle.js";
 import { FakePermissionBroker } from "./fakes/fake-permission-broker.js";
+import { FakeQuestionBroker } from "./fakes/fake-question-broker.js";
 import { SpyRenderer } from "./fakes/spy-renderer.js";
 import { FakeClock } from "../../../src/util/clock.js";
 import { createLogger } from "../../../src/util/logger.js";
@@ -42,12 +43,14 @@ function makeHarness(): Harness {
     return fake as QueryHandle;
   };
   const clock = new FakeClock();
+  const questionBroker = new FakeQuestionBroker();
   const opts: ClaudeSessionOptions = {
     chatId: "oc_x",
     config: BASE_CLAUDE_CONFIG,
     queryFn,
     clock,
     permissionBroker: new FakePermissionBroker(),
+    questionBroker,
     logger: SILENT_LOGGER,
   };
   return { session: new ClaudeSession(opts), fakes, queryFn, clock };
@@ -106,11 +109,35 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     expect(h.session._testGetState()).toBe("idle");
   });
 
-  it("passes cwd / model / permissionMode / settingSources to the injected queryFn", async () => {
-    const recorded: Array<{ prompt: string; options: unknown }> = [];
+  it("passes cwd / model / permissionMode / settingSources / mcpServers / disallowedTools to the injected queryFn", async () => {
+    const recorded: Array<{
+      prompt: string;
+      options: {
+        cwd: string;
+        model: string;
+        permissionMode: string;
+        settingSources: readonly string[];
+        mcpServers?: readonly unknown[];
+        disallowedTools?: readonly string[];
+      };
+    }> = [];
     const fakes: FakeQueryHandle[] = [];
     const queryFn: QueryFn = (params) => {
-      recorded.push({ prompt: params.prompt, options: params.options });
+      recorded.push({
+        prompt: params.prompt,
+        options: {
+          cwd: params.options.cwd,
+          model: params.options.model,
+          permissionMode: params.options.permissionMode,
+          settingSources: params.options.settingSources,
+          ...(params.options.mcpServers
+            ? { mcpServers: params.options.mcpServers }
+            : {}),
+          ...(params.options.disallowedTools
+            ? { disallowedTools: params.options.disallowedTools }
+            : {}),
+        },
+      });
       const fake = new FakeQueryHandle();
       fake.canUseTool = params.canUseTool;
       fakes.push(fake);
@@ -122,6 +149,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
       queryFn,
       clock: new FakeClock(),
       permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
       logger: SILENT_LOGGER,
     });
     const spy = new SpyRenderer();
@@ -140,12 +168,15 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
 
     expect(recorded).toHaveLength(1);
     expect(recorded[0]!.prompt).toBe("hi");
-    expect(recorded[0]!.options).toEqual({
-      cwd: "/tmp/cfc-test",
-      model: "claude-opus-4-6",
-      permissionMode: "default",
-      settingSources: ["user", "project"],
-    });
+    expect(recorded[0]!.options.cwd).toBe("/tmp/cfc-test");
+    expect(recorded[0]!.options.model).toBe("claude-opus-4-6");
+    expect(recorded[0]!.options.permissionMode).toBe("default");
+    expect(recorded[0]!.options.settingSources).toEqual(["user", "project"]);
+    // Phase 5 Part 2: the session must disable the built-in AskUserQuestion
+    // tool and inject exactly one in-process MCP server for the
+    // `mcp__feishu__ask_user` shim.
+    expect(recorded[0]!.options.disallowedTools).toEqual(["AskUserQuestion"]);
+    expect(recorded[0]!.options.mcpServers).toHaveLength(1);
   });
 
   it("rejects the per-input `done` promise when the turn ends with subtype=error", async () => {
@@ -684,6 +715,7 @@ describe("ClaudeSession — sessionAcceptEditsSticky", () => {
       queryFn,
       clock: new FakeClock(),
       permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
       logger: SILENT_LOGGER,
     });
     // Manually set the sticky flag via a test seam (added below).
@@ -708,8 +740,12 @@ describe("ClaudeSession — sessionAcceptEditsSticky", () => {
 });
 
 describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
-  function makeBrokerHarness(): Harness & { broker: FakePermissionBroker } {
+  function makeBrokerHarness(): Harness & {
+    broker: FakePermissionBroker;
+    questionBroker: FakeQuestionBroker;
+  } {
     const broker = new FakePermissionBroker();
+    const questionBroker = new FakeQuestionBroker();
     const fakes: FakeQueryHandle[] = [];
     const queryFn: QueryFn = (params) => {
       const fake = new FakeQueryHandle();
@@ -724,9 +760,10 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
       queryFn,
       clock,
       permissionBroker: broker,
+      questionBroker,
       logger: SILENT_LOGGER,
     });
-    return { session, fakes, queryFn, clock, broker };
+    return { session, fakes, queryFn, clock, broker, questionBroker };
   }
 
   it("canUseTool → broker.request is called with the correct fields", async () => {
@@ -756,6 +793,39 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
     });
     h.broker.fakeResolve({ behavior: "allow" });
     expect(await p).toEqual({ behavior: "allow" });
+
+    fake.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
+    await outcome.done;
+  });
+
+  it("canUseTool short-circuits mcp__feishu__* tools without hitting the broker", async () => {
+    const h = makeBrokerHarness();
+    const spy = new SpyRenderer();
+    const outcome = await h.session.submit(
+      {
+        kind: "run",
+        text: "hi",
+        senderOpenId: "ou_alice",
+        parentMessageId: "om_root_1",
+      },
+      spy.emit,
+    );
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    const fake = h.fakes[0]!;
+
+    // Claude calling our in-process `ask_user` tool must not go
+    // through the permission broker — if it did, we'd pop a permission
+    // card on top of the question card.
+    const rawInput = { questions: [] };
+    const result = await fake.invokeCanUseTool(
+      "mcp__feishu__ask_user",
+      rawInput,
+    );
+    expect(result).toEqual({ behavior: "allow", updatedInput: rawInput });
+    expect(h.broker.requests).toHaveLength(0);
+    // State must stay `generating` — no awaiting_permission flip.
+    expect(h.session._testGetState()).toBe("generating");
 
     fake.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
     await outcome.done;
@@ -857,12 +927,62 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
     await h.session.stop(stopSpy.emit);
 
     expect(h.broker.cancelCalls).toContain("User issued /stop");
+    // `ask_user` might not have been invoked this turn, but the
+    // session must still fire `questionBroker.cancelAll` whenever it
+    // interrupts a running turn — a pending `ask_user` is not gated on
+    // the `awaiting_permission` state.
+    expect(h.questionBroker.cancelCalls).toContain("User issued /stop");
     expect(await permP).toMatchObject({ behavior: "deny" });
     expect(fake.interrupted).toBe(true);
     await expect(first.done).rejects.toThrow();
     await flushMicrotasks();
     expect(h.session._testGetState()).toBe("idle");
     expect(stopSpy.events).toEqual([{ type: "stop_ack" }]);
+  });
+
+  it("/stop with a pending ask_user resolves the question with cancelled", async () => {
+    const h = makeBrokerHarness();
+    const spy = new SpyRenderer();
+    const stopSpy = new SpyRenderer();
+    const first = await h.session.submit(
+      {
+        kind: "run",
+        text: "one",
+        senderOpenId: "ou_alice",
+        parentMessageId: "om_root_1",
+      },
+      spy.emit,
+    );
+    await flushMicrotasks();
+    if (first.kind !== "started") throw new Error("unreachable");
+
+    // Simulate Claude calling `ask_user` by directly exercising the
+    // question broker the session handed to its per-turn MCP server.
+    const qPromise = h.questionBroker.request({
+      questions: [
+        {
+          question: "Pick one",
+          options: [
+            { label: "A", description: "" },
+            { label: "B", description: "" },
+          ],
+          multiSelect: false,
+        },
+      ],
+      chatId: "oc_x",
+      ownerOpenId: "ou_alice",
+      parentMessageId: "om_root_1",
+    });
+    expect(h.questionBroker.pendingCount()).toBe(1);
+
+    await h.session.stop(stopSpy.emit);
+
+    expect(h.questionBroker.cancelCalls).toContain("User issued /stop");
+    await expect(qPromise).resolves.toMatchObject({
+      kind: "cancelled",
+      reason: "User issued /stop",
+    });
+    await expect(first.done).rejects.toThrow();
   });
 
   it("! prefix while awaiting_permission calls cancelAll, drops queue, runs new input", async () => {

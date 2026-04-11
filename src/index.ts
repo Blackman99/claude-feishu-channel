@@ -12,6 +12,7 @@ import { createSdkQueryFn } from "./claude/sdk-query.js";
 import { ClaudeSessionManager } from "./claude/session-manager.js";
 import { InterruptedError } from "./claude/session.js";
 import { FeishuPermissionBroker } from "./claude/feishu-permission-broker.js";
+import { FeishuQuestionBroker } from "./claude/feishu-question-broker.js";
 import { RealClock } from "./util/clock.js";
 import { parseInput } from "./commands/router.js";
 import type { RenderEvent } from "./claude/render-event.js";
@@ -113,11 +114,26 @@ async function main(): Promise<void> {
     },
   });
 
+  // `ask_user` MCP shim uses the same timeout knobs as the permission
+  // broker — question timeouts live in the same order of magnitude and
+  // the plan intentionally reuses the existing config rather than
+  // introducing yet another tuning surface.
+  const questionBroker = new FeishuQuestionBroker({
+    feishu: feishuClient,
+    clock: new RealClock(),
+    logger,
+    config: {
+      timeoutMs: config.claude.permissionTimeoutMs,
+      warnBeforeMs: config.claude.permissionWarnBeforeMs,
+    },
+  });
+
   const sessionManager = new ClaudeSessionManager({
     config: config.claude,
     queryFn,
     clock: new RealClock(),
     permissionBroker,
+    questionBroker,
     logger,
   });
 
@@ -641,46 +657,94 @@ async function main(): Promise<void> {
   }: {
     senderOpenId: string;
     value: Record<string, unknown>;
-  }): Promise<void> => {
-    if (value.kind !== "permission") {
-      logger.warn({ value }, "Card action with unknown kind, ignoring");
+  }): Promise<import("./feishu/gateway.js").CardActionResult> => {
+    const kind = value.kind;
+    if (kind === "permission") {
+      const requestId = value.request_id;
+      const choice = value.choice;
+      if (typeof requestId !== "string") {
+        logger.warn({ value }, "Permission card action missing request_id");
+        return;
+      }
+      if (
+        choice !== "allow" &&
+        choice !== "deny" &&
+        choice !== "allow_turn" &&
+        choice !== "allow_session"
+      ) {
+        logger.warn({ value }, "Permission card action has invalid choice");
+        return;
+      }
+      const result = await permissionBroker.resolveByCard({
+        requestId,
+        senderOpenId,
+        choice,
+      });
+      if (result.kind === "forbidden") {
+        logger.warn(
+          {
+            request_id: requestId,
+            clicker: senderOpenId,
+            owner: result.ownerOpenId,
+          },
+          "Non-owner permission card click — ignored",
+        );
+      } else if (result.kind === "not_found") {
+        logger.info(
+          { request_id: requestId },
+          "Permission card action for unknown request — likely already resolved",
+        );
+      }
       return;
     }
-    const requestId = value.request_id;
-    const choice = value.choice;
-    if (typeof requestId !== "string") {
-      logger.warn({ value }, "Card action missing request_id");
+    if (kind === "question") {
+      const requestId = value.request_id;
+      const questionIndex = value.question_index;
+      const optionIndex = value.option_index;
+      if (typeof requestId !== "string") {
+        logger.warn({ value }, "Question card action missing request_id");
+        return;
+      }
+      if (typeof questionIndex !== "number" || !Number.isInteger(questionIndex)) {
+        logger.warn({ value }, "Question card action has invalid question_index");
+        return;
+      }
+      if (typeof optionIndex !== "number" || !Number.isInteger(optionIndex)) {
+        logger.warn({ value }, "Question card action has invalid option_index");
+        return;
+      }
+      const result = await questionBroker.resolveByCard({
+        requestId,
+        senderOpenId,
+        choice: { questionIndex, optionIndex },
+      });
+      if (result.kind === "forbidden") {
+        logger.warn(
+          {
+            request_id: requestId,
+            clicker: senderOpenId,
+            owner: result.ownerOpenId,
+          },
+          "Non-owner question card click — ignored",
+        );
+        return;
+      }
+      if (result.kind === "not_found") {
+        logger.info(
+          { request_id: requestId },
+          "Question card action for unknown request — likely already resolved",
+        );
+        return;
+      }
+      // Forward the broker's updated card (partial-answered state or
+      // fully-resolved compact variant) so the gateway can replay it
+      // in the callback response body — see CardActionResult for why.
+      if (result.card) {
+        return { card: result.card };
+      }
       return;
     }
-    if (
-      choice !== "allow" &&
-      choice !== "deny" &&
-      choice !== "allow_turn" &&
-      choice !== "allow_session"
-    ) {
-      logger.warn({ value }, "Card action has invalid choice");
-      return;
-    }
-    const result = await permissionBroker.resolveByCard({
-      requestId,
-      senderOpenId,
-      choice,
-    });
-    if (result.kind === "forbidden") {
-      logger.warn(
-        {
-          request_id: requestId,
-          clicker: senderOpenId,
-          owner: result.ownerOpenId,
-        },
-        "Non-owner permission card click — ignored",
-      );
-    } else if (result.kind === "not_found") {
-      logger.info(
-        { request_id: requestId },
-        "Card action for unknown request — likely already resolved",
-      );
-    }
+    logger.warn({ value }, "Card action with unknown kind, ignoring");
   };
 
   const gateway = new FeishuGateway({
