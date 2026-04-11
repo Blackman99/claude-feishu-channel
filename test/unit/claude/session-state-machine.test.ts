@@ -669,6 +669,45 @@ describe("ClaudeSession — ! prefix interrupt", () => {
   });
 });
 
+describe("ClaudeSession — sessionAcceptEditsSticky", () => {
+  it("runTurn uses acceptEdits when sessionAcceptEditsSticky is set", async () => {
+    const recorded: Array<{ permissionMode: string }> = [];
+    const fakes: FakeQueryHandle[] = [];
+    const queryFn: QueryFn = (params) => {
+      recorded.push({ permissionMode: params.options.permissionMode });
+      const fake = new FakeQueryHandle();
+      fakes.push(fake);
+      return fake as QueryHandle;
+    };
+    const session = new ClaudeSession({
+      chatId: "oc_x",
+      config: BASE_CLAUDE_CONFIG,
+      queryFn,
+      clock: new FakeClock(),
+      permissionBroker: new TransitionalStubBroker(),
+      logger: SILENT_LOGGER,
+    });
+    // Manually set the sticky flag via a test seam (added below).
+    session._testSetSessionAcceptEditsSticky(true);
+
+    const outcome = await session.submit(
+      {
+        kind: "run",
+        text: "hi",
+        senderOpenId: "ou_test",
+        parentMessageId: "om_test",
+      },
+      new SpyRenderer().emit,
+    );
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    fakes[0]!.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
+    await outcome.done;
+
+    expect(recorded[0]!.permissionMode).toBe("acceptEdits");
+  });
+});
+
 describe("ClaudeSession — awaiting_permission stub", () => {
   it("state is 'awaiting_permission' after the test seam flips it", async () => {
     const h = makeHarness();

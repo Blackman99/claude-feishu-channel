@@ -153,6 +153,15 @@ export class ClaudeSession {
    */
   private pendingPermission: Deferred<PermissionResponse> | null = null;
 
+  /**
+   * When true, subsequent turns run with `permissionMode: "acceptEdits"`
+   * regardless of the configured default. Set by the session's canUseTool
+   * closure when the user clicks "会话 acceptEdits" on a permission card.
+   * Cleared only on process restart (Phase 5 scope) — Phase 6's `/new`
+   * and `/mode default` commands will clear it too.
+   */
+  private sessionAcceptEditsSticky = false;
+
   constructor(opts: ClaudeSessionOptions) {
     this.config = opts.config;
     this.queryFn = opts.queryFn;
@@ -433,21 +442,18 @@ export class ClaudeSession {
       });
       if (next === null) return;
 
-      // Phase 5 transition: canUseTool stub will be wired to the real broker in Task 13.
-      const canUseTool: CanUseToolFn = async () => ({
-        behavior: "deny",
-        message: "Permission denied (transition phase)",
-      });
-
+      const permissionMode = this.sessionAcceptEditsSticky
+        ? ("acceptEdits" as const)
+        : this.config.defaultPermissionMode;
       const handle = this.queryFn({
         prompt: next.text,
         options: {
           cwd: this.config.defaultCwd,
           model: this.config.defaultModel,
-          permissionMode: this.config.defaultPermissionMode,
+          permissionMode,
           settingSources: ["project"],
         },
-        canUseTool,
+        canUseTool: this.buildCanUseToolClosure(next),
       });
       this.currentTurn = { input: next, handle };
 
@@ -598,5 +604,21 @@ export class ClaudeSession {
   _testLeaveAwaitingPermission(): void {
     this.state = "generating";
     this.pendingPermission = null;
+  }
+
+  /** @internal Phase 5 test seam — manipulates sticky flag directly. */
+  _testSetSessionAcceptEditsSticky(value: boolean): void {
+    this.sessionAcceptEditsSticky = value;
+  }
+
+  private buildCanUseToolClosure(
+    input: QueuedInput,
+  ): CanUseToolFn {
+    // Touch input so TypeScript doesn't complain during the transition.
+    void input;
+    return async () => ({
+      behavior: "deny",
+      message: "canUseTool not yet wired",
+    });
   }
 }
