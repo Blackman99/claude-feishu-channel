@@ -142,7 +142,6 @@ export class FeishuPermissionBroker implements PermissionBroker {
         buildPermissionCardResolved({
           toolName: p.toolName,
           choice: args.choice,
-          resolverOpenId: args.senderOpenId,
         }),
       );
     } catch (err) {

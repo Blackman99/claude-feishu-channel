@@ -68,28 +68,26 @@ export function buildPermissionCard(args: BuildPendingArgs): FeishuCardV2 {
 interface BuildResolvedArgs {
   toolName: string;
   choice: "allow" | "deny" | "allow_turn" | "allow_session";
-  resolverOpenId: string;
 }
 
+/**
+ * Compact one-line variant shown after a click. Drops the header and
+ * replaces the pending body with a single markdown line — mirrors how
+ * the CLI collapses a resolved permission prompt to "tool: choice".
+ */
 export function buildPermissionCardResolved(
   args: BuildResolvedArgs,
 ): FeishuCardV2 {
   const label = RESOLVED_LABEL[args.choice];
+  const icon = args.choice === "deny" ? "❌" : "✅";
   return {
     schema: "2.0",
     config: { update_multi: true },
-    header: {
-      title: {
-        tag: "plain_text",
-        content: `🔐 权限请求 · ${args.toolName}`,
-      },
-      template: args.choice === "deny" ? "red" : "green",
-    },
     body: {
       elements: [
         {
           tag: "markdown",
-          content: `✅ 已由 <at id=${JSON.stringify(args.resolverOpenId)}></at> 选择：**${label}**`,
+          content: `${icon} ${label} · \`${escapeMd(args.toolName)}\``,
         },
       ],
     },
@@ -110,18 +108,11 @@ export function buildPermissionCardCancelled(args: {
   return {
     schema: "2.0",
     config: { update_multi: true },
-    header: {
-      title: {
-        tag: "plain_text",
-        content: `🔐 权限请求 · ${args.toolName}`,
-      },
-      template: "grey",
-    },
     body: {
       elements: [
         {
           tag: "markdown",
-          content: `🛑 已取消（${escapeMd(args.reason)}）`,
+          content: `🛑 已取消 \`${escapeMd(args.toolName)}\`（${escapeMd(args.reason)}）`,
         },
       ],
     },
@@ -134,18 +125,11 @@ export function buildPermissionCardTimedOut(args: {
   return {
     schema: "2.0",
     config: { update_multi: true },
-    header: {
-      title: {
-        tag: "plain_text",
-        content: `🔐 权限请求 · ${args.toolName}`,
-      },
-      template: "grey",
-    },
     body: {
       elements: [
         {
           tag: "markdown",
-          content: "⏰ 已超时自动拒绝",
+          content: `⏰ 已超时 \`${escapeMd(args.toolName)}\``,
         },
       ],
     },

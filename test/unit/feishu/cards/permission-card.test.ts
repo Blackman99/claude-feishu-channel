@@ -65,22 +65,23 @@ describe("buildPermissionCard (pending)", () => {
 });
 
 describe("buildPermissionCardResolved", () => {
-  it("renders a one-line confirmation without buttons", () => {
+  it("renders a one-line confirmation without buttons or header", () => {
     const card = buildPermissionCardResolved({
       toolName: "Bash",
       choice: "allow",
-      resolverOpenId: "ou_x",
     });
     const json = JSON.stringify(card);
     expect(json).not.toContain('"tag":"button"');
+    expect(card.header).toBeUndefined();
+    expect(card.body?.elements).toHaveLength(1);
     expect(json).toMatch(/允许|allow/);
+    expect(json).toContain("Bash");
   });
 
   it("labels the deny variant correctly", () => {
     const card = buildPermissionCardResolved({
       toolName: "Bash",
       choice: "deny",
-      resolverOpenId: "ou_x",
     });
     expect(JSON.stringify(card)).toMatch(/拒绝|denied/);
   });
@@ -89,7 +90,6 @@ describe("buildPermissionCardResolved", () => {
     const card = buildPermissionCardResolved({
       toolName: "Bash",
       choice: "allow_turn",
-      resolverOpenId: "ou_x",
     });
     expect(JSON.stringify(card)).toMatch(/本轮.*acceptEdits/);
   });
@@ -98,7 +98,6 @@ describe("buildPermissionCardResolved", () => {
     const card = buildPermissionCardResolved({
       toolName: "Bash",
       choice: "allow_session",
-      resolverOpenId: "ou_x",
     });
     expect(JSON.stringify(card)).toMatch(/会话.*acceptEdits/);
   });
