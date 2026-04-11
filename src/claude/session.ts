@@ -402,7 +402,7 @@ export class ClaudeSession {
           cwd: this.config.defaultCwd,
           model: this.config.defaultModel,
           permissionMode,
-          settingSources: ["project"],
+          settingSources: ["user", "project"],
         },
         canUseTool: this.buildCanUseToolClosure(next),
       });

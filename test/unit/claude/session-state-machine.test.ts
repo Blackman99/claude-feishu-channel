@@ -144,7 +144,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
       cwd: "/tmp/cfc-test",
       model: "claude-opus-4-6",
       permissionMode: "default",
-      settingSources: ["project"],
+      settingSources: ["user", "project"],
     });
   });
 
