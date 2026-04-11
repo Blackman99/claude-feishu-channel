@@ -44,6 +44,10 @@ export interface AppConfig {
     defaultModel: string;
     /** Path to the `claude` CLI binary. Usually `"claude"` (resolved via $PATH). */
     cliPath: string;
+    /** Max time the broker waits for a user decision before auto-denying. */
+    permissionTimeoutMs: number;
+    /** How far BEFORE the timeout to post the "⏰ 60s" warning reminder. */
+    permissionWarnBeforeMs: number;
   };
   render: {
     /** Max bytes (UTF-8) of inline content in a card before truncation. */

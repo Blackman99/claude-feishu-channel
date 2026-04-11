@@ -21,6 +21,8 @@ const BASE_CLAUDE_CONFIG = {
   defaultPermissionMode: "default" as const,
   defaultModel: "claude-opus-4-6",
   cliPath: "claude",
+  permissionTimeoutMs: 300_000,
+  permissionWarnBeforeMs: 60_000,
 };
 
 interface Harness {
