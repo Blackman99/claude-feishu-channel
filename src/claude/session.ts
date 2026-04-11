@@ -5,10 +5,7 @@ import type { Clock } from "../util/clock.js";
 import type { AppConfig } from "../types.js";
 import type { RenderEvent } from "./render-event.js";
 import type { CanUseToolFn, QueryFn, QueryHandle } from "./query-handle.js";
-import type {
-  PermissionBroker,
-  PermissionResponse,
-} from "./permission-broker.js";
+import type { PermissionBroker } from "./permission-broker.js";
 import type { CommandRouterResult } from "../commands/router.js";
 import {
   extractToolResultText,
@@ -121,12 +118,12 @@ export type SubmitInput = CommandRouterResult & {
  * while a turn is in-flight.
  */
 export class ClaudeSession {
+  private readonly chatId: string;
   private readonly config: AppConfig["claude"];
   private readonly queryFn: QueryFn;
-  // `clock` and `permissionBroker` are dependencies Phase 5 will use
-  // (timers + canUseTool). Phase 4 only keeps them in the constructor
-  // signature so Phase 5 is a drop-in addition without another
-  // constructor churn.
+  // `clock` is a dependency Phase 5 will use (timers). Phase 4 only
+  // keeps it in the constructor signature so Phase 5 is a drop-in
+  // addition without another constructor churn.
   private readonly clock: Clock;
   private readonly permissionBroker: PermissionBroker;
   private readonly logger: Logger;
@@ -145,13 +142,6 @@ export class ClaudeSession {
    * race to kick off a drain.
    */
   private loopRunning = false;
-  /**
-   * The Deferred handed back to the SDK's canUseTool callback while
-   * the session waits for the user to approve or deny a tool. Phase 4
-   * only sets this via the test seam — Phase 5 will hook up the real
-   * canUseTool bridge.
-   */
-  private pendingPermission: Deferred<PermissionResponse> | null = null;
 
   /**
    * When true, subsequent turns run with `permissionMode: "acceptEdits"`
@@ -163,14 +153,14 @@ export class ClaudeSession {
   private sessionAcceptEditsSticky = false;
 
   constructor(opts: ClaudeSessionOptions) {
+    this.chatId = opts.chatId;
     this.config = opts.config;
     this.queryFn = opts.queryFn;
     this.clock = opts.clock;
     this.permissionBroker = opts.permissionBroker;
     this.logger = opts.logger.child({ chat_id: opts.chatId });
-    // Touch the unused-for-now deps so the compiler doesn't warn.
+    // Touch clock so the compiler doesn't warn about an unused field.
     void this.clock;
-    void this.permissionBroker;
   }
 
   /**
@@ -253,40 +243,28 @@ export class ClaudeSession {
   ): Promise<SubmitOutcome> {
     const toDrop: QueuedInput[] = [];
     let toInterrupt: QueryHandle | null = null;
-    let permissionToDeny: Deferred<PermissionResponse> | null = null;
+    let needCancelPending = false;
 
     await this.mutex.run(async () => {
-      // Drop everything currently queued ahead of us.
       while (this.inputQueue.length > 0) {
         toDrop.push(this.inputQueue.shift()!);
       }
       toInterrupt = this.currentTurn?.handle ?? null;
       if (this.state === "awaiting_permission") {
-        permissionToDeny = this.pendingPermission;
-        this.pendingPermission = null;
+        needCancelPending = true;
         this.state = "generating";
       }
-      // Push the new input.
       this.inputQueue.push(entry);
-      // If the session is idle, bang is equivalent to plain run.
       if (this.state === "idle") {
         this.state = "generating";
       }
       this.kickLoopIfNeeded();
-      // If non-idle, processLoop is already draining — it will pick
-      // up the new entry after the current turn's iterator unwinds.
     });
 
-    // Resolve any pending permission with deny so the SDK callback
-    // returns and the in-flight turn can unwind.
-    if (permissionToDeny !== null) {
-      (permissionToDeny as Deferred<PermissionResponse>).resolve({
-        behavior: "deny",
-        message: "user_cancelled",
-      });
+    if (needCancelPending) {
+      this.permissionBroker.cancelAll("User sent ! prefix");
     }
 
-    // Notify dropped inputs + reject their promises.
     for (const dropped of toDrop) {
       try {
         await dropped.emit({ type: "interrupted", reason: "bang_prefix" });
@@ -299,9 +277,6 @@ export class ClaudeSession {
       dropped.done.reject(new InterruptedError("bang_prefix"));
     }
 
-    // Ask the in-flight turn to terminate (if any). The new input
-    // waits in the queue until runTurn throws and the processLoop
-    // drains it.
     if (toInterrupt !== null) {
       try {
         await (toInterrupt as QueryHandle).interrupt();
@@ -349,45 +324,26 @@ export class ClaudeSession {
    * still take a beat to finish unwinding its iterator.
    */
   async stop(emit: EmitFn): Promise<void> {
-    // Gather the interrupt target + drain the queue under the lock.
-    // We don't await the interrupt INSIDE the lock so other submits
-    // aren't blocked on the child's exit.
     const toDrop: QueuedInput[] = [];
     let toInterrupt: QueryHandle | null = null;
-    let permissionToDeny: Deferred<PermissionResponse> | null = null;
+    let needCancelPending = false;
 
     await this.mutex.run(async () => {
-      if (this.state === "idle") {
-        // Nothing to stop. Ack and return.
-        return;
-      }
+      if (this.state === "idle") return;
       toInterrupt = this.currentTurn?.handle ?? null;
       if (this.state === "awaiting_permission") {
-        permissionToDeny = this.pendingPermission;
-        this.pendingPermission = null;
-        // Flip back to generating so the processLoop's teardown sees
-        // a consistent state during interrupt unwinding.
+        needCancelPending = true;
         this.state = "generating";
       }
       while (this.inputQueue.length > 0) {
         toDrop.push(this.inputQueue.shift()!);
       }
-      // The currentTurn's Deferred is NOT rejected here — it will
-      // reject naturally when runTurn observes the interrupted iterator.
     });
 
-    // 1. Resolve the pending permission with deny so the SDK callback
-    //    returns and the turn can unwind. Phase 5 will replace this
-    //    with the real canUseTool wiring; for now this is the
-    //    contract Task 10 verifies.
-    if (permissionToDeny !== null) {
-      (permissionToDeny as Deferred<PermissionResponse>).resolve({
-        behavior: "deny",
-        message: "user_cancelled",
-      });
+    if (needCancelPending) {
+      this.permissionBroker.cancelAll("User issued /stop");
     }
 
-    // 2. Notify each dropped input via its own emit, then reject its done.
     for (const dropped of toDrop) {
       try {
         await dropped.emit({ type: "interrupted", reason: "stop" });
@@ -400,7 +356,6 @@ export class ClaudeSession {
       dropped.done.reject(new InterruptedError("stop"));
     }
 
-    // 3. Ask the in-flight turn to terminate.
     if (toInterrupt !== null) {
       try {
         await (toInterrupt as QueryHandle).interrupt();
@@ -409,10 +364,6 @@ export class ClaudeSession {
       }
     }
 
-    // 4. Ack the caller. A dedicated `stop_ack` variant keeps the
-    //    dispatcher from routing this through the answer-card + "✅
-    //    完成" path that plain `text` uses — stopping is not
-    //    completing, and the user should see a terse one-liner.
     try {
       await emit({ type: "stop_ack" });
     } catch (err) {
@@ -586,39 +537,55 @@ export class ClaudeSession {
     return this.inputQueue.length;
   }
 
-  /**
-   * @internal Phase 4 test seam — flips the session into
-   * `awaiting_permission` and stores the Deferred that `/stop` and
-   * `!` will resolve. Phase 5's real canUseTool bridge will perform
-   * the same mutation inside the SDK callback.
-   */
-  _testEnterAwaitingPermission(deferred: Deferred<PermissionResponse>): void {
-    this.state = "awaiting_permission";
-    this.pendingPermission = deferred;
-  }
-
-  /**
-   * @internal Phase 4 test seam — exits awaiting_permission back to
-   * generating without invoking stop/!.
-   */
-  _testLeaveAwaitingPermission(): void {
-    this.state = "generating";
-    this.pendingPermission = null;
-  }
-
   /** @internal Phase 5 test seam — manipulates sticky flag directly. */
   _testSetSessionAcceptEditsSticky(value: boolean): void {
     this.sessionAcceptEditsSticky = value;
   }
 
-  private buildCanUseToolClosure(
-    input: QueuedInput,
-  ): CanUseToolFn {
-    // Touch input so TypeScript doesn't complain during the transition.
-    void input;
-    return async () => ({
-      behavior: "deny",
-      message: "canUseTool not yet wired",
-    });
+  /** @internal */
+  _testGetSessionAcceptEditsSticky(): boolean {
+    return this.sessionAcceptEditsSticky;
+  }
+
+  private buildCanUseToolClosure(input: QueuedInput): CanUseToolFn {
+    return async (toolName, rawInput, _sdkOpts) => {
+      // Flip into awaiting_permission while we wait on the broker.
+      await this.mutex.run(async () => {
+        if (this.state === "generating") {
+          this.state = "awaiting_permission";
+        }
+      });
+
+      let response;
+      try {
+        response = await this.permissionBroker.request({
+          toolName,
+          input: rawInput,
+          chatId: this.chatId,
+          ownerOpenId: input.senderOpenId,
+          parentMessageId: input.parentMessageId,
+        });
+      } finally {
+        await this.mutex.run(async () => {
+          if (this.state === "awaiting_permission") {
+            this.state = "generating";
+          }
+        });
+      }
+
+      switch (response.behavior) {
+        case "allow":
+          return { behavior: "allow" };
+        case "deny":
+          return { behavior: "deny", message: response.message };
+        case "allow_turn":
+          this.currentTurn?.handle.setPermissionMode("acceptEdits");
+          return { behavior: "allow" };
+        case "allow_session":
+          this.currentTurn?.handle.setPermissionMode("acceptEdits");
+          this.sessionAcceptEditsSticky = true;
+          return { behavior: "allow" };
+      }
+    };
   }
 }

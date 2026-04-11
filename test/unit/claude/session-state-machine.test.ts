@@ -4,15 +4,11 @@ import {
   type ClaudeSessionOptions,
 } from "../../../src/claude/session.js";
 import { FakeQueryHandle } from "./fakes/fake-query-handle.js";
+import { FakePermissionBroker } from "./fakes/fake-permission-broker.js";
 import { SpyRenderer } from "./fakes/spy-renderer.js";
-import {
-  TransitionalStubBroker,
-  type PermissionResponse,
-} from "../../../src/claude/permission-broker.js";
 import { FakeClock } from "../../../src/util/clock.js";
 import { createLogger } from "../../../src/util/logger.js";
 import type { QueryFn, QueryHandle } from "../../../src/claude/query-handle.js";
-import { createDeferred } from "../../../src/util/deferred.js";
 
 const SILENT_LOGGER = createLogger({ level: "error", pretty: false });
 
@@ -39,8 +35,9 @@ interface Harness {
  */
 function makeHarness(): Harness {
   const fakes: FakeQueryHandle[] = [];
-  const queryFn: QueryFn = () => {
+  const queryFn: QueryFn = (params) => {
     const fake = new FakeQueryHandle();
+    fake.canUseTool = params.canUseTool;
     fakes.push(fake);
     return fake as QueryHandle;
   };
@@ -50,7 +47,7 @@ function makeHarness(): Harness {
     config: BASE_CLAUDE_CONFIG,
     queryFn,
     clock,
-    permissionBroker: new TransitionalStubBroker(),
+    permissionBroker: new FakePermissionBroker(),
     logger: SILENT_LOGGER,
   };
   return { session: new ClaudeSession(opts), fakes, queryFn, clock };
@@ -115,6 +112,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     const queryFn: QueryFn = (params) => {
       recorded.push({ prompt: params.prompt, options: params.options });
       const fake = new FakeQueryHandle();
+      fake.canUseTool = params.canUseTool;
       fakes.push(fake);
       return fake as QueryHandle;
     };
@@ -123,7 +121,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
       config: BASE_CLAUDE_CONFIG,
       queryFn,
       clock: new FakeClock(),
-      permissionBroker: new TransitionalStubBroker(),
+      permissionBroker: new FakePermissionBroker(),
       logger: SILENT_LOGGER,
     });
     const spy = new SpyRenderer();
@@ -676,6 +674,7 @@ describe("ClaudeSession — sessionAcceptEditsSticky", () => {
     const queryFn: QueryFn = (params) => {
       recorded.push({ permissionMode: params.options.permissionMode });
       const fake = new FakeQueryHandle();
+      fake.canUseTool = params.canUseTool;
       fakes.push(fake);
       return fake as QueryHandle;
     };
@@ -684,7 +683,7 @@ describe("ClaudeSession — sessionAcceptEditsSticky", () => {
       config: BASE_CLAUDE_CONFIG,
       queryFn,
       clock: new FakeClock(),
-      permissionBroker: new TransitionalStubBroker(),
+      permissionBroker: new FakePermissionBroker(),
       logger: SILENT_LOGGER,
     });
     // Manually set the sticky flag via a test seam (added below).
@@ -708,104 +707,215 @@ describe("ClaudeSession — sessionAcceptEditsSticky", () => {
   });
 });
 
-describe("ClaudeSession — awaiting_permission stub", () => {
-  it("state is 'awaiting_permission' after the test seam flips it", async () => {
-    const h = makeHarness();
+describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
+  function makeBrokerHarness(): Harness & { broker: FakePermissionBroker } {
+    const broker = new FakePermissionBroker();
+    const fakes: FakeQueryHandle[] = [];
+    const queryFn: QueryFn = (params) => {
+      const fake = new FakeQueryHandle();
+      fake.canUseTool = params.canUseTool;
+      fakes.push(fake);
+      return fake as QueryHandle;
+    };
+    const clock = new FakeClock();
+    const session = new ClaudeSession({
+      chatId: "oc_x",
+      config: BASE_CLAUDE_CONFIG,
+      queryFn,
+      clock,
+      permissionBroker: broker,
+      logger: SILENT_LOGGER,
+    });
+    return { session, fakes, queryFn, clock, broker };
+  }
+
+  it("canUseTool → broker.request is called with the correct fields", async () => {
+    const h = makeBrokerHarness();
     const spy = new SpyRenderer();
-    const first = await h.session.submit(
-      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
+    const outcome = await h.session.submit(
+      {
+        kind: "run",
+        text: "hi",
+        senderOpenId: "ou_alice",
+        parentMessageId: "om_root_1",
+      },
       spy.emit,
     );
+    if (outcome.kind !== "started") throw new Error("unreachable");
     await flushMicrotasks();
-    if (first.kind !== "started") throw new Error("unreachable");
-
-    const permissionDeferred = createDeferred<PermissionResponse>();
-    h.session._testEnterAwaitingPermission(permissionDeferred);
-    expect(h.session._testGetState()).toBe("awaiting_permission");
-
-    // Clean up so the test doesn't hang: let the seam know we're done.
-    permissionDeferred.resolve({ behavior: "deny", message: "test-cleanup" });
-    h.session._testLeaveAwaitingPermission();
+    const fake = h.fakes[0]!;
+    const p = fake.invokeCanUseTool("Bash", { command: "ls" });
     await flushMicrotasks();
-    await h.fakes[0]!.interrupt();
-    await expect(first.done).rejects.toThrow();
+    expect(h.broker.requests).toHaveLength(1);
+    expect(h.broker.requests[0]).toMatchObject({
+      toolName: "Bash",
+      input: { command: "ls" },
+      chatId: "oc_x",
+      ownerOpenId: "ou_alice",
+      parentMessageId: "om_root_1",
+    });
+    h.broker.fakeResolve({ behavior: "allow" });
+    expect(await p).toEqual({ behavior: "allow" });
+
+    fake.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
+    await outcome.done;
   });
 
-  it("/stop in awaiting_permission denies the pending permission and interrupts", async () => {
-    const h = makeHarness();
+  it("broker deny maps to {deny, message} for the SDK", async () => {
+    const h = makeBrokerHarness();
+    const spy = new SpyRenderer();
+    const outcome = await h.session.submit(
+      {
+        kind: "run",
+        text: "hi",
+        senderOpenId: "ou_alice",
+        parentMessageId: "om_root_1",
+      },
+      spy.emit,
+    );
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    const fake = h.fakes[0]!;
+    const p = fake.invokeCanUseTool("Bash", {});
+    await flushMicrotasks();
+    h.broker.fakeResolve({ behavior: "deny", message: "nope" });
+    expect(await p).toEqual({ behavior: "deny", message: "nope" });
+    fake.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
+    await outcome.done;
+  });
+
+  it("broker allow_turn calls handle.setPermissionMode('acceptEdits') and returns {allow}", async () => {
+    const h = makeBrokerHarness();
+    const spy = new SpyRenderer();
+    const outcome = await h.session.submit(
+      {
+        kind: "run",
+        text: "hi",
+        senderOpenId: "ou_alice",
+        parentMessageId: "om_root_1",
+      },
+      spy.emit,
+    );
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    const fake = h.fakes[0]!;
+    const p = fake.invokeCanUseTool("Edit", {});
+    await flushMicrotasks();
+    h.broker.fakeResolve({ behavior: "allow_turn" });
+    expect(await p).toEqual({ behavior: "allow" });
+    expect(fake.permissionModeChanges).toEqual(["acceptEdits"]);
+    expect(h.session._testGetSessionAcceptEditsSticky()).toBe(false);
+    fake.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
+    await outcome.done;
+  });
+
+  it("broker allow_session flips sticky and calls setPermissionMode", async () => {
+    const h = makeBrokerHarness();
+    const spy = new SpyRenderer();
+    const outcome = await h.session.submit(
+      {
+        kind: "run",
+        text: "hi",
+        senderOpenId: "ou_alice",
+        parentMessageId: "om_root_1",
+      },
+      spy.emit,
+    );
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    const fake = h.fakes[0]!;
+    const p = fake.invokeCanUseTool("Edit", {});
+    await flushMicrotasks();
+    h.broker.fakeResolve({ behavior: "allow_session" });
+    expect(await p).toEqual({ behavior: "allow" });
+    expect(fake.permissionModeChanges).toEqual(["acceptEdits"]);
+    expect(h.session._testGetSessionAcceptEditsSticky()).toBe(true);
+    fake.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
+    await outcome.done;
+  });
+
+  it("/stop while awaiting_permission calls broker.cancelAll", async () => {
+    const h = makeBrokerHarness();
     const spy = new SpyRenderer();
     const stopSpy = new SpyRenderer();
     const first = await h.session.submit(
-      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      {
+        kind: "run",
+        text: "one",
+        senderOpenId: "ou_alice",
+        parentMessageId: "om_root_1",
+      },
       spy.emit,
     );
     await flushMicrotasks();
     if (first.kind !== "started") throw new Error("unreachable");
-
-    const permissionDeferred = createDeferred<PermissionResponse>();
-    h.session._testEnterAwaitingPermission(permissionDeferred);
+    const fake = h.fakes[0]!;
+    const permP = fake.invokeCanUseTool("Bash", {});
+    await flushMicrotasks();
+    expect(h.session._testGetState()).toBe("awaiting_permission");
 
     await h.session.stop(stopSpy.emit);
 
-    // Permission deferred was resolved with a deny response.
-    const resp = await permissionDeferred.promise;
-    expect(resp).toEqual({
-      behavior: "deny",
-      message: "user_cancelled",
-    });
-    // Turn handle was interrupted.
-    expect(h.fakes[0]!.interrupted).toBe(true);
+    expect(h.broker.cancelCalls).toContain("User issued /stop");
+    expect(await permP).toMatchObject({ behavior: "deny" });
+    expect(fake.interrupted).toBe(true);
     await expect(first.done).rejects.toThrow();
     await flushMicrotasks();
     expect(h.session._testGetState()).toBe("idle");
     expect(stopSpy.events).toEqual([{ type: "stop_ack" }]);
   });
 
-  it("! prefix in awaiting_permission denies, drops queue, interrupts, then runs the new input", async () => {
-    const h = makeHarness();
+  it("! prefix while awaiting_permission calls cancelAll, drops queue, runs new input", async () => {
+    const h = makeBrokerHarness();
     const spy1 = new SpyRenderer();
     const spy2 = new SpyRenderer();
     const spyBang = new SpyRenderer();
     const first = await h.session.submit(
-      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      {
+        kind: "run",
+        text: "one",
+        senderOpenId: "ou_a",
+        parentMessageId: "om_1",
+      },
       spy1.emit,
     );
     await flushMicrotasks();
     const second = await h.session.submit(
-      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      {
+        kind: "run",
+        text: "two",
+        senderOpenId: "ou_a",
+        parentMessageId: "om_2",
+      },
       spy2.emit,
     );
     if (first.kind !== "started" || second.kind !== "queued") {
       throw new Error("unreachable");
     }
-
-    const permissionDeferred = createDeferred<PermissionResponse>();
-    h.session._testEnterAwaitingPermission(permissionDeferred);
+    const fake = h.fakes[0]!;
+    const permP = fake.invokeCanUseTool("Bash", {});
+    await flushMicrotasks();
+    expect(h.session._testGetState()).toBe("awaiting_permission");
 
     const bang = await h.session.submit(
-      { kind: "interrupt_and_run", text: "urgent", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      {
+        kind: "interrupt_and_run",
+        text: "urgent",
+        senderOpenId: "ou_a",
+        parentMessageId: "om_3",
+      },
       spyBang.emit,
     );
     if (bang.kind !== "started") throw new Error("unreachable");
 
-    // Permission deferred was denied.
-    const resp = await permissionDeferred.promise;
-    expect(resp.behavior).toBe("deny");
-
-    // Queue was cleared.
+    expect(h.broker.cancelCalls).toContain("User sent ! prefix");
+    expect(await permP).toMatchObject({ behavior: "deny" });
     await expect(second.done).rejects.toThrow(/bang_prefix|interrupted/i);
-
-    // Turn interrupted → first.done rejects.
     await expect(first.done).rejects.toThrow();
     await flushMicrotasks();
 
-    // Next turn runs bang.
     expect(h.fakes).toHaveLength(2);
-    h.fakes[1]!.finishWithSuccess({
-      durationMs: 1,
-      inputTokens: 1,
-      outputTokens: 1,
-    });
+    h.fakes[1]!.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
     await bang.done;
     expect(h.session._testGetState()).toBe("idle");
   });

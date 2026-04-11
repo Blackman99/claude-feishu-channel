@@ -1,6 +1,6 @@
 import { createDeferred, type Deferred } from "../../../../src/util/deferred.js";
 import type { SDKMessageLike } from "../../../../src/claude/session.js";
-import type { ClaudeQueryOptions, QueryHandle } from "../../../../src/claude/query-handle.js";
+import type { CanUseToolFn, ClaudeQueryOptions, QueryHandle } from "../../../../src/claude/query-handle.js";
 
 type PendingValue = { kind: "msg"; msg: SDKMessageLike } | { kind: "end" };
 
@@ -32,6 +32,32 @@ export class FakeQueryHandle implements QueryHandle {
   messagesConsumed = 0;
   /** Recorded permissionMode changes from the session under test. */
   readonly permissionModeChanges: ClaudeQueryOptions["permissionMode"][] = [];
+
+  /**
+   * Per-turn canUseTool closure captured from the session. The
+   * harness's queryFn sets this when it builds the FakeQueryHandle.
+   * Tests call `invokeCanUseTool(...)` to simulate the SDK asking
+   * the session for a permission decision.
+   */
+  canUseTool: CanUseToolFn | null = null;
+
+  invokeCanUseTool(
+    toolName: string,
+    input: Record<string, unknown>,
+  ): Promise<
+    | { behavior: "allow"; updatedInput?: Record<string, unknown> }
+    | { behavior: "deny"; message: string }
+  > {
+    if (!this.canUseTool) {
+      throw new Error(
+        "FakeQueryHandle.invokeCanUseTool: canUseTool closure was not captured",
+      );
+    }
+    return this.canUseTool(toolName, input, {
+      signal: new AbortController().signal,
+      toolUseID: "tu_test",
+    });
+  }
 
   private readonly queue: PendingValue[] = [];
   private readonly waiters: Deferred<PendingValue>[] = [];
