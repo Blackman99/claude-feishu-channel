@@ -30,6 +30,8 @@ export class FakeQueryHandle implements QueryHandle {
   interrupted = false;
   lastFinishReason: "success" | "error" | "interrupted" | null = null;
   messagesConsumed = 0;
+  /** Recorded permissionMode changes from the session under test. */
+  readonly permissionModeChanges: string[] = [];
 
   private readonly queue: PendingValue[] = [];
   private readonly waiters: Deferred<PendingValue>[] = [];
@@ -96,6 +98,10 @@ export class FakeQueryHandle implements QueryHandle {
       this.lastFinishReason = "interrupted";
       this.pushEnd();
     }
+  }
+
+  setPermissionMode(mode: string): void {
+    this.permissionModeChanges.push(mode);
   }
 
   // --- internals ---

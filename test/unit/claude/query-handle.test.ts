@@ -10,16 +10,22 @@ describe("QueryHandle shape", () => {
     const handle: QueryHandle = {
       messages: (async function* () {})(),
       interrupt: async () => {},
+      setPermissionMode: () => {},
     };
     expect(typeof handle.interrupt).toBe("function");
     expect(Symbol.asyncIterator in handle.messages).toBe(true);
   });
 
   it("QueryFn is a function returning a QueryHandle", () => {
-    const fn: QueryFn = () => ({
-      messages: (async function* () {})(),
-      interrupt: async () => {},
-    });
+    const fn: QueryFn = (params) => {
+      // Accept params.canUseTool parameter
+      void params.canUseTool;
+      return {
+        messages: (async function* () {})(),
+        interrupt: async () => {},
+        setPermissionMode: () => {},
+      };
+    };
     const h = fn({
       prompt: "x",
       options: {
@@ -28,6 +34,7 @@ describe("QueryHandle shape", () => {
         permissionMode: "default",
         settingSources: ["project"],
       },
+      canUseTool: async () => ({ behavior: "deny", message: "test" }),
     });
     expect(typeof h.interrupt).toBe("function");
   });

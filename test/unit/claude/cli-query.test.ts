@@ -7,7 +7,10 @@ import {
   type SpawnFn,
 } from "../../../src/claude/cli-query.js";
 import type {
+  CanUseToolFn,
   ClaudeQueryOptions,
+} from "../../../src/claude/query-handle.js";
+import type {
   SDKMessageLike,
 } from "../../../src/claude/session.js";
 import type { QueryHandle } from "../../../src/claude/query-handle.js";
@@ -21,6 +24,14 @@ const BASE_OPTIONS: ClaudeQueryOptions = {
   permissionMode: "bypassPermissions",
   settingSources: ["project"],
 };
+
+/**
+ * Stub permission callback for tests (Phase 5 transition).
+ */
+const STUB_CAN_USE_TOOL: CanUseToolFn = async () => ({
+  behavior: "deny",
+  message: "Permission denied (test stub)",
+});
 
 /**
  * A minimal ChildProcess-like fake driven by an in-memory script. The
@@ -123,7 +134,7 @@ describe("createCliQueryFn", () => {
       spawnFn,
     });
     const messages = await collectMessages(
-      queryFn({ prompt: "hi", options: BASE_OPTIONS }),
+      queryFn({ prompt: "hi", options: BASE_OPTIONS, canUseTool: STUB_CAN_USE_TOOL }),
     );
     expect(messages).toHaveLength(3);
     expect(messages[0]).toEqual({ type: "system", subtype: "init" });
@@ -151,7 +162,7 @@ describe("createCliQueryFn", () => {
       spawnFn,
     });
     const messages = await collectMessages(
-      queryFn({ prompt: "x", options: BASE_OPTIONS }),
+      queryFn({ prompt: "x", options: BASE_OPTIONS, canUseTool: STUB_CAN_USE_TOOL }),
     );
     expect(messages).toHaveLength(1);
     expect(messages[0]!.type).toBe("result");
@@ -176,7 +187,7 @@ describe("createCliQueryFn", () => {
       spawnFn,
     });
     const messages = await collectMessages(
-      queryFn({ prompt: "x", options: BASE_OPTIONS }),
+      queryFn({ prompt: "x", options: BASE_OPTIONS, canUseTool: STUB_CAN_USE_TOOL }),
     );
     expect(messages).toHaveLength(1);
     expect(warns.length).toBe(1);
@@ -196,7 +207,7 @@ describe("createCliQueryFn", () => {
       spawnFn,
     });
     await expect(
-      collectMessages(queryFn({ prompt: "x", options: BASE_OPTIONS })),
+      collectMessages(queryFn({ prompt: "x", options: BASE_OPTIONS, canUseTool: STUB_CAN_USE_TOOL })),
     ).rejects.toThrow(/exited with code 1.*auth failed/s);
   });
 
@@ -219,7 +230,7 @@ describe("createCliQueryFn", () => {
       spawnFn,
     });
     await expect(
-      collectMessages(queryFn({ prompt: "x", options: BASE_OPTIONS })),
+      collectMessages(queryFn({ prompt: "x", options: BASE_OPTIONS, canUseTool: STUB_CAN_USE_TOOL })),
     ).rejects.toThrow(
       /exited with code 1.*stdout tail.*some unstructured warning before crash/s,
     );
@@ -252,7 +263,7 @@ describe("createCliQueryFn", () => {
       spawnFn,
     });
     const messages = await collectMessages(
-      queryFn({ prompt: "x", options: BASE_OPTIONS }),
+      queryFn({ prompt: "x", options: BASE_OPTIONS, canUseTool: STUB_CAN_USE_TOOL }),
     );
     // Iterator completes cleanly — all messages delivered, no throw.
     expect(messages).toHaveLength(2);
@@ -273,7 +284,7 @@ describe("createCliQueryFn", () => {
       spawnFn,
     });
     await expect(
-      collectMessages(queryFn({ prompt: "x", options: BASE_OPTIONS })),
+      collectMessages(queryFn({ prompt: "x", options: BASE_OPTIONS, canUseTool: STUB_CAN_USE_TOOL })),
     ).rejects.toThrow(/Failed to spawn claude CLI.*ENOENT/);
   });
 
@@ -308,6 +319,7 @@ describe("createCliQueryFn", () => {
           permissionMode: "acceptEdits",
           settingSources: ["project", "user"],
         },
+        canUseTool: STUB_CAN_USE_TOOL,
       }),
     );
     expect(spawnFn).toHaveBeenCalledOnce();
@@ -350,7 +362,7 @@ describe("createCliQueryFn", () => {
       spawnFn,
     });
     const prompt = "--this-looks-like-a-flag but is a prompt";
-    await collectMessages(queryFn({ prompt, options: BASE_OPTIONS }));
+    await collectMessages(queryFn({ prompt, options: BASE_OPTIONS, canUseTool: STUB_CAN_USE_TOOL }));
     expect(receivedArgs).toBeDefined();
     // The prompt must appear after `--` so the CLI cannot parse it as a flag.
     const dashIdx = receivedArgs!.indexOf("--");
@@ -392,7 +404,7 @@ describe("createCliQueryFn", () => {
         logger: SILENT_LOGGER,
         spawnFn,
       });
-      const handle = queryFn({ prompt: "x", options: BASE_OPTIONS });
+      const handle = queryFn({ prompt: "x", options: BASE_OPTIONS, canUseTool: STUB_CAN_USE_TOOL });
       // Start iterating in the background; we interrupt after the first
       // message lands so the generator is mid-loop when interrupt hits.
       const received: SDKMessageLike[] = [];
@@ -439,7 +451,7 @@ describe("createCliQueryFn", () => {
         logger: SILENT_LOGGER,
         spawnFn,
       });
-      const handle = queryFn({ prompt: "x", options: BASE_OPTIONS });
+      const handle = queryFn({ prompt: "x", options: BASE_OPTIONS, canUseTool: STUB_CAN_USE_TOOL });
       // Start draining so the generator attaches readline.
       const drain = collectMessages(handle).catch(() => {});
       // Fire interrupt twice in rapid succession.
@@ -474,7 +486,7 @@ describe("createCliQueryFn", () => {
         logger: SILENT_LOGGER,
         spawnFn,
       });
-      const handle = queryFn({ prompt: "x", options: BASE_OPTIONS });
+      const handle = queryFn({ prompt: "x", options: BASE_OPTIONS, canUseTool: STUB_CAN_USE_TOOL });
       const messages = await collectMessages(handle);
       expect(messages).toHaveLength(1);
       // Now interrupt — must not throw and must not call kill().

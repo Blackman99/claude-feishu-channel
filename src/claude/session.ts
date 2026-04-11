@@ -4,7 +4,7 @@ import { createDeferred, type Deferred } from "../util/deferred.js";
 import type { Clock } from "../util/clock.js";
 import type { AppConfig } from "../types.js";
 import type { RenderEvent } from "./render-event.js";
-import type { QueryFn, QueryHandle } from "./query-handle.js";
+import type { CanUseToolFn, QueryFn, QueryHandle } from "./query-handle.js";
 import type {
   PermissionBroker,
   PermissionResponse,
@@ -419,6 +419,12 @@ export class ClaudeSession {
       });
       if (next === null) return;
 
+      // Phase 5 transition: canUseTool stub will be wired to the real broker in Task 13.
+      const canUseTool: CanUseToolFn = async () => ({
+        behavior: "deny",
+        message: "Permission denied (transition phase)",
+      });
+
       const handle = this.queryFn({
         prompt: next.text,
         options: {
@@ -427,6 +433,7 @@ export class ClaudeSession {
           permissionMode: this.config.defaultPermissionMode,
           settingSources: ["project"],
         },
+        canUseTool,
       });
       this.currentTurn = { input: next, handle };
 

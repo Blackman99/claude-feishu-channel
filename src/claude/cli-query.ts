@@ -90,6 +90,11 @@ const STDOUT_TAIL_LINE_CAP = 400;
 export function createCliQueryFn(opts: CliQueryFnOptions): QueryFn {
   const spawn = opts.spawnFn ?? (nodeSpawn as unknown as SpawnFn);
   return (params) => {
+    // Phase 5 transition: the CLI transport does not support the
+    // permission callback. Ignore it — the session won't exercise
+    // this path once index.ts switches to createSdkQueryFn.
+    void params.canUseTool;
+
     const args = buildArgs(params.options, params.prompt);
     const child = spawn(opts.cliPath, args, {
       cwd: params.options.cwd,
@@ -251,7 +256,13 @@ export function createCliQueryFn(opts: CliQueryFnOptions): QueryFn {
       },
     };
 
-    const handle: QueryHandle = { messages, interrupt };
+    const handle: QueryHandle = {
+      messages,
+      interrupt,
+      setPermissionMode: () => {
+        // CLI transport cannot change mode mid-turn; no-op.
+      },
+    };
     return handle;
   };
 }

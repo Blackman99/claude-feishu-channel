@@ -21,6 +21,7 @@ const NOOP_QUERY: QueryFn = () => ({
     },
   },
   interrupt: async () => {},
+  setPermissionMode: () => {},
 });
 
 describe("ClaudeSessionManager", () => {
