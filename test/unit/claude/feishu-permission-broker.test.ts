@@ -84,3 +84,188 @@ describe("FeishuPermissionBroker.request — happy path", () => {
     });
   });
 });
+
+describe("FeishuPermissionBroker.resolveByCard", () => {
+  // Tests use `findRequestIdInCard(card)` (defined at the bottom of
+  // this file) to extract the crypto.randomUUID the broker generated
+  // internally, by walking the button value of the card that was
+  // handed to the mocked replyCard.
+
+  it("owner click with choice=allow resolves with {allow} and patches card to resolved variant", async () => {
+    const f = makeFakeFeishu();
+    const broker = makeBroker(f.client, new FakeClock());
+    const p = broker.request({
+      toolName: "Bash",
+      input: { command: "ls" },
+      chatId: "oc_1",
+      ownerOpenId: "ou_owner",
+      parentMessageId: "om_p",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Extract request_id from the button value of the sent card.
+    const card = f.replyCard.mock.calls[0]![1];
+    const requestId = findRequestIdInCard(card);
+    expect(requestId).toBeTruthy();
+
+    const result = await broker.resolveByCard({
+      requestId,
+      senderOpenId: "ou_owner",
+      choice: "allow",
+    });
+    expect(result).toEqual({ kind: "resolved" });
+    const resp = await p;
+    expect(resp).toEqual({ behavior: "allow" });
+    expect(f.patchCard).toHaveBeenCalledWith(
+      "om_card_1",
+      expect.any(Object),
+    );
+  });
+
+  it("owner click with choice=deny resolves with {deny, message}", async () => {
+    const f = makeFakeFeishu();
+    const broker = makeBroker(f.client, new FakeClock());
+    const p = broker.request({
+      toolName: "Bash",
+      input: {},
+      chatId: "oc_1",
+      ownerOpenId: "ou_owner",
+      parentMessageId: "om_p",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    const requestId = findRequestIdInCard(f.replyCard.mock.calls[0]![1]);
+
+    await broker.resolveByCard({
+      requestId,
+      senderOpenId: "ou_owner",
+      choice: "deny",
+    });
+    const resp = await p;
+    expect(resp).toMatchObject({ behavior: "deny", message: expect.any(String) });
+  });
+
+  it("owner click with choice=allow_turn resolves with {allow_turn}", async () => {
+    const f = makeFakeFeishu();
+    const broker = makeBroker(f.client, new FakeClock());
+    const p = broker.request({
+      toolName: "Edit",
+      input: {},
+      chatId: "oc_1",
+      ownerOpenId: "ou_owner",
+      parentMessageId: "om_p",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    const requestId = findRequestIdInCard(f.replyCard.mock.calls[0]![1]);
+    await broker.resolveByCard({
+      requestId,
+      senderOpenId: "ou_owner",
+      choice: "allow_turn",
+    });
+    expect(await p).toEqual({ behavior: "allow_turn" });
+  });
+
+  it("owner click with choice=allow_session resolves with {allow_session}", async () => {
+    const f = makeFakeFeishu();
+    const broker = makeBroker(f.client, new FakeClock());
+    const p = broker.request({
+      toolName: "Edit",
+      input: {},
+      chatId: "oc_1",
+      ownerOpenId: "ou_owner",
+      parentMessageId: "om_p",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    const requestId = findRequestIdInCard(f.replyCard.mock.calls[0]![1]);
+    await broker.resolveByCard({
+      requestId,
+      senderOpenId: "ou_owner",
+      choice: "allow_session",
+    });
+    expect(await p).toEqual({ behavior: "allow_session" });
+  });
+
+  it("non-owner click returns forbidden and leaves the request pending", async () => {
+    const f = makeFakeFeishu();
+    const broker = makeBroker(f.client, new FakeClock());
+    const p = broker.request({
+      toolName: "Bash",
+      input: {},
+      chatId: "oc_1",
+      ownerOpenId: "ou_owner",
+      parentMessageId: "om_p",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    const requestId = findRequestIdInCard(f.replyCard.mock.calls[0]![1]);
+
+    const result = await broker.resolveByCard({
+      requestId,
+      senderOpenId: "ou_intruder",
+      choice: "allow",
+    });
+    expect(result).toEqual({ kind: "forbidden", ownerOpenId: "ou_owner" });
+
+    // Promise must still be pending.
+    const settled = await Promise.race([
+      p.then(() => "resolved"),
+      new Promise<"pending">((r) => setTimeout(() => r("pending"), 20)),
+    ]);
+    expect(settled).toBe("pending");
+  });
+
+  it("unknown requestId returns not_found", async () => {
+    const f = makeFakeFeishu();
+    const broker = makeBroker(f.client, new FakeClock());
+    const result = await broker.resolveByCard({
+      requestId: "req_does_not_exist",
+      senderOpenId: "ou_x",
+      choice: "allow",
+    });
+    expect(result).toEqual({ kind: "not_found" });
+  });
+
+  it("patchCard failure during resolve does not block the resolution", async () => {
+    const f = makeFakeFeishu();
+    f.patchCard.mockRejectedValueOnce(new Error("patch failed"));
+    const broker = makeBroker(f.client, new FakeClock());
+    const p = broker.request({
+      toolName: "Bash",
+      input: {},
+      chatId: "oc_1",
+      ownerOpenId: "ou_owner",
+      parentMessageId: "om_p",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    const requestId = findRequestIdInCard(f.replyCard.mock.calls[0]![1]);
+
+    const result = await broker.resolveByCard({
+      requestId,
+      senderOpenId: "ou_owner",
+      choice: "allow",
+    });
+    expect(result).toEqual({ kind: "resolved" });
+    expect(await p).toEqual({ behavior: "allow" });
+  });
+});
+
+function findRequestIdInCard(card: unknown): string {
+  let found: string | undefined;
+  function walk(el: unknown): void {
+    if (!el || typeof el !== "object") return;
+    const e = el as { tag?: string; value?: { request_id?: unknown }; elements?: unknown[]; columns?: unknown[]; body?: unknown };
+    if (e.tag === "button" && e.value && typeof e.value.request_id === "string") {
+      found = e.value.request_id;
+    }
+    if (Array.isArray(e.elements)) e.elements.forEach(walk);
+    if (Array.isArray(e.columns)) e.columns.forEach(walk);
+    if (e.body) walk(e.body);
+  }
+  walk(card);
+  if (!found) throw new Error("no request_id found in card");
+  return found;
+}

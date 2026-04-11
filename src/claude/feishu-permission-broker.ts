@@ -6,8 +6,6 @@ import type { FeishuClient } from "../feishu/client.js";
 import {
   buildPermissionCard,
   buildPermissionCardResolved,
-  buildPermissionCardCancelled,
-  buildPermissionCardTimedOut,
 } from "../feishu/cards/permission-card.js";
 import type {
   CardActionResult,
@@ -120,13 +118,60 @@ export class FeishuPermissionBroker implements PermissionBroker {
     return deferred.promise;
   }
 
-  async resolveByCard(_args: {
+  async resolveByCard(args: {
     requestId: string;
     senderOpenId: string;
     choice: CardChoice;
   }): Promise<CardActionResult> {
-    // Implemented in Task 9.
-    throw new Error("not implemented");
+    const p = this.pending.get(args.requestId);
+    if (!p) return { kind: "not_found" };
+    if (args.senderOpenId !== p.ownerOpenId) {
+      return { kind: "forbidden", ownerOpenId: p.ownerOpenId };
+    }
+    this.clearTimers(p);
+    this.pending.delete(args.requestId);
+
+    // Patch the card to its "resolved" variant. Failure warns but
+    // doesn't block the resolution — the Deferred must still fire so
+    // the SDK's canUseTool callback unblocks.
+    try {
+      await this.feishu.patchCard(
+        p.cardMessageId,
+        buildPermissionCardResolved({
+          toolName: p.toolName,
+          choice: args.choice,
+          resolverOpenId: args.senderOpenId,
+        }),
+      );
+    } catch (err) {
+      this.logger.warn(
+        {
+          err,
+          card_message_id: p.cardMessageId,
+          request_id: args.requestId,
+        },
+        "permission card patch failed on resolve — continuing",
+      );
+    }
+
+    switch (args.choice) {
+      case "allow":
+        p.deferred.resolve({ behavior: "allow" });
+        break;
+      case "deny":
+        p.deferred.resolve({
+          behavior: "deny",
+          message: "User denied the tool call.",
+        });
+        break;
+      case "allow_turn":
+        p.deferred.resolve({ behavior: "allow_turn" });
+        break;
+      case "allow_session":
+        p.deferred.resolve({ behavior: "allow_session" });
+        break;
+    }
+    return { kind: "resolved" };
   }
 
   cancelAll(_reason: string): void {
@@ -146,11 +191,4 @@ export class FeishuPermissionBroker implements PermissionBroker {
     this.clock.clearTimeout(p.warnTimer);
   }
 
-  // Touch helpers to silence "unused" warnings during staged implementation.
-  private _touch(): void {
-    void this.clearTimers;
-    void buildPermissionCardResolved;
-    void buildPermissionCardCancelled;
-    void buildPermissionCardTimedOut;
-  }
 }
