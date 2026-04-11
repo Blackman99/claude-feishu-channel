@@ -6,7 +6,7 @@ import {
 import { FakeQueryHandle } from "./fakes/fake-query-handle.js";
 import { SpyRenderer } from "./fakes/spy-renderer.js";
 import {
-  NullPermissionBroker,
+  TransitionalStubBroker,
   type PermissionResponse,
 } from "../../../src/claude/permission-broker.js";
 import { FakeClock } from "../../../src/util/clock.js";
@@ -48,7 +48,7 @@ function makeHarness(): Harness {
     config: BASE_CLAUDE_CONFIG,
     queryFn,
     clock,
-    permissionBroker: new NullPermissionBroker(),
+    permissionBroker: new TransitionalStubBroker(),
     logger: SILENT_LOGGER,
   };
   return { session: new ClaudeSession(opts), fakes, queryFn, clock };
@@ -121,7 +121,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
       config: BASE_CLAUDE_CONFIG,
       queryFn,
       clock: new FakeClock(),
-      permissionBroker: new NullPermissionBroker(),
+      permissionBroker: new TransitionalStubBroker(),
       logger: SILENT_LOGGER,
     });
     const spy = new SpyRenderer();

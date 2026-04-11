@@ -11,7 +11,7 @@ import { checkClaudeCli } from "./claude/preflight.js";
 import { createCliQueryFn } from "./claude/cli-query.js";
 import { ClaudeSessionManager } from "./claude/session-manager.js";
 import { InterruptedError } from "./claude/session.js";
-import { NullPermissionBroker } from "./claude/permission-broker.js";
+import { TransitionalStubBroker } from "./claude/permission-broker.js";
 import { RealClock } from "./util/clock.js";
 import { parseInput } from "./commands/router.js";
 import type { RenderEvent } from "./claude/render-event.js";
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     config: config.claude,
     queryFn,
     clock: new RealClock(),
-    permissionBroker: new NullPermissionBroker(),
+    permissionBroker: new TransitionalStubBroker(),
     logger,
   });
 

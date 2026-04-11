@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ClaudeSessionManager } from "../../../src/claude/session-manager.js";
 import type { QueryFn, SDKMessageLike } from "../../../src/claude/session.js";
-import { NullPermissionBroker } from "../../../src/claude/permission-broker.js";
+import { TransitionalStubBroker } from "../../../src/claude/permission-broker.js";
 import { FakeClock } from "../../../src/util/clock.js";
 import { createLogger } from "../../../src/util/logger.js";
 
@@ -30,7 +30,7 @@ describe("ClaudeSessionManager", () => {
       config: BASE_CLAUDE_CONFIG,
       queryFn: NOOP_QUERY,
       clock: new FakeClock(),
-      permissionBroker: new NullPermissionBroker(),
+      permissionBroker: new TransitionalStubBroker(),
       logger: SILENT_LOGGER,
     });
     const a = mgr.getOrCreate("oc_1");
@@ -43,7 +43,7 @@ describe("ClaudeSessionManager", () => {
       config: BASE_CLAUDE_CONFIG,
       queryFn: NOOP_QUERY,
       clock: new FakeClock(),
-      permissionBroker: new NullPermissionBroker(),
+      permissionBroker: new TransitionalStubBroker(),
       logger: SILENT_LOGGER,
     });
     const a = mgr.getOrCreate("oc_1");
