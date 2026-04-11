@@ -253,6 +253,139 @@ describe("FeishuPermissionBroker.resolveByCard", () => {
   });
 });
 
+describe("FeishuPermissionBroker.cancelAll", () => {
+  it("denies all pending with the given reason and clears the map", async () => {
+    const f = makeFakeFeishu();
+    const clock = new FakeClock();
+    const broker = makeBroker(f.client, clock);
+    const p1 = broker.request({
+      toolName: "Bash",
+      input: {},
+      chatId: "oc_1",
+      ownerOpenId: "ou_x",
+      parentMessageId: "om_p1",
+    });
+    // Second request uses a different parent message id.
+    f.replyCard.mockResolvedValueOnce({ messageId: "om_card_2" });
+    const p2 = broker.request({
+      toolName: "Edit",
+      input: {},
+      chatId: "oc_1",
+      ownerOpenId: "ou_x",
+      parentMessageId: "om_p2",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    broker.cancelAll("User issued /stop");
+
+    const r1 = await p1;
+    const r2 = await p2;
+    expect(r1).toEqual({
+      behavior: "deny",
+      message: "User issued /stop",
+    });
+    expect(r2).toEqual({
+      behavior: "deny",
+      message: "User issued /stop",
+    });
+  });
+
+  it("patches each cancelled card to the cancelled variant (best effort)", async () => {
+    const f = makeFakeFeishu();
+    const broker = makeBroker(f.client, new FakeClock());
+    const p = broker.request({
+      toolName: "Bash",
+      input: {},
+      chatId: "oc_1",
+      ownerOpenId: "ou_x",
+      parentMessageId: "om_p",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    broker.cancelAll("Bang prefix cancellation");
+    await p;
+    // Allow the void-catch patchCard to settle.
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+
+    expect(f.patchCard).toHaveBeenCalled();
+    const patchCall = f.patchCard.mock.calls[0]!;
+    expect(JSON.stringify(patchCall[1])).toMatch(/Bang prefix|取消/);
+  });
+
+  it("cancelAll swallows patchCard errors", async () => {
+    const f = makeFakeFeishu();
+    f.patchCard.mockRejectedValue(new Error("down"));
+    const broker = makeBroker(f.client, new FakeClock());
+    const p = broker.request({
+      toolName: "Bash",
+      input: {},
+      chatId: "oc_1",
+      ownerOpenId: "ou_x",
+      parentMessageId: "om_p",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(() => broker.cancelAll("cleanup")).not.toThrow();
+    expect(await p).toEqual({
+      behavior: "deny",
+      message: "cleanup",
+    });
+  });
+});
+
+describe("FeishuPermissionBroker timers", () => {
+  it("auto-denies after timeoutMs and patches the card to timed_out", async () => {
+    const f = makeFakeFeishu();
+    const clock = new FakeClock();
+    const broker = makeBroker(f.client, clock);
+    const p = broker.request({
+      toolName: "Bash",
+      input: {},
+      chatId: "oc_1",
+      ownerOpenId: "ou_x",
+      parentMessageId: "om_p",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    clock.advance(300_000);
+    const res = await p;
+    expect(res).toMatchObject({
+      behavior: "deny",
+      message: expect.stringMatching(/timed out|300/i),
+    });
+    // Need one more tick to let the patchCard void promise settle.
+    await new Promise<void>((r) => setTimeout(r, 10));
+    expect(f.patchCard).toHaveBeenCalled();
+    const lastCard = f.patchCard.mock.calls.at(-1)![1];
+    expect(JSON.stringify(lastCard)).toMatch(/超时|timed out/i);
+  });
+
+  it("sends the warn reminder (timeoutMs - warnBeforeMs) in", async () => {
+    const f = makeFakeFeishu();
+    const clock = new FakeClock();
+    const broker = makeBroker(f.client, clock);
+    void broker.request({
+      toolName: "Bash",
+      input: {},
+      chatId: "oc_1",
+      ownerOpenId: "ou_x",
+      parentMessageId: "om_p",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    clock.advance(240_000);
+    await new Promise<void>((r) => setTimeout(r, 10));
+    expect(f.replyText).toHaveBeenCalled();
+    const replyArgs = f.replyText.mock.calls.at(-1)!;
+    expect(replyArgs[0]).toBe("om_p");
+    expect(String(replyArgs[1])).toMatch(/60|⏰/);
+  });
+});
+
 function findRequestIdInCard(card: unknown): string {
   let found: string | undefined;
   function walk(el: unknown): void {

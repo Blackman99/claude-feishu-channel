@@ -5,7 +5,9 @@ import type { Clock, TimeoutHandle } from "../util/clock.js";
 import type { FeishuClient } from "../feishu/client.js";
 import {
   buildPermissionCard,
+  buildPermissionCardCancelled,
   buildPermissionCardResolved,
+  buildPermissionCardTimedOut,
 } from "../feishu/cards/permission-card.js";
 import type {
   CardActionResult,
@@ -174,16 +176,67 @@ export class FeishuPermissionBroker implements PermissionBroker {
     return { kind: "resolved" };
   }
 
-  cancelAll(_reason: string): void {
-    // Implemented in Task 10.
+  cancelAll(reason: string): void {
+    const snapshot = Array.from(this.pending.values());
+    this.pending.clear();
+    for (const p of snapshot) {
+      this.clearTimers(p);
+      p.deferred.resolve({ behavior: "deny", message: reason });
+      // Best-effort patch to the cancelled variant. Don't await —
+      // /stop and ! paths call cancelAll synchronously and we don't
+      // want to block them on a card patch round-trip.
+      void this.feishu
+        .patchCard(
+          p.cardMessageId,
+          buildPermissionCardCancelled({ toolName: p.toolName, reason }),
+        )
+        .catch((err) => {
+          this.logger.warn(
+            { err, request_id: p.requestId },
+            "cancelAll patch failed — ignoring",
+          );
+        });
+    }
   }
 
-  private autoDeny(_requestId: string): void {
-    // Implemented in Task 10.
+  private autoDeny(requestId: string): void {
+    const p = this.pending.get(requestId);
+    if (!p) return;
+    this.clearTimers(p);
+    this.pending.delete(requestId);
+    const seconds = Math.round(this.timeoutMs / 1000);
+    p.deferred.resolve({
+      behavior: "deny",
+      message: `Permission request timed out after ${seconds}s.`,
+    });
+    void this.feishu
+      .patchCard(
+        p.cardMessageId,
+        buildPermissionCardTimedOut({ toolName: p.toolName }),
+      )
+      .catch((err) => {
+        this.logger.warn(
+          { err, request_id: requestId },
+          "autoDeny patch failed",
+        );
+      });
   }
 
-  private sendWarnReminder(_requestId: string): void {
-    // Implemented in Task 10.
+  private sendWarnReminder(requestId: string): void {
+    const p = this.pending.get(requestId);
+    if (!p) return;
+    const secondsLeft = Math.round(this.warnBeforeMs / 1000);
+    void this.feishu
+      .replyText(
+        p.parentMessageId,
+        `⏰ 权限请求（${p.toolName}）将在 ${secondsLeft}s 后自动拒绝`,
+      )
+      .catch((err) => {
+        this.logger.warn(
+          { err, request_id: requestId },
+          "warn reminder failed",
+        );
+      });
   }
 
   private clearTimers(p: PendingRequest): void {
