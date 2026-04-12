@@ -307,7 +307,7 @@ export class CommandDispatcher {
         : entry.chatId;
       const status = entry.active ? "active" : "stale";
       lines.push(
-        `  ${short}  ${entry.record.cwd}  ${entry.record.model ?? "-"}  ${status}`,
+        `  ${short}  ${entry.record.cwd}  ${entry.record.model ?? "-"}  ${entry.record.lastActiveAt}  ${status}`,
       );
     }
     await this.feishu.replyText(ctx.parentMessageId, lines.join("\n"));
