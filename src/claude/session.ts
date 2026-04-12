@@ -42,6 +42,7 @@ export interface SDKMessageLike {
   errors?: readonly string[];
   duration_ms?: number;
   usage?: { input_tokens?: number; output_tokens?: number };
+  session_id?: string;
 }
 
 export interface SDKContentBlock {
