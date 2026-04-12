@@ -10,6 +10,10 @@ import type { QueryFn, SDKMessageLike } from "../../../src/claude/session.js";
 import type { AppConfig } from "../../../src/types.js";
 import type { FeishuClient } from "../../../src/feishu/client.js";
 
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+}
+
 const SILENT_LOGGER = createLogger({ level: "error", pretty: false });
 
 const NOOP_QUERY: QueryFn = () => ({
@@ -160,5 +164,41 @@ describe("CommandDispatcher — simple commands", () => {
       const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
       expect(text).toContain("/help");
     });
+  });
+});
+
+describe("CommandDispatcher — /new", () => {
+  it("in idle state: deletes session and replies", async () => {
+    const { feishu, sessionManager, dispatcher } = makeHarness();
+
+    // Create a session with some turns
+    const session = sessionManager.getOrCreate(CTX.chatId);
+    // Confirm session exists (idle state)
+    expect(session.getState()).toBe("idle");
+
+    await dispatcher.dispatch({ name: "new" }, CTX);
+
+    // Should reply with the expected message
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(text).toContain("新会话");
+
+    // After deletion, getOrCreate should return a fresh session (new object)
+    const freshSession = sessionManager.getOrCreate(CTX.chatId);
+    expect(freshSession).not.toBe(session);
+    expect(freshSession.getStatus().turnCount).toBe(0);
+  });
+
+  it("with no existing session: just replies (no crash)", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    // Dispatch /new without creating a session first — should not crash
+    await expect(
+      dispatcher.dispatch({ name: "new" }, CTX),
+    ).resolves.toBeUndefined();
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(text).toContain("新会话");
   });
 });

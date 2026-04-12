@@ -58,8 +58,6 @@ export class CommandDispatcher {
     this.logger = opts.logger.child({ component: "CommandDispatcher" });
 
     // Touch unused fields to avoid compiler warnings for future-use fields
-    void this.permissionBroker;
-    void this.questionBroker;
     void this.clock;
     void this.pendingCdConfirms;
   }
@@ -193,10 +191,21 @@ export class CommandDispatcher {
     await this.feishu.replyText(ctx.parentMessageId, lines.join("\n"));
   }
 
-  // --- Placeholder stubs for Tasks 7-9 ---
+  // --- Placeholder stubs for Tasks 8-9 ---
 
-  private async handleNew(_ctx: CommandContext): Promise<void> {
-    throw new Error("not implemented");
+  private async handleNew(ctx: CommandContext): Promise<void> {
+    const session = this.sessionManager.getOrCreate(ctx.chatId);
+    if (session.getState() !== "idle") {
+      const noopEmit = async () => {};
+      await session.stop(noopEmit);
+    }
+    this.permissionBroker.cancelAll("new session");
+    this.questionBroker.cancelAll("new session");
+    this.sessionManager.delete(ctx.chatId);
+    await this.feishu.replyText(
+      ctx.parentMessageId,
+      "新会话已开始，下条消息将开启新对话",
+    );
   }
 
   private async handleMode(
