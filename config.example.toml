@@ -86,3 +86,9 @@ log_dir = "~/.claude-feishu-channel/logs"
 [logging]
 # trace | debug | info | warn | error
 level = "info"
+
+# ─── Project aliases ─────────────────────────────────────────────────
+# Aliases for /project command — quickly switch cwd by name.
+# [projects]
+# my-app = "~/projects/my-app"
+# infra = "~/projects/infrastructure"

@@ -65,6 +65,8 @@ const LoggingSchema = z
   })
   .default({ level: "info" });
 
+const ProjectsSchema = z.record(z.string(), z.string()).default({});
+
 const ConfigSchema = z.object({
   feishu: FeishuSchema,
   access: AccessSchema,
@@ -72,6 +74,7 @@ const ConfigSchema = z.object({
   render: RenderSchema,
   persistence: PersistenceSchema,
   logging: LoggingSchema,
+  projects: ProjectsSchema,
 });
 
 function expandHome(path: string): string {
@@ -147,5 +150,8 @@ export async function loadConfig(path: string): Promise<AppConfig> {
     logging: {
       level: data.logging.level,
     },
+    projects: Object.fromEntries(
+      Object.entries(data.projects ?? {}).map(([k, v]) => [k, expandHome(v)]),
+    ),
   };
 }

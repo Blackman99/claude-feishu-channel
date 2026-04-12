@@ -64,4 +64,6 @@ export interface AppConfig {
   logging: {
     level: "trace" | "debug" | "info" | "warn" | "error";
   };
+  /** Project aliases — map of alias → absolute cwd path. */
+  projects: Record<string, string>;
 }

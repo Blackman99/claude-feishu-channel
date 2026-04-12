@@ -254,6 +254,35 @@ permission_timeout_seconds = 0
   });
 });
 
+describe("projects table", () => {
+  it("parses [projects] with tilde expansion", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+
+[projects]
+my-app = "~/projects/my-app"
+infra = "/absolute/path/infra"
+`);
+    const cfg = await loadConfig(path);
+    expect(cfg.projects["my-app"]).toBe(join(homedir(), "projects/my-app"));
+    expect(cfg.projects["infra"]).toBe("/absolute/path/infra");
+  });
+
+  it("defaults to empty object when [projects] is omitted", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+`);
+    const cfg = await loadConfig(path);
+    expect(cfg.projects).toEqual({});
+  });
+});
+
 describe("render config", () => {
   it("defaults to inline_max_bytes=2048, hide_thinking=false, show_turn_stats=true when [render] is absent", async () => {
     const path = writeConfig(`
