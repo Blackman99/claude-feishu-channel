@@ -229,14 +229,14 @@ describe("parseInput — Phase 6 commands", () => {
     });
   });
 
-  it("/config without show → unknown_command", () => {
+  it("/config without show or set → unknown_command", () => {
     expect(parseInput("/config")).toEqual({
       kind: "unknown_command",
       raw: "/config",
     });
-    expect(parseInput("/config set foo bar")).toEqual({
+    expect(parseInput("/config foo")).toEqual({
       kind: "unknown_command",
-      raw: "/config set foo bar",
+      raw: "/config foo",
     });
   });
 
@@ -294,5 +294,64 @@ describe("/resume", () => {
 
   it("/resume with empty arg is unknown_command", () => {
     expect(parseInput("/resume   ")).toEqual({ kind: "unknown_command", raw: "/resume   " });
+  });
+});
+
+describe("/config set", () => {
+  it("/config set render.hide_thinking true → config_set command", () => {
+    expect(parseInput("/config set render.hide_thinking true")).toEqual({
+      kind: "command",
+      cmd: { name: "config_set", key: "render.hide_thinking", value: "true", persist: false },
+    });
+  });
+
+  it("/config set logging.level debug --persist → config_set with persist=true", () => {
+    expect(parseInput("/config set logging.level debug --persist")).toEqual({
+      kind: "command",
+      cmd: { name: "config_set", key: "logging.level", value: "debug", persist: true },
+    });
+  });
+
+  it("/config set claude.default_model claude-sonnet-4-6 → config_set", () => {
+    expect(parseInput("/config set claude.default_model claude-sonnet-4-6")).toEqual({
+      kind: "command",
+      cmd: { name: "config_set", key: "claude.default_model", value: "claude-sonnet-4-6", persist: false },
+    });
+  });
+
+  it("/config set with --persist in the middle is treated as value", () => {
+    // --persist must be at the end
+    expect(parseInput("/config set render.hide_thinking --persist true")).toEqual({
+      kind: "command",
+      cmd: { name: "config_set", key: "render.hide_thinking", value: "--persist true", persist: false },
+    });
+  });
+
+  it("/config set without key → unknown_command", () => {
+    expect(parseInput("/config set")).toEqual({
+      kind: "unknown_command",
+      raw: "/config set",
+    });
+  });
+
+  it("/config set with key but no value → unknown_command", () => {
+    expect(parseInput("/config set render.hide_thinking")).toEqual({
+      kind: "unknown_command",
+      raw: "/config set render.hide_thinking",
+    });
+  });
+
+  it("/config set with only --persist and no key/value → unknown_command", () => {
+    expect(parseInput("/config set --persist")).toEqual({
+      kind: "unknown_command",
+      raw: "/config set --persist",
+    });
+  });
+
+  it("/config show still works (existing behavior)", () => {
+    expect(parseInput("/config show")).toEqual({
+      kind: "command",
+      cmd: { name: "config_show" },
+    });
   });
 });

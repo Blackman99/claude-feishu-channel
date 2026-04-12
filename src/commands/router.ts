@@ -13,6 +13,7 @@ export type ParsedCommand =
   | { name: "status" }
   | { name: "help" }
   | { name: "config_show" }
+  | { name: "config_set"; key: string; value: string; persist: boolean }
   | { name: "sessions" }
   | { name: "resume"; target: string };
 
@@ -154,6 +155,18 @@ function parseCommand(
       return { name: "help" };
     case "config":
       if (rest === "show") return { name: "config_show" };
+      if (rest.startsWith("set ")) {
+        const afterSet = rest.slice(4).trim();
+        if (!afterSet) return null;
+        const persist = afterSet.endsWith(" --persist");
+        const core = persist ? afterSet.slice(0, -" --persist".length).trim() : afterSet;
+        const spaceIdx = core.indexOf(" ");
+        if (spaceIdx < 0) return null;
+        const key = core.slice(0, spaceIdx);
+        const value = core.slice(spaceIdx + 1).trim();
+        if (!key || !value) return null;
+        return { name: "config_set", key, value, persist };
+      }
       return null;
     case "sessions":
       return { name: "sessions" };
