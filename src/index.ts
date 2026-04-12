@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadConfig, ConfigError } from "./config.js";
 import { createLogger } from "./util/logger.js";
-import { StateStore } from "./persistence/state-store.js";
+import { StateStore, type State } from "./persistence/state-store.js";
 import { AccessControl } from "./access.js";
 import { FeishuClient } from "./feishu/client.js";
 import { FeishuGateway } from "./feishu/gateway.js";
@@ -138,6 +138,9 @@ async function main(): Promise<void> {
     permissionBroker,
     questionBroker,
     logger,
+    stateStore,
+    feishuClient,
+    sessionTtlDays: config.persistence.sessionTtlDays,
   });
 
   const commandDispatcher = new CommandDispatcher({
@@ -818,15 +821,24 @@ async function main(): Promise<void> {
     onCardAction,
   });
 
+  await sessionManager.startupLoad();
+  await sessionManager.crashRecovery(state.lastCleanShutdown);
+
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info({ signal }, "Shutting down");
     try {
-      await stateStore.markCleanShutdown(state);
+      await sessionManager.flushPendingSave();
+      const finalState: State = {
+        version: 1,
+        lastCleanShutdown: true,
+        sessions: sessionManager.buildSessionsSnapshot(),
+      };
+      await stateStore.save(finalState);
     } catch (err) {
-      logger.error({ err }, "Failed to mark clean shutdown");
+      logger.error({ err }, "Failed to save state on shutdown");
     }
     process.exit(0);
   };
@@ -861,7 +873,7 @@ async function main(): Promise<void> {
       hide_thinking: config.render.hideThinking,
       show_turn_stats: config.render.showTurnStats,
     },
-    "claude-feishu-channel Phase 5 ready",
+    "claude-feishu-channel Phase 7 ready",
   );
 
   if (config.claude.defaultPermissionMode === "bypassPermissions") {
