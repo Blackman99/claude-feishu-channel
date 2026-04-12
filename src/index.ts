@@ -148,6 +148,7 @@ async function main(): Promise<void> {
     sessionManager,
     feishu: feishuClient,
     config,
+    configPath,
     permissionBroker,
     questionBroker,
     clock,
@@ -874,7 +875,7 @@ async function main(): Promise<void> {
       hide_thinking: config.render.hideThinking,
       show_turn_stats: config.render.showTurnStats,
     },
-    "claude-feishu-channel Phase 7 ready",
+    "claude-feishu-channel Phase 8 ready",
   );
 
   if (config.claude.defaultPermissionMode === "bypassPermissions") {
