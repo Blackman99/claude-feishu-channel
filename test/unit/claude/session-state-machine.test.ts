@@ -34,7 +34,7 @@ interface Harness {
  * FakeQueryHandle per invocation. Tests grab successive fakes out of
  * `harness.fakes[i]` to drive each turn.
  */
-function makeHarness(): Harness {
+function makeHarness(overrides?: { onSessionIdCaptured?: () => void }): Harness {
   const fakes: FakeQueryHandle[] = [];
   const queryFn: QueryFn = (params) => {
     const fake = new FakeQueryHandle();
@@ -53,6 +53,9 @@ function makeHarness(): Harness {
     permissionBroker: new FakePermissionBroker(),
     questionBroker,
     logger: SILENT_LOGGER,
+    ...(overrides?.onSessionIdCaptured !== undefined
+      ? { onSessionIdCaptured: overrides.onSessionIdCaptured }
+      : {}),
   };
   return { session: new ClaudeSession(opts), fakes, queryFn, clock };
 }
@@ -1137,5 +1140,142 @@ describe("Session runtime overrides + stats", () => {
     expect(status.turnCount).toBe(1);
     expect(status.totalInputTokens).toBe(500);
     expect(status.totalOutputTokens).toBe(1200);
+  });
+});
+
+describe("ClaudeSession — session_id capture and resume", () => {
+  it("captures session_id from the first SDK message that carries it", async () => {
+    const h = makeHarness();
+    const spy = new SpyRenderer();
+    const outcome = await h.session.submit(
+      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      spy.emit,
+    );
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    const fake = h.fakes[0]!;
+
+    // Message without session_id — should not capture
+    fake.emitMessage({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "hello" }] },
+    });
+    await flushMicrotasks();
+    expect(h.session.getStatus().claudeSessionId).toBeUndefined();
+
+    // Message with session_id — should capture
+    fake.emitMessage({
+      type: "assistant",
+      session_id: "ses_abc123",
+      message: { content: [{ type: "text", text: "world" }] },
+    });
+    fake.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
+    await outcome.done;
+
+    expect(h.session.getStatus().claudeSessionId).toBe("ses_abc123");
+  });
+
+  it("does not overwrite session_id once captured", async () => {
+    const h = makeHarness();
+    const spy = new SpyRenderer();
+    const outcome = await h.session.submit(
+      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      spy.emit,
+    );
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    const fake = h.fakes[0]!;
+
+    fake.emitMessage({
+      type: "assistant",
+      session_id: "ses_first",
+      message: { content: [{ type: "text", text: "first" }] },
+    });
+    fake.emitMessage({
+      type: "assistant",
+      session_id: "ses_second",
+      message: { content: [{ type: "text", text: "second" }] },
+    });
+    fake.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
+    await outcome.done;
+
+    expect(h.session.getStatus().claudeSessionId).toBe("ses_first");
+  });
+
+  it("fires onSessionIdCaptured callback once on first capture", async () => {
+    let captureCount = 0;
+    const h = makeHarness({ onSessionIdCaptured: () => { captureCount++; } });
+    const spy = new SpyRenderer();
+    const outcome = await h.session.submit(
+      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      spy.emit,
+    );
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    const fake = h.fakes[0]!;
+
+    fake.emitMessage({
+      type: "assistant",
+      session_id: "ses_abc",
+      message: { content: [{ type: "text", text: "first" }] },
+    });
+    fake.emitMessage({
+      type: "assistant",
+      session_id: "ses_abc",
+      message: { content: [{ type: "text", text: "second" }] },
+    });
+    fake.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
+    await outcome.done;
+
+    expect(captureCount).toBe(1);
+  });
+
+  it("passes resume option to queryFn when claudeSessionId is set", async () => {
+    const h = makeHarness();
+    const spy = new SpyRenderer();
+
+    // Turn 1: emit a message with session_id
+    const first = await h.session.submit(
+      { kind: "run", text: "turn1", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      spy.emit,
+    );
+    if (first.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    h.fakes[0]!.emitMessage({
+      type: "assistant",
+      session_id: "ses_resume",
+      message: { content: [{ type: "text", text: "reply" }] },
+    });
+    h.fakes[0]!.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
+    await first.done;
+
+    // Turn 2: should pass resume
+    const second = await h.session.submit(
+      { kind: "run", text: "turn2", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      spy.emit,
+    );
+    if (second.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+
+    expect(h.fakes[1]!.options.resume).toBe("ses_resume");
+
+    h.fakes[1]!.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
+    await second.done;
+  });
+
+  it("does not pass resume when claudeSessionId is not yet captured", async () => {
+    const h = makeHarness();
+    const spy = new SpyRenderer();
+    const outcome = await h.session.submit(
+      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      spy.emit,
+    );
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+
+    expect(h.fakes[0]!.options.resume).toBeUndefined();
+
+    h.fakes[0]!.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
+    await outcome.done;
   });
 });

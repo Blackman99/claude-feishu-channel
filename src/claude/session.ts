@@ -79,6 +79,7 @@ export interface SessionStatus {
   totalInputTokens: number;
   totalOutputTokens: number;
   queueLength: number;
+  claudeSessionId?: string;
 }
 
 export interface ClaudeSessionOptions {
@@ -89,6 +90,8 @@ export interface ClaudeSessionOptions {
   permissionBroker: PermissionBroker;
   questionBroker: QuestionBroker;
   logger: Logger;
+  onSessionIdCaptured?: () => void;
+  onTurnComplete?: () => void;
 }
 
 /**
@@ -173,6 +176,9 @@ export class ClaudeSession {
   private turnCount = 0;
   private totalInputTokens = 0;
   private totalOutputTokens = 0;
+  private claudeSessionId?: string;
+  private readonly onSessionIdCaptured?: () => void;
+  private readonly onTurnComplete?: () => void;
 
   constructor(opts: ClaudeSessionOptions) {
     this.chatId = opts.chatId;
@@ -182,6 +188,12 @@ export class ClaudeSession {
     this.permissionBroker = opts.permissionBroker;
     this.questionBroker = opts.questionBroker;
     this.logger = opts.logger.child({ chat_id: opts.chatId });
+    if (opts.onSessionIdCaptured !== undefined) {
+      this.onSessionIdCaptured = opts.onSessionIdCaptured;
+    }
+    if (opts.onTurnComplete !== undefined) {
+      this.onTurnComplete = opts.onTurnComplete;
+    }
     // Touch clock so the compiler doesn't warn about an unused field.
     void this.clock;
   }
@@ -457,6 +469,9 @@ export class ClaudeSession {
           settingSources: ["user", "project"],
           mcpServers: [askUserMcp],
           disallowedTools: ["AskUserQuestion"],
+          ...(this.claudeSessionId !== undefined
+            ? { resume: this.claudeSessionId }
+            : {}),
         },
         canUseTool: this.buildCanUseToolClosure(next),
       });
@@ -500,6 +515,10 @@ export class ClaudeSession {
     let resultMsg: SDKMessageLike | undefined;
 
     for await (const msg of handle.messages) {
+      if (msg.session_id && !this.claudeSessionId) {
+        this.claudeSessionId = msg.session_id;
+        this.onSessionIdCaptured?.();
+      }
       if (msg.type === "assistant" && msg.message?.content) {
         for (const block of msg.message.content) {
           await this.emitAssistantBlock(block, input.emit);
@@ -549,6 +568,7 @@ export class ClaudeSession {
     this.turnCount++;
     this.totalInputTokens += resultMsg.usage?.input_tokens ?? 0;
     this.totalOutputTokens += resultMsg.usage?.output_tokens ?? 0;
+    this.onTurnComplete?.();
   }
 
   private async emitAssistantBlock(
@@ -599,6 +619,11 @@ export class ClaudeSession {
     this.modelOverride = model;
   }
 
+  /** Set the Claude session ID for resume. Used by SessionManager during lazy restore. */
+  setClaudeSessionId(id: string): void {
+    this.claudeSessionId = id;
+  }
+
   getStatus(): SessionStatus {
     return {
       state: this.state,
@@ -611,6 +636,9 @@ export class ClaudeSession {
       totalInputTokens: this.totalInputTokens,
       totalOutputTokens: this.totalOutputTokens,
       queueLength: this.inputQueue.length,
+      ...(this.claudeSessionId !== undefined
+        ? { claudeSessionId: this.claudeSessionId }
+        : {}),
     };
   }
 
