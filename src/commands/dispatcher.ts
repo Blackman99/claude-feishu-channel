@@ -209,17 +209,29 @@ export class CommandDispatcher {
   }
 
   private async handleMode(
-    _mode: string,
-    _ctx: CommandContext,
+    mode: string,
+    ctx: CommandContext,
   ): Promise<void> {
-    throw new Error("not implemented");
+    const session = this.sessionManager.getOrCreate(ctx.chatId);
+    if (session.getState() !== "idle") {
+      await this.feishu.replyText(ctx.parentMessageId, "会话正在执行中，请先发送 /stop 或等待完成");
+      return;
+    }
+    session.setPermissionModeOverride(mode as "default" | "acceptEdits" | "plan" | "bypassPermissions");
+    await this.feishu.replyText(ctx.parentMessageId, `权限模式已切换为 ${mode}`);
   }
 
   private async handleModel(
-    _model: string,
-    _ctx: CommandContext,
+    model: string,
+    ctx: CommandContext,
   ): Promise<void> {
-    throw new Error("not implemented");
+    const session = this.sessionManager.getOrCreate(ctx.chatId);
+    if (session.getState() !== "idle") {
+      await this.feishu.replyText(ctx.parentMessageId, "会话正在执行中，请先发送 /stop 或等待完成");
+      return;
+    }
+    session.setModelOverride(model);
+    await this.feishu.replyText(ctx.parentMessageId, `模型已切换为 ${model}`);
   }
 
   private async handleCd(_path: string, _ctx: CommandContext): Promise<void> {

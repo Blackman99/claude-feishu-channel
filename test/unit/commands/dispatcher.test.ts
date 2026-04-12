@@ -4,6 +4,7 @@ import type { CommandContext } from "../../../src/commands/dispatcher.js";
 import { ClaudeSessionManager } from "../../../src/claude/session-manager.js";
 import { FakePermissionBroker } from "../claude/fakes/fake-permission-broker.js";
 import { FakeQuestionBroker } from "../claude/fakes/fake-question-broker.js";
+import { FakeQueryHandle } from "../claude/fakes/fake-query-handle.js";
 import { FakeClock } from "../../../src/util/clock.js";
 import { createLogger } from "../../../src/util/logger.js";
 import type { QueryFn, SDKMessageLike } from "../../../src/claude/session.js";
@@ -101,6 +102,51 @@ function makeHarness() {
   return { feishu, sessionManager, dispatcher };
 }
 
+/**
+ * Harness with a blocking queryFn — turns stay in "generating" state
+ * until the caller explicitly finishes them. Useful for testing
+ * commands that require checking session state.
+ */
+function makeBlockingHarness() {
+  const feishu = {
+    replyText: vi.fn().mockResolvedValue({ messageId: "om_reply" }),
+    replyCard: vi.fn().mockResolvedValue({ messageId: "om_card" }),
+    patchCard: vi.fn().mockResolvedValue(undefined),
+  } as unknown as FeishuClient;
+
+  const permissionBroker = new FakePermissionBroker();
+  const questionBroker = new FakeQuestionBroker();
+  const clock = new FakeClock(0);
+  const handles: FakeQueryHandle[] = [];
+
+  const blockingQueryFn: QueryFn = () => {
+    const handle = new FakeQueryHandle();
+    handles.push(handle);
+    return handle;
+  };
+
+  const sessionManager = new ClaudeSessionManager({
+    config: BASE_CONFIG.claude,
+    queryFn: blockingQueryFn,
+    clock,
+    permissionBroker,
+    questionBroker,
+    logger: SILENT_LOGGER,
+  });
+
+  const dispatcher = new CommandDispatcher({
+    sessionManager,
+    feishu,
+    config: BASE_CONFIG,
+    permissionBroker,
+    questionBroker,
+    clock,
+    logger: SILENT_LOGGER,
+  });
+
+  return { feishu, sessionManager, dispatcher, handles };
+}
+
 describe("CommandDispatcher — simple commands", () => {
   describe("/help", () => {
     it("replies with text containing all command names", async () => {
@@ -164,6 +210,95 @@ describe("CommandDispatcher — simple commands", () => {
       const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
       expect(text).toContain("/help");
     });
+  });
+});
+
+describe("CommandDispatcher — /mode", () => {
+  it("sets permission mode override on idle session and replies with mode name", async () => {
+    const { feishu, sessionManager, dispatcher } = makeHarness();
+
+    const session = sessionManager.getOrCreate(CTX.chatId);
+    expect(session.getState()).toBe("idle");
+
+    await dispatcher.dispatch({ name: "mode", mode: "acceptEdits" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(text).toContain("acceptEdits");
+    expect(session.getStatus().permissionMode).toBe("acceptEdits");
+  });
+
+  it("setting mode to 'default' clears the sticky flag", async () => {
+    const { sessionManager, dispatcher } = makeHarness();
+
+    const session = sessionManager.getOrCreate(CTX.chatId);
+    // Set sticky flag manually
+    session._testSetSessionAcceptEditsSticky(true);
+    expect(session._testGetSessionAcceptEditsSticky()).toBe(true);
+
+    await dispatcher.dispatch({ name: "mode", mode: "default" }, CTX);
+
+    expect(session._testGetSessionAcceptEditsSticky()).toBe(false);
+  });
+
+  it("rejects when session is not idle — replyText contains '执行中', mode NOT changed", async () => {
+    const { feishu, sessionManager, dispatcher } = makeBlockingHarness();
+
+    const session = sessionManager.getOrCreate(CTX.chatId);
+    // Start a turn to put session in generating state
+    const noopEmit = async () => {};
+    session.submit(
+      { kind: "run", text: "hello", senderOpenId: "ou_alice", parentMessageId: "om_p0" },
+      noopEmit,
+    );
+    await flushMicrotasks();
+    expect(session.getState()).toBe("generating");
+
+    await dispatcher.dispatch({ name: "mode", mode: "bypassPermissions" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(text).toContain("执行中");
+    // Mode should NOT have been changed to bypassPermissions
+    expect(session.getStatus().permissionMode).not.toBe("bypassPermissions");
+  });
+});
+
+describe("CommandDispatcher — /model", () => {
+  it("sets model override on idle session and replies with model name", async () => {
+    const { feishu, sessionManager, dispatcher } = makeHarness();
+
+    const session = sessionManager.getOrCreate(CTX.chatId);
+    expect(session.getState()).toBe("idle");
+
+    await dispatcher.dispatch({ name: "model", model: "claude-opus-4-5" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(text).toContain("claude-opus-4-5");
+    expect(session.getStatus().model).toBe("claude-opus-4-5");
+  });
+
+  it("rejects when session is not idle — replyText contains '执行中'", async () => {
+    const { feishu, sessionManager, dispatcher } = makeBlockingHarness();
+
+    const session = sessionManager.getOrCreate(CTX.chatId);
+    // Start a turn to put session in generating state
+    const noopEmit = async () => {};
+    session.submit(
+      { kind: "run", text: "hello", senderOpenId: "ou_alice", parentMessageId: "om_p0" },
+      noopEmit,
+    );
+    await flushMicrotasks();
+    expect(session.getState()).toBe("generating");
+
+    await dispatcher.dispatch({ name: "model", model: "claude-haiku-3-5" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(text).toContain("执行中");
+    // Model should NOT have been changed
+    expect(session.getStatus().model).not.toBe("claude-haiku-3-5");
   });
 });
 
