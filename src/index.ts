@@ -15,6 +15,7 @@ import { FeishuPermissionBroker } from "./claude/feishu-permission-broker.js";
 import { FeishuQuestionBroker } from "./claude/feishu-question-broker.js";
 import { RealClock } from "./util/clock.js";
 import { parseInput } from "./commands/router.js";
+import { CommandDispatcher } from "./commands/dispatcher.js";
 import type { RenderEvent } from "./claude/render-event.js";
 import {
   buildAnswerCard,
@@ -104,9 +105,11 @@ async function main(): Promise<void> {
     logger,
   });
 
+  const clock = new RealClock();
+
   const permissionBroker = new FeishuPermissionBroker({
     feishu: feishuClient,
-    clock: new RealClock(),
+    clock,
     logger,
     config: {
       timeoutMs: config.claude.permissionTimeoutMs,
@@ -120,7 +123,7 @@ async function main(): Promise<void> {
   // introducing yet another tuning surface.
   const questionBroker = new FeishuQuestionBroker({
     feishu: feishuClient,
-    clock: new RealClock(),
+    clock,
     logger,
     config: {
       timeoutMs: config.claude.permissionTimeoutMs,
@@ -131,9 +134,19 @@ async function main(): Promise<void> {
   const sessionManager = new ClaudeSessionManager({
     config: config.claude,
     queryFn,
-    clock: new RealClock(),
+    clock,
     permissionBroker,
     questionBroker,
+    logger,
+  });
+
+  const commandDispatcher = new CommandDispatcher({
+    sessionManager,
+    feishu: feishuClient,
+    config,
+    permissionBroker,
+    questionBroker,
+    clock,
     logger,
   });
 
@@ -592,6 +605,22 @@ async function main(): Promise<void> {
         await session.stop(emit);
         return;
       }
+      if (parsed.kind === "command") {
+        await commandDispatcher.dispatch(parsed.cmd, {
+          chatId: msg.chatId,
+          senderOpenId: msg.senderOpenId,
+          parentMessageId: msg.messageId,
+        });
+        return;
+      }
+      if (parsed.kind === "unknown_command") {
+        await commandDispatcher.dispatchUnknown(parsed.raw, {
+          chatId: msg.chatId,
+          senderOpenId: msg.senderOpenId,
+          parentMessageId: msg.messageId,
+        });
+        return;
+      }
       const outcome = await session.submit(
         {
           ...parsed,
@@ -739,6 +768,38 @@ async function main(): Promise<void> {
       // Forward the broker's updated card (partial-answered state or
       // fully-resolved compact variant) so the gateway can replay it
       // in the callback response body — see CardActionResult for why.
+      if (result.card) {
+        return { card: result.card };
+      }
+      return;
+    }
+    if (kind === "cd_confirm") {
+      const requestId = value.request_id;
+      const accepted = value.accepted;
+      if (typeof requestId !== "string") {
+        logger.warn({ value }, "cd_confirm action missing request_id");
+        return;
+      }
+      if (typeof accepted !== "boolean") {
+        logger.warn({ value }, "cd_confirm action has invalid accepted");
+        return;
+      }
+      const result = await commandDispatcher.resolveCdConfirm({
+        requestId,
+        senderOpenId,
+        accepted,
+      });
+      if (result.kind === "forbidden") {
+        logger.warn(
+          { request_id: requestId, clicker: senderOpenId, owner: result.ownerOpenId },
+          "Non-owner cd_confirm click — ignored",
+        );
+        return;
+      }
+      if (result.kind === "not_found") {
+        logger.info({ request_id: requestId }, "cd_confirm for unknown request — likely already resolved");
+        return;
+      }
       if (result.card) {
         return { card: result.card };
       }

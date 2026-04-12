@@ -202,6 +202,12 @@ export class ClaudeSession {
       return { kind: "rejected", reason: "stop" };
     }
 
+    if (input.kind === "command" || input.kind === "unknown_command") {
+      // These are handled by CommandDispatcher before reaching submit().
+      // Guard here so TypeScript can narrow input.text below.
+      throw new Error(`submit() called with kind="${input.kind}"; route through CommandDispatcher instead`);
+    }
+
     const entry: QueuedInput = {
       text: input.text,
       senderOpenId: input.senderOpenId,

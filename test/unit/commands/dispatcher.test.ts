@@ -155,7 +155,7 @@ describe("CommandDispatcher — simple commands", () => {
       await dispatcher.dispatch({ name: "help" }, CTX);
 
       expect(feishu.replyText).toHaveBeenCalledOnce();
-      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
       expect(text).toContain("/new");
       expect(text).toContain("/cd");
       expect(text).toContain("/mode");
@@ -178,7 +178,7 @@ describe("CommandDispatcher — simple commands", () => {
       await dispatcher.dispatch({ name: "status" }, CTX);
 
       expect(feishu.replyText).toHaveBeenCalledOnce();
-      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
       expect(text).toContain("idle");
       expect(text).toContain("/tmp/cfc-test"); // defaultCwd
       expect(text).toContain("default");       // defaultPermissionMode
@@ -193,7 +193,7 @@ describe("CommandDispatcher — simple commands", () => {
       await dispatcher.dispatch({ name: "config_show" }, CTX);
 
       expect(feishu.replyText).toHaveBeenCalledOnce();
-      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
       expect(text).toContain("cli_test");
       expect(text).not.toContain("secret_test_value");
       expect(text).toContain("***");
@@ -207,7 +207,7 @@ describe("CommandDispatcher — simple commands", () => {
       await dispatcher.dispatchUnknown("/foo", CTX);
 
       expect(feishu.replyText).toHaveBeenCalledOnce();
-      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
       expect(text).toContain("/help");
     });
   });
@@ -223,7 +223,7 @@ describe("CommandDispatcher — /mode", () => {
     await dispatcher.dispatch({ name: "mode", mode: "acceptEdits" }, CTX);
 
     expect(feishu.replyText).toHaveBeenCalledOnce();
-    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("acceptEdits");
     expect(session.getStatus().permissionMode).toBe("acceptEdits");
   });
@@ -257,7 +257,7 @@ describe("CommandDispatcher — /mode", () => {
     await dispatcher.dispatch({ name: "mode", mode: "bypassPermissions" }, CTX);
 
     expect(feishu.replyText).toHaveBeenCalledOnce();
-    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("执行中");
     // Mode should NOT have been changed to bypassPermissions
     expect(session.getStatus().permissionMode).not.toBe("bypassPermissions");
@@ -274,7 +274,7 @@ describe("CommandDispatcher — /model", () => {
     await dispatcher.dispatch({ name: "model", model: "claude-opus-4-5" }, CTX);
 
     expect(feishu.replyText).toHaveBeenCalledOnce();
-    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("claude-opus-4-5");
     expect(session.getStatus().model).toBe("claude-opus-4-5");
   });
@@ -295,7 +295,7 @@ describe("CommandDispatcher — /model", () => {
     await dispatcher.dispatch({ name: "model", model: "claude-haiku-3-5" }, CTX);
 
     expect(feishu.replyText).toHaveBeenCalledOnce();
-    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("执行中");
     // Model should NOT have been changed
     expect(session.getStatus().model).not.toBe("claude-haiku-3-5");
@@ -315,7 +315,7 @@ describe("CommandDispatcher — /new", () => {
 
     // Should reply with the expected message
     expect(feishu.replyText).toHaveBeenCalledOnce();
-    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("新会话");
 
     // After deletion, getOrCreate should return a fresh session (new object)
@@ -333,7 +333,7 @@ describe("CommandDispatcher — /new", () => {
     ).resolves.toBeUndefined();
 
     expect(feishu.replyText).toHaveBeenCalledOnce();
-    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("新会话");
   });
 });
@@ -366,7 +366,7 @@ describe("CommandDispatcher — /cd", () => {
     await dispatcher.dispatch({ name: "cd", path: "/this/path/does/not/exist/xyz123" }, CTX);
 
     expect(feishu.replyText).toHaveBeenCalledOnce();
-    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("路径不存在");
   });
 
@@ -385,7 +385,7 @@ describe("CommandDispatcher — /cd", () => {
     await dispatcher.dispatch({ name: "cd", path: "/tmp" }, CTX);
 
     expect(feishu.replyText).toHaveBeenCalledOnce();
-    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("执行中");
   });
 });
@@ -527,7 +527,7 @@ describe("CommandDispatcher — /project", () => {
     await dispatcher.dispatch({ name: "project", alias: "unknown-alias" }, CTX);
 
     expect(feishu.replyText).toHaveBeenCalledOnce();
-    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("未知项目别名");
     expect(text).toContain("my-app");
   });
