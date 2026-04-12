@@ -84,6 +84,10 @@ export class CommandDispatcher {
         return this.handleCd(cmd.path, ctx);
       case "project":
         return this.handleProject(cmd.alias, ctx);
+      case "sessions":
+        return this.handleSessions(ctx);
+      case "resume":
+        return this.handleResume(cmd.target, ctx);
       default: {
         const _exhaustive: never = cmd;
         this.logger.warn({ cmd: _exhaustive }, "unhandled command");
@@ -109,6 +113,8 @@ export class CommandDispatcher {
       "  /new          — 开启新会话（清除上下文）",
       "  /status       — 查看当前会话状态",
       "  /stop         — 中断当前生成",
+      "  /sessions     — 列出所有已知会话",
+      "  /resume <id>  — 恢复到指定会话",
       "",
       "工作目录",
       "  /cd <路径>    — 切换工作目录",
@@ -285,6 +291,58 @@ export class CommandDispatcher {
       return;
     }
     return this.handleCd(resolved, ctx);
+  }
+
+  private async handleSessions(ctx: CommandContext): Promise<void> {
+    const all = this.sessionManager.getAllSessions();
+    if (all.length === 0) {
+      await this.feishu.replyText(ctx.parentMessageId, "暂无会话记录");
+      return;
+    }
+
+    const lines = ["已知会话：", ""];
+    for (const entry of all) {
+      const short = entry.chatId.length > 16
+        ? entry.chatId.slice(0, 16) + "…"
+        : entry.chatId;
+      const status = entry.active ? "active" : "stale";
+      lines.push(
+        `  ${short}  ${entry.record.cwd}  ${entry.record.model ?? "-"}  ${status}`,
+      );
+    }
+    await this.feishu.replyText(ctx.parentMessageId, lines.join("\n"));
+  }
+
+  private async handleResume(target: string, ctx: CommandContext): Promise<void> {
+    const session = this.sessionManager.getOrCreate(ctx.chatId);
+    if (session.getState() !== "idle") {
+      await this.feishu.replyText(
+        ctx.parentMessageId,
+        "会话正在执行中，请先发送 /stop 或等待完成",
+      );
+      return;
+    }
+
+    const found = this.sessionManager.findSession(target);
+    if (!found) {
+      await this.feishu.replyText(ctx.parentMessageId, `未找到会话 ${target}`);
+      return;
+    }
+    if (found.chatId === ctx.chatId) {
+      await this.feishu.replyText(ctx.parentMessageId, "已经在该会话中");
+      return;
+    }
+
+    this.sessionManager.delete(ctx.chatId);
+    this.sessionManager.setStaleRecord(ctx.chatId, found.record);
+
+    const shortId = found.record.claudeSessionId.length > 12
+      ? found.record.claudeSessionId.slice(0, 12) + "…"
+      : found.record.claudeSessionId;
+    await this.feishu.replyText(
+      ctx.parentMessageId,
+      `已恢复会话 \`${shortId}\`, 工作目录: \`${found.record.cwd}\``,
+    );
   }
 
   async resolveCdConfirm(args: {

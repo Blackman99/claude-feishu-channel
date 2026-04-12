@@ -533,3 +533,90 @@ describe("CommandDispatcher — /project", () => {
     expect(text).toContain("my-app");
   });
 });
+
+describe("CommandDispatcher — /sessions", () => {
+  it("replies '暂无会话记录' when no sessions exist", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch({ name: "sessions" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("暂无会话记录");
+  });
+
+  it("lists sessions with chatId and 'active' when sessions exist", async () => {
+    const { feishu, sessionManager, dispatcher } = makeHarness();
+
+    // Create an active session
+    sessionManager.getOrCreate("oc_session1");
+
+    await dispatcher.dispatch({ name: "sessions" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("oc_session1");
+    expect(text).toContain("active");
+  });
+});
+
+describe("CommandDispatcher — /resume", () => {
+  it("replies '未找到会话' for unknown target", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch({ name: "resume", target: "nonexistent" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("未找到会话");
+  });
+
+  it("replies '已经在该会话中' when target resolves to own chatId", async () => {
+    const { feishu, sessionManager, dispatcher } = makeHarness();
+
+    // Create a session for the current chatId so findSession can find it
+    sessionManager.getOrCreate(CTX.chatId);
+
+    await dispatcher.dispatch({ name: "resume", target: CTX.chatId }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("已经在该会话中");
+  });
+
+  it("replies '正在执行中' when session is not idle", async () => {
+    const { feishu, sessionManager, dispatcher } = makeBlockingHarness();
+
+    // Put the current session in generating state
+    const session = sessionManager.getOrCreate(CTX.chatId);
+    const noopEmit = async () => {};
+    session.submit(
+      { kind: "run", text: "hello", senderOpenId: "ou_alice", parentMessageId: "om_p0" },
+      noopEmit,
+    );
+    await flushMicrotasks();
+    expect(session.getState()).toBe("generating");
+
+    // Create a target session to resume
+    sessionManager.getOrCreate("oc_target");
+
+    await dispatcher.dispatch({ name: "resume", target: "oc_target" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("执行中");
+  });
+
+  it("successfully resumes another session and replies '已恢复会话'", async () => {
+    const { feishu, sessionManager, dispatcher } = makeHarness();
+
+    // Create a target session at a different chatId
+    sessionManager.getOrCreate("oc_target");
+
+    await dispatcher.dispatch({ name: "resume", target: "oc_target" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("已恢复会话");
+  });
+});
