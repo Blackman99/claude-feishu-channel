@@ -69,6 +69,16 @@ export type RenderEventEmitter = EmitFn;
 
 export type SessionState = "idle" | "generating" | "awaiting_permission";
 
+export interface SessionStatus {
+  state: SessionState;
+  permissionMode: string;
+  model: string;
+  turnCount: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  queueLength: number;
+}
+
 export interface ClaudeSessionOptions {
   chatId: string;
   config: AppConfig["claude"];
@@ -155,6 +165,12 @@ export class ClaudeSession {
    * and `/mode default` commands will clear it too.
    */
   private sessionAcceptEditsSticky = false;
+
+  private permissionModeOverride?: "default" | "acceptEdits" | "plan" | "bypassPermissions";
+  private modelOverride?: string;
+  private turnCount = 0;
+  private totalInputTokens = 0;
+  private totalOutputTokens = 0;
 
   constructor(opts: ClaudeSessionOptions) {
     this.chatId = opts.chatId;
@@ -412,7 +428,7 @@ export class ClaudeSession {
 
       const permissionMode = this.sessionAcceptEditsSticky
         ? ("acceptEdits" as const)
-        : this.config.defaultPermissionMode;
+        : (this.permissionModeOverride ?? this.config.defaultPermissionMode);
       // Per-turn MCP server binds the ask_user tool handler to the
       // current input's senderOpenId / parentMessageId so the
       // question card threads under the triggering message and only
@@ -428,7 +444,7 @@ export class ClaudeSession {
         prompt: next.text,
         options: {
           cwd: this.config.defaultCwd,
-          model: this.config.defaultModel,
+          model: this.modelOverride ?? this.config.defaultModel,
           permissionMode,
           settingSources: ["user", "project"],
           mcpServers: [askUserMcp],
@@ -522,6 +538,9 @@ export class ClaudeSession {
       { durationMs: resultMsg.duration_ms, seq: input.seq },
       "Claude turn complete",
     );
+    this.turnCount++;
+    this.totalInputTokens += resultMsg.usage?.input_tokens ?? 0;
+    this.totalOutputTokens += resultMsg.usage?.output_tokens ?? 0;
   }
 
   private async emitAssistantBlock(
@@ -553,6 +572,37 @@ export class ClaudeSession {
       });
       return;
     }
+  }
+
+  // --- public API ---
+
+  getState(): SessionState {
+    return this.state;
+  }
+
+  setPermissionModeOverride(
+    mode: "default" | "acceptEdits" | "plan" | "bypassPermissions",
+  ): void {
+    this.permissionModeOverride = mode;
+    this.sessionAcceptEditsSticky = mode === "acceptEdits";
+  }
+
+  setModelOverride(model: string): void {
+    this.modelOverride = model;
+  }
+
+  getStatus(): SessionStatus {
+    return {
+      state: this.state,
+      permissionMode: this.sessionAcceptEditsSticky
+        ? "acceptEdits"
+        : (this.permissionModeOverride ?? this.config.defaultPermissionMode),
+      model: this.modelOverride ?? this.config.defaultModel,
+      turnCount: this.turnCount,
+      totalInputTokens: this.totalInputTokens,
+      totalOutputTokens: this.totalOutputTokens,
+      queueLength: this.inputQueue.length,
+    };
   }
 
   // --- test seams ---

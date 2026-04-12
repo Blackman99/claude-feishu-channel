@@ -32,6 +32,11 @@ export class FakeQueryHandle implements QueryHandle {
   messagesConsumed = 0;
   /** Recorded permissionMode changes from the session under test. */
   readonly permissionModeChanges: ClaudeQueryOptions["permissionMode"][] = [];
+  /**
+   * The options passed to `queryFn` when this handle was created.
+   * Set by the harness's queryFn immediately after construction.
+   */
+  options: ClaudeQueryOptions = {} as ClaudeQueryOptions;
 
   /**
    * Per-turn canUseTool closure captured from the session. The

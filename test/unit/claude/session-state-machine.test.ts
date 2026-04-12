@@ -39,6 +39,7 @@ function makeHarness(): Harness {
   const queryFn: QueryFn = (params) => {
     const fake = new FakeQueryHandle();
     fake.canUseTool = params.canUseTool;
+    fake.options = params.options;
     fakes.push(fake);
     return fake as QueryHandle;
   };
@@ -1038,5 +1039,103 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
     h.fakes[1]!.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
     await bang.done;
     expect(h.session._testGetState()).toBe("idle");
+  });
+});
+
+describe("Session runtime overrides + stats", () => {
+  it("getState() returns idle initially", () => {
+    const h = makeHarness();
+    expect(h.session.getState()).toBe("idle");
+  });
+
+  it("setPermissionModeOverride causes processLoop to use the override", async () => {
+    const h = makeHarness();
+    h.session.setPermissionModeOverride("plan");
+    const spy = new SpyRenderer();
+    const outcome = await h.session.submit(
+      {
+        kind: "run",
+        text: "hi",
+        senderOpenId: "ou_alice",
+        parentMessageId: "om_root_1",
+      },
+      spy.emit,
+    );
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    const fake = h.fakes[0]!;
+    expect(fake.options.permissionMode).toBe("plan");
+    fake.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
+    await outcome.done;
+  });
+
+  it("setPermissionModeOverride('acceptEdits') sets sessionAcceptEditsSticky", () => {
+    const h = makeHarness();
+    h.session.setPermissionModeOverride("acceptEdits");
+    expect(h.session._testGetSessionAcceptEditsSticky()).toBe(true);
+  });
+
+  it("setPermissionModeOverride('default') clears sessionAcceptEditsSticky", () => {
+    const h = makeHarness();
+    h.session._testSetSessionAcceptEditsSticky(true);
+    h.session.setPermissionModeOverride("default");
+    expect(h.session._testGetSessionAcceptEditsSticky()).toBe(false);
+  });
+
+  it("setModelOverride causes processLoop to use the override", async () => {
+    const h = makeHarness();
+    h.session.setModelOverride("claude-sonnet-4-6");
+    const spy = new SpyRenderer();
+    const outcome = await h.session.submit(
+      {
+        kind: "run",
+        text: "hi",
+        senderOpenId: "ou_alice",
+        parentMessageId: "om_root_1",
+      },
+      spy.emit,
+    );
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    const fake = h.fakes[0]!;
+    expect(fake.options.model).toBe("claude-sonnet-4-6");
+    fake.finishWithSuccess({ durationMs: 1, inputTokens: 10, outputTokens: 20 });
+    await outcome.done;
+  });
+
+  it("getStatus() returns correct initial values", () => {
+    const h = makeHarness();
+    const status = h.session.getStatus();
+    expect(status.state).toBe("idle");
+    expect(status.turnCount).toBe(0);
+    expect(status.totalInputTokens).toBe(0);
+    expect(status.totalOutputTokens).toBe(0);
+    expect(status.queueLength).toBe(0);
+  });
+
+  it("turnCount and token counters accumulate after a turn", async () => {
+    const h = makeHarness();
+    const spy = new SpyRenderer();
+    const outcome = await h.session.submit(
+      {
+        kind: "run",
+        text: "hi",
+        senderOpenId: "ou_alice",
+        parentMessageId: "om_root_1",
+      },
+      spy.emit,
+    );
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    h.fakes[0]!.finishWithSuccess({
+      durationMs: 100,
+      inputTokens: 500,
+      outputTokens: 1200,
+    });
+    await outcome.done;
+    const status = h.session.getStatus();
+    expect(status.turnCount).toBe(1);
+    expect(status.totalInputTokens).toBe(500);
+    expect(status.totalOutputTokens).toBe(1200);
   });
 });
