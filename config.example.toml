@@ -31,7 +31,7 @@ unauthorized_behavior = "ignore"
 [claude]
 # Absolute path where Claude Code sessions should run (use ~ to expand
 # to your home directory). This is the cwd every new session starts in
-# until /cd lands in Phase 6.
+# until changed via /cd or /project.
 default_cwd = "~/my-projects"
 
 # Permission mode for new sessions. Options:
@@ -79,7 +79,7 @@ show_turn_stats = true
 # ─── Persistence paths ───────────────────────────────────────────────
 [persistence]
 state_file = "~/.claude-feishu-channel/state.json"
-# log_dir is reserved for Phase 2+ file logging. Phase 1 logs to stdout only.
+# Directory for structured log files.
 log_dir = "~/.claude-feishu-channel/logs"
 # How many days to keep session records before cleanup. Sessions older
 # than this are pruned on startup.
@@ -89,6 +89,14 @@ session_ttl_days = 30
 [logging]
 # trace | debug | info | warn | error
 level = "info"
+
+# ─── Runtime-settable keys ───────────────────────────────────────────
+# The following keys can be changed at runtime via /config set:
+#   render.hide_thinking, render.show_turn_stats, render.inline_max_bytes,
+#   logging.level, claude.default_model, claude.default_cwd,
+#   claude.default_permission_mode, claude.permission_timeout_seconds,
+#   claude.permission_warn_before_seconds
+# Use /config set <key> <value> --persist to write changes back to this file.
 
 # ─── Project aliases ─────────────────────────────────────────────────
 # Aliases for /project command — quickly switch cwd by name.
