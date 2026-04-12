@@ -55,4 +55,58 @@ describe("ClaudeSessionManager", () => {
     const b = mgr.getOrCreate("oc_2");
     expect(a).not.toBe(b);
   });
+
+  it("delete() removes session — getOrCreate returns a new instance after delete", () => {
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+    });
+    const before = mgr.getOrCreate("oc_1");
+    mgr.delete("oc_1");
+    const after = mgr.getOrCreate("oc_1");
+    expect(after).not.toBe(before);
+  });
+
+  it("delete() on nonexistent chatId is a no-op and does not throw", () => {
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+    });
+    expect(() => mgr.delete("nonexistent")).not.toThrow();
+  });
+
+  it("setCwdOverride causes next getOrCreate to use the overridden cwd", () => {
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+    });
+    mgr.setCwdOverride("oc_1", "/custom/cwd");
+    const session = mgr.getOrCreate("oc_1");
+    expect(session.getStatus().cwd).toBe("/custom/cwd");
+  });
+
+  it("getOrCreate without cwdOverride uses config default cwd", () => {
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+    });
+    const session = mgr.getOrCreate("oc_1");
+    expect(session.getStatus().cwd).toBe("/tmp/cfc-test");
+  });
 });

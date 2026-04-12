@@ -73,6 +73,7 @@ export interface SessionStatus {
   state: SessionState;
   permissionMode: string;
   model: string;
+  cwd: string;
   turnCount: number;
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -598,6 +599,7 @@ export class ClaudeSession {
         ? "acceptEdits"
         : (this.permissionModeOverride ?? this.config.defaultPermissionMode),
       model: this.modelOverride ?? this.config.defaultModel,
+      cwd: this.config.defaultCwd,
       turnCount: this.turnCount,
       totalInputTokens: this.totalInputTokens,
       totalOutputTokens: this.totalOutputTokens,

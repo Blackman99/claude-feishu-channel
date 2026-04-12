@@ -21,6 +21,7 @@ export interface ClaudeSessionManagerOptions {
  */
 export class ClaudeSessionManager {
   private readonly sessions = new Map<string, ClaudeSession>();
+  private readonly cwdOverrides = new Map<string, string>();
   private readonly opts: ClaudeSessionManagerOptions;
 
   constructor(opts: ClaudeSessionManagerOptions) {
@@ -30,9 +31,10 @@ export class ClaudeSessionManager {
   getOrCreate(chatId: string): ClaudeSession {
     let session = this.sessions.get(chatId);
     if (session === undefined) {
+      const cwd = this.cwdOverrides.get(chatId) ?? this.opts.config.defaultCwd;
       session = new ClaudeSession({
         chatId,
-        config: this.opts.config,
+        config: { ...this.opts.config, defaultCwd: cwd },
         queryFn: this.opts.queryFn,
         clock: this.opts.clock,
         permissionBroker: this.opts.permissionBroker,
@@ -42,5 +44,13 @@ export class ClaudeSessionManager {
       this.sessions.set(chatId, session);
     }
     return session;
+  }
+
+  delete(chatId: string): void {
+    this.sessions.delete(chatId);
+  }
+
+  setCwdOverride(chatId: string, cwd: string): void {
+    this.cwdOverrides.set(chatId, cwd);
   }
 }
