@@ -51,10 +51,12 @@ const PersistenceSchema = z
   .object({
     state_file: z.string().default("~/.claude-feishu-channel/state.json"),
     log_dir: z.string().default("~/.claude-feishu-channel/logs"),
+    session_ttl_days: z.number().int().positive().default(30),
   })
   .default({
     state_file: "~/.claude-feishu-channel/state.json",
     log_dir: "~/.claude-feishu-channel/logs",
+    session_ttl_days: 30,
   });
 
 const LoggingSchema = z
@@ -146,6 +148,7 @@ export async function loadConfig(path: string): Promise<AppConfig> {
     persistence: {
       stateFile: expandHome(data.persistence.state_file),
       logDir: expandHome(data.persistence.log_dir),
+      sessionTtlDays: data.persistence.session_ttl_days,
     },
     logging: {
       level: data.logging.level,

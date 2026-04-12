@@ -283,6 +283,33 @@ default_cwd = "/tmp/cfc-test"
   });
 });
 
+describe("persistence config", () => {
+  it("defaults session_ttl_days to 30 when [persistence] is omitted", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+`);
+    const cfg = await loadConfig(path);
+    expect(cfg.persistence.sessionTtlDays).toBe(30);
+  });
+
+  it("parses explicit session_ttl_days from TOML", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+
+[persistence]
+session_ttl_days = 90
+`);
+    const cfg = await loadConfig(path);
+    expect(cfg.persistence.sessionTtlDays).toBe(90);
+  });
+});
+
 describe("render config", () => {
   it("defaults to inline_max_bytes=2048, hide_thinking=false, show_turn_stats=true when [render] is absent", async () => {
     const path = writeConfig(`

@@ -60,6 +60,7 @@ export interface AppConfig {
   persistence: {
     stateFile: string;
     logDir: string;
+    sessionTtlDays: number;
   };
   logging: {
     level: "trace" | "debug" | "info" | "warn" | "error";

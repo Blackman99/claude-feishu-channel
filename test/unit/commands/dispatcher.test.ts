@@ -54,6 +54,7 @@ const BASE_CONFIG: AppConfig = {
   persistence: {
     stateFile: "/tmp/state.json",
     logDir: "/tmp/logs",
+    sessionTtlDays: 30,
   },
   logging: {
     level: "info",

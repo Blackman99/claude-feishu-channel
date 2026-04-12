@@ -81,6 +81,9 @@ show_turn_stats = true
 state_file = "~/.claude-feishu-channel/state.json"
 # log_dir is reserved for Phase 2+ file logging. Phase 1 logs to stdout only.
 log_dir = "~/.claude-feishu-channel/logs"
+# How many days to keep session records before cleanup. Sessions older
+# than this are pruned on startup.
+session_ttl_days = 30
 
 # ─── Logging ─────────────────────────────────────────────────────────
 [logging]
