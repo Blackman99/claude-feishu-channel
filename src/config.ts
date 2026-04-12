@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile, rename } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parse as parseToml } from "smol-toml";
+import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { z } from "zod";
 import type { AppConfig } from "./types.js";
 
@@ -91,12 +91,36 @@ function formatZodError(error: z.ZodError): string {
     .join("\n");
 }
 
-// Stub — full implementation added in Task 3 (writeConfigKey)
+/**
+ * Write a single key-value pair into an existing TOML config file.
+ *
+ * Round-trips the file through smol-toml parse/stringify so structure
+ * is preserved (minus comments — smol-toml doesn't preserve those).
+ * Uses atomic write (write to .tmp, then rename) to avoid corruption.
+ */
 export async function writeConfigKey(
-  _path: string,
-  _key: string,
-  _value: string | number | boolean,
-): Promise<void> {}
+  configPath: string,
+  key: string,
+  value: string | number | boolean,
+): Promise<void> {
+  const raw = await readFile(configPath, "utf8");
+  const parsed = parseToml(raw) as Record<string, Record<string, unknown>>;
+
+  const [section, field] = key.split(".");
+  if (!section || !field) {
+    throw new Error(`Invalid config key format: ${key}`);
+  }
+
+  if (!parsed[section]) {
+    parsed[section] = {};
+  }
+  parsed[section]![field] = value;
+
+  const toml = stringifyToml(parsed);
+  const tmpPath = configPath + ".tmp";
+  await writeFile(tmpPath, toml, "utf8");
+  await rename(tmpPath, configPath);
+}
 
 export async function loadConfig(path: string): Promise<AppConfig> {
   let raw: string;

@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
-import { loadConfig, ConfigError } from "../../src/config.js";
+import { loadConfig, ConfigError, writeConfigKey } from "../../src/config.js";
 
 let tmpDir: string;
 
@@ -353,5 +353,115 @@ default_cwd = "/tmp/cfc-test"
 inline_max_bytes = -1
 `);
     await expect(loadConfig(path)).rejects.toThrow(ConfigError);
+  });
+});
+
+describe("writeConfigKey", () => {
+  it("writes a boolean value to an existing TOML file", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+
+[render]
+hide_thinking = false
+show_turn_stats = true
+`);
+
+    await writeConfigKey(path, "render.hide_thinking", true);
+
+    const cfg = await loadConfig(path);
+    expect(cfg.render.hideThinking).toBe(true);
+    expect(cfg.render.showTurnStats).toBe(true);
+  });
+
+  it("writes a string value", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+
+[logging]
+level = "info"
+`);
+
+    await writeConfigKey(path, "logging.level", "debug");
+
+    const cfg = await loadConfig(path);
+    expect(cfg.logging.level).toBe("debug");
+  });
+
+  it("writes a number value", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+
+[render]
+inline_max_bytes = 2048
+`);
+
+    await writeConfigKey(path, "render.inline_max_bytes", 4096);
+
+    const cfg = await loadConfig(path);
+    expect(cfg.render.inlineMaxBytes).toBe(4096);
+  });
+
+  it("creates section if it does not exist", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+`);
+
+    await writeConfigKey(path, "render.hide_thinking", true);
+
+    const cfg = await loadConfig(path);
+    expect(cfg.render.hideThinking).toBe(true);
+  });
+
+  it("preserves other sections when writing", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+default_model = "claude-opus-4-6"
+
+[logging]
+level = "info"
+`);
+
+    await writeConfigKey(path, "logging.level", "debug");
+
+    const cfg = await loadConfig(path);
+    expect(cfg.claude.defaultModel).toBe("claude-opus-4-6");
+    expect(cfg.logging.level).toBe("debug");
+  });
+
+  it("uses atomic write (tmp + rename)", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/cfc-test"
+`);
+
+    await writeConfigKey(path, "logging.level", "warn");
+
+    const tmpPath = path + ".tmp";
+    expect(() => readFileSync(tmpPath)).toThrow();
+
+    const cfg = await loadConfig(path);
+    expect(cfg.logging.level).toBe("warn");
+  });
+
+  it("throws on nonexistent config file", async () => {
+    const path = join(tmpDir, "nonexistent.toml");
+    await expect(writeConfigKey(path, "logging.level", "debug")).rejects.toThrow();
   });
 });
