@@ -80,6 +80,8 @@ export interface SessionStatus {
   totalOutputTokens: number;
   queueLength: number;
   claudeSessionId?: string;
+  createdAt: string;
+  lastActiveAt: string;
 }
 
 export interface ClaudeSessionOptions {
@@ -179,6 +181,8 @@ export class ClaudeSession {
   private claudeSessionId?: string;
   private readonly onSessionIdCaptured?: () => void;
   private readonly onTurnComplete?: () => void;
+  private createdAt: string;
+  private lastActiveAt: string;
 
   constructor(opts: ClaudeSessionOptions) {
     this.chatId = opts.chatId;
@@ -194,6 +198,8 @@ export class ClaudeSession {
     if (opts.onTurnComplete !== undefined) {
       this.onTurnComplete = opts.onTurnComplete;
     }
+    this.createdAt = new Date().toISOString();
+    this.lastActiveAt = this.createdAt;
     // Touch clock so the compiler doesn't warn about an unused field.
     void this.clock;
   }
@@ -568,6 +574,7 @@ export class ClaudeSession {
     this.turnCount++;
     this.totalInputTokens += resultMsg.usage?.input_tokens ?? 0;
     this.totalOutputTokens += resultMsg.usage?.output_tokens ?? 0;
+    this.lastActiveAt = new Date().toISOString();
     this.onTurnComplete?.();
   }
 
@@ -624,6 +631,12 @@ export class ClaudeSession {
     this.claudeSessionId = id;
   }
 
+  /** Restore timestamps from a persisted record. Used by SessionManager during lazy restore. */
+  setTimestamps(createdAt: string, lastActiveAt: string): void {
+    this.createdAt = createdAt;
+    this.lastActiveAt = lastActiveAt;
+  }
+
   getStatus(): SessionStatus {
     return {
       state: this.state,
@@ -639,6 +652,8 @@ export class ClaudeSession {
       ...(this.claudeSessionId !== undefined
         ? { claudeSessionId: this.claudeSessionId }
         : {}),
+      createdAt: this.createdAt,
+      lastActiveAt: this.lastActiveAt,
     };
   }
 

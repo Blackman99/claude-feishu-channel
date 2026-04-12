@@ -140,6 +140,9 @@ export class ClaudeSessionManager {
     if (claudeSessionId) {
       session.setClaudeSessionId(claudeSessionId);
     }
+    if (stale) {
+      session.setTimestamps(stale.createdAt, stale.lastActiveAt);
+    }
 
     this.sessions.set(chatId, session);
     return session;
@@ -272,12 +275,14 @@ export class ClaudeSessionManager {
     cwd: string;
     permissionMode: string;
     model: string;
+    createdAt: string;
+    lastActiveAt: string;
   }): SessionRecord {
     return {
       claudeSessionId: status.claudeSessionId ?? "",
       cwd: status.cwd,
-      createdAt: new Date().toISOString(),
-      lastActiveAt: new Date().toISOString(),
+      createdAt: status.createdAt,
+      lastActiveAt: status.lastActiveAt,
       permissionMode: status.permissionMode,
       model: status.model,
     };
