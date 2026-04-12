@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+import { stat } from "node:fs/promises";
 import type { Logger } from "pino";
 import type { ParsedCommand } from "./router.js";
 import type { ClaudeSessionManager } from "../claude/session-manager.js";
@@ -7,6 +9,12 @@ import type { PermissionBroker } from "../claude/permission-broker.js";
 import type { QuestionBroker } from "../claude/question-broker.js";
 import type { Clock, TimeoutHandle } from "../util/clock.js";
 import type { FeishuCardV2 } from "../feishu/card-types.js";
+import {
+  buildCdConfirmCard,
+  buildCdConfirmResolved,
+  buildCdConfirmCancelled,
+  buildCdConfirmTimedOut,
+} from "../feishu/cards/cd-confirm-card.js";
 
 export interface CommandContext {
   chatId: string;
@@ -56,10 +64,6 @@ export class CommandDispatcher {
     this.questionBroker = opts.questionBroker;
     this.clock = opts.clock;
     this.logger = opts.logger.child({ component: "CommandDispatcher" });
-
-    // Touch unused fields to avoid compiler warnings for future-use fields
-    void this.clock;
-    void this.pendingCdConfirms;
   }
 
   async dispatch(cmd: ParsedCommand, ctx: CommandContext): Promise<void> {
@@ -234,22 +238,81 @@ export class CommandDispatcher {
     await this.feishu.replyText(ctx.parentMessageId, `模型已切换为 ${model}`);
   }
 
-  private async handleCd(_path: string, _ctx: CommandContext): Promise<void> {
-    throw new Error("not implemented");
+  private async handleCd(path: string, ctx: CommandContext): Promise<void> {
+    const session = this.sessionManager.getOrCreate(ctx.chatId);
+    if (session.getState() !== "idle") {
+      await this.feishu.replyText(ctx.parentMessageId, "会话正在执行中，请先发送 /stop 或等待完成");
+      return;
+    }
+    try {
+      const s = await stat(path);
+      if (!s.isDirectory()) {
+        await this.feishu.replyText(ctx.parentMessageId, `路径不是目录: ${path}`);
+        return;
+      }
+    } catch {
+      await this.feishu.replyText(ctx.parentMessageId, `路径不存在: ${path}`);
+      return;
+    }
+    const requestId = crypto.randomUUID();
+    const card = buildCdConfirmCard({ requestId, targetPath: path });
+    let cardMessageId: string;
+    try {
+      const res = await this.feishu.replyCard(ctx.parentMessageId, card);
+      cardMessageId = res.messageId;
+    } catch (err) {
+      this.logger.error({ err }, "Failed to send cd confirm card");
+      await this.feishu.replyText(ctx.parentMessageId, "发送确认卡片失败");
+      return;
+    }
+    const timer = this.clock.setTimeout(() => this.cdTimeout(requestId), 60_000);
+    this.pendingCdConfirms.set(requestId, {
+      requestId,
+      ownerOpenId: ctx.senderOpenId,
+      cardMessageId,
+      targetPath: path,
+      chatId: ctx.chatId,
+      timer,
+    });
   }
 
-  private async handleProject(
-    _alias: string,
-    _ctx: CommandContext,
-  ): Promise<void> {
-    throw new Error("not implemented");
+  private async handleProject(alias: string, ctx: CommandContext): Promise<void> {
+    const resolved = this.config.projects[alias];
+    if (!resolved) {
+      const available = Object.keys(this.config.projects);
+      const list = available.length > 0 ? available.join(", ") : "(none configured)";
+      await this.feishu.replyText(ctx.parentMessageId, `未知项目别名: ${alias}，可用别名: ${list}`);
+      return;
+    }
+    return this.handleCd(resolved, ctx);
   }
 
-  async resolveCdConfirm(_args: {
+  async resolveCdConfirm(args: {
     requestId: string;
     senderOpenId: string;
-    approved: boolean;
+    accepted: boolean;
   }): Promise<CdConfirmResult> {
-    throw new Error("not implemented");
+    const p = this.pendingCdConfirms.get(args.requestId);
+    if (!p) return { kind: "not_found" };
+    if (args.senderOpenId !== p.ownerOpenId) {
+      return { kind: "forbidden", ownerOpenId: p.ownerOpenId };
+    }
+    this.clock.clearTimeout(p.timer);
+    this.pendingCdConfirms.delete(args.requestId);
+    if (args.accepted) {
+      this.sessionManager.delete(p.chatId);
+      this.sessionManager.setCwdOverride(p.chatId, p.targetPath);
+      return { kind: "resolved", card: buildCdConfirmResolved({ targetPath: p.targetPath }) };
+    }
+    return { kind: "resolved", card: buildCdConfirmCancelled() };
+  }
+
+  private cdTimeout(requestId: string): void {
+    const p = this.pendingCdConfirms.get(requestId);
+    if (!p) return;
+    this.pendingCdConfirms.delete(requestId);
+    void this.feishu.patchCard(p.cardMessageId, buildCdConfirmTimedOut()).catch((err) => {
+      this.logger.warn({ err, requestId }, "cd timeout patch failed");
+    });
   }
 }

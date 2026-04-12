@@ -99,7 +99,7 @@ function makeHarness() {
     logger: SILENT_LOGGER,
   });
 
-  return { feishu, sessionManager, dispatcher };
+  return { feishu, sessionManager, dispatcher, clock };
 }
 
 /**
@@ -335,5 +335,200 @@ describe("CommandDispatcher — /new", () => {
     expect(feishu.replyText).toHaveBeenCalledOnce();
     const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
     expect(text).toContain("新会话");
+  });
+});
+
+// Helper: extract requestId from card sent via replyCard
+function extractRequestIdFromCard(feishu: FeishuClient): string {
+  const cardArg = (feishu.replyCard as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+  const json = JSON.stringify(cardArg);
+  const match = /"request_id":"([^"]+)"/.exec(json);
+  if (!match) throw new Error("No request_id found in card JSON: " + json);
+  return match[1]!;
+}
+
+describe("CommandDispatcher — /cd", () => {
+  it("sends confirmation card for valid path (/tmp)", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch({ name: "cd", path: "/tmp" }, CTX);
+
+    expect(feishu.replyCard).toHaveBeenCalledOnce();
+    const cardArg = (feishu.replyCard as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    const json = JSON.stringify(cardArg);
+    expect(json).toContain("/tmp");
+    expect(json).toContain("确认");
+  });
+
+  it("rejects with error for nonexistent path", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch({ name: "cd", path: "/this/path/does/not/exist/xyz123" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(text).toContain("路径不存在");
+  });
+
+  it("rejects when session is not idle", async () => {
+    const { feishu, sessionManager, dispatcher } = makeBlockingHarness();
+
+    const session = sessionManager.getOrCreate(CTX.chatId);
+    const noopEmit = async () => {};
+    session.submit(
+      { kind: "run", text: "hello", senderOpenId: "ou_alice", parentMessageId: "om_p0" },
+      noopEmit,
+    );
+    await flushMicrotasks();
+    expect(session.getState()).toBe("generating");
+
+    await dispatcher.dispatch({ name: "cd", path: "/tmp" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(text).toContain("执行中");
+  });
+});
+
+describe("CommandDispatcher — /cd confirm click (resolveCdConfirm)", () => {
+  it("confirm (accept): deletes old session, sets cwd override, returns resolved card with path", async () => {
+    const { feishu, sessionManager, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch({ name: "cd", path: "/tmp" }, CTX);
+    const requestId = extractRequestIdFromCard(feishu);
+
+    const result = await dispatcher.resolveCdConfirm({
+      requestId,
+      senderOpenId: "ou_alice",
+      accepted: true,
+    });
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      const json = JSON.stringify(result.card);
+      expect(json).toContain("/tmp");
+      // No buttons (no request_id in resolved card)
+      expect(json).not.toContain("request_id");
+    }
+
+    // Session should be fresh (deleted and CWD overridden)
+    const newSession = sessionManager.getOrCreate(CTX.chatId);
+    expect(newSession.getStatus().cwd).toBe("/tmp");
+  });
+
+  it("cancel (reject): returns resolved card with cancelled text", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch({ name: "cd", path: "/tmp" }, CTX);
+    const requestId = extractRequestIdFromCard(feishu);
+
+    const result = await dispatcher.resolveCdConfirm({
+      requestId,
+      senderOpenId: "ou_alice",
+      accepted: false,
+    });
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      const json = JSON.stringify(result.card);
+      expect(json).toContain("取消");
+    }
+  });
+
+  it("non-owner click: returns { kind: 'forbidden', ownerOpenId: 'ou_alice' }", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch({ name: "cd", path: "/tmp" }, CTX);
+    const requestId = extractRequestIdFromCard(feishu);
+
+    const result = await dispatcher.resolveCdConfirm({
+      requestId,
+      senderOpenId: "ou_bob",
+      accepted: true,
+    });
+
+    expect(result).toEqual({ kind: "forbidden", ownerOpenId: "ou_alice" });
+  });
+
+  it("unknown requestId: returns { kind: 'not_found' }", async () => {
+    const { dispatcher } = makeHarness();
+
+    const result = await dispatcher.resolveCdConfirm({
+      requestId: "non-existent-uuid",
+      senderOpenId: "ou_alice",
+      accepted: true,
+    });
+
+    expect(result).toEqual({ kind: "not_found" });
+  });
+
+  it("timeout: after 60s FakeClock advance, patchCard called with timed-out card", async () => {
+    const { feishu, dispatcher, clock } = makeHarness();
+
+    await dispatcher.dispatch({ name: "cd", path: "/tmp" }, CTX);
+
+    clock.advance(60_000);
+    await new Promise<void>((r) => setTimeout(r, 10));
+
+    expect(feishu.patchCard).toHaveBeenCalledOnce();
+    const patchedCard = (feishu.patchCard as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    const json = JSON.stringify(patchedCard);
+    expect(json).toContain("超时");
+  });
+});
+
+// Config with projects pointing to /tmp (always exists)
+const CONFIG_WITH_REAL_PROJECT: AppConfig = {
+  ...BASE_CONFIG,
+  projects: {
+    "my-app": "/tmp",
+  },
+};
+
+describe("CommandDispatcher — /project", () => {
+  it("resolves alias to path and sends confirm card with path", async () => {
+    const feishu = {
+      replyText: vi.fn().mockResolvedValue({ messageId: "om_reply" }),
+      replyCard: vi.fn().mockResolvedValue({ messageId: "om_card" }),
+      patchCard: vi.fn().mockResolvedValue(undefined),
+    } as unknown as FeishuClient;
+    const permissionBroker = new FakePermissionBroker();
+    const questionBroker = new FakeQuestionBroker();
+    const clock = new FakeClock(0);
+    const sessionManager = new ClaudeSessionManager({
+      config: CONFIG_WITH_REAL_PROJECT.claude,
+      queryFn: NOOP_QUERY,
+      clock,
+      permissionBroker,
+      questionBroker,
+      logger: SILENT_LOGGER,
+    });
+    const dispatcher = new CommandDispatcher({
+      sessionManager,
+      feishu,
+      config: CONFIG_WITH_REAL_PROJECT,
+      permissionBroker,
+      questionBroker,
+      clock,
+      logger: SILENT_LOGGER,
+    });
+
+    await dispatcher.dispatch({ name: "project", alias: "my-app" }, CTX);
+
+    expect(feishu.replyCard).toHaveBeenCalledOnce();
+    const cardArg = (feishu.replyCard as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    const json = JSON.stringify(cardArg);
+    expect(json).toContain("/tmp");
+  });
+
+  it("unknown alias replies with error listing available aliases", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch({ name: "project", alias: "unknown-alias" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(text).toContain("未知项目别名");
+    expect(text).toContain("my-app");
   });
 });
