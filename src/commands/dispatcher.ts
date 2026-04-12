@@ -228,6 +228,7 @@ export class CommandDispatcher {
       return;
     }
     session.setPermissionModeOverride(mode as "default" | "acceptEdits" | "plan" | "bypassPermissions");
+    this.sessionManager.persistNow();
     await this.feishu.replyText(ctx.parentMessageId, `权限模式已切换为 ${mode}`);
   }
 
@@ -241,6 +242,7 @@ export class CommandDispatcher {
       return;
     }
     session.setModelOverride(model);
+    this.sessionManager.persistNow();
     await this.feishu.replyText(ctx.parentMessageId, `模型已切换为 ${model}`);
   }
 

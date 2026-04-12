@@ -82,8 +82,9 @@ async function main(): Promise<void> {
 
   const stateStore = new StateStore(config.persistence.stateFile);
   const state = await stateStore.load();
+  const wasCleanShutdown = state.lastCleanShutdown;
   logger.info(
-    { lastCleanShutdown: state.lastCleanShutdown },
+    { lastCleanShutdown: wasCleanShutdown },
     "State store loaded",
   );
   await stateStore.markUncleanAtStartup(state);
@@ -822,7 +823,7 @@ async function main(): Promise<void> {
   });
 
   await sessionManager.startupLoad();
-  await sessionManager.crashRecovery(state.lastCleanShutdown);
+  await sessionManager.crashRecovery(wasCleanShutdown);
 
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {

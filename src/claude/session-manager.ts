@@ -239,6 +239,11 @@ export class ClaudeSessionManager {
     return sessions;
   }
 
+  /** Trigger an immediate save (Scenario A). Used by dispatcher after /mode, /model, /cd changes. */
+  persistNow(): void {
+    void this.saveNow();
+  }
+
   scheduleDebouncedSave(): void {
     if (!this.opts.stateStore) return;
     if (this.debounceTimer !== null) {
