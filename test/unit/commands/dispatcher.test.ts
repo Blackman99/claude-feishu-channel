@@ -165,6 +165,7 @@ describe("CommandDispatcher — simple commands", () => {
       expect(text).toContain("/help");
       expect(text).toContain("/stop");
       expect(text).toContain("/config");
+      expect(text).toContain("/config set");
       expect(text).toContain("/project");
     });
   });
