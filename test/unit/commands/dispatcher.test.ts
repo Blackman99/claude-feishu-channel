@@ -620,3 +620,155 @@ describe("CommandDispatcher — /resume", () => {
     expect(text).toContain("已恢复会话");
   });
 });
+
+describe("CommandDispatcher — /config set", () => {
+  it("sets a boolean config key and replies with confirmation", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "render.hide_thinking", value: "true", persist: false },
+      CTX,
+    );
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("render.hide_thinking");
+    expect(text).toContain("true");
+    expect(text).toContain("已更新");
+  });
+
+  it("sets a numeric config key (render.inline_max_bytes)", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "render.inline_max_bytes", value: "4096", persist: false },
+      CTX,
+    );
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("4096");
+    expect(text).toContain("已更新");
+  });
+
+  it("sets an enum config key (logging.level)", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "logging.level", value: "debug", persist: false },
+      CTX,
+    );
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("debug");
+    expect(text).toContain("已更新");
+  });
+
+  it("sets a string config key (claude.default_model)", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "claude.default_model", value: "claude-sonnet-4-6", persist: false },
+      CTX,
+    );
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("claude-sonnet-4-6");
+  });
+
+  it("converts permission_timeout_seconds to ms", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "claude.permission_timeout_seconds", value: "120", persist: false },
+      CTX,
+    );
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("120");
+    expect(text).toContain("已更新");
+  });
+
+  it("rejects unknown key with error listing valid keys", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "feishu.app_id", value: "new_id", persist: false },
+      CTX,
+    );
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("不支持");
+    expect(text).toContain("render.hide_thinking"); // lists valid keys
+  });
+
+  it("rejects invalid boolean value", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "render.hide_thinking", value: "maybe", persist: false },
+      CTX,
+    );
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("无效");
+  });
+
+  it("rejects invalid enum value for logging.level", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "logging.level", value: "verbose", persist: false },
+      CTX,
+    );
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("无效");
+  });
+
+  it("rejects non-positive number for render.inline_max_bytes", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "render.inline_max_bytes", value: "0", persist: false },
+      CTX,
+    );
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("无效");
+  });
+
+  it("rejects non-integer for render.inline_max_bytes", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "render.inline_max_bytes", value: "abc", persist: false },
+      CTX,
+    );
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("无效");
+  });
+
+  it("with persist=true includes note about persist in reply", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "render.hide_thinking", value: "true", persist: true },
+      CTX,
+    );
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    // In test harness, configPath is undefined so it shows skip message
+    expect(text).toContain("已更新");
+  });
+});

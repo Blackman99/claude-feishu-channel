@@ -15,6 +15,72 @@ import {
   buildCdConfirmCancelled,
   buildCdConfirmTimedOut,
 } from "../feishu/cards/cd-confirm-card.js";
+import { writeConfigKey } from "../config.js";
+
+type KeyType = "boolean" | "number" | "string" | "enum";
+
+interface SettableKeyDef {
+  /** Path segments into AppConfig, e.g. ["render", "hideThinking"] */
+  path: [string, string];
+  type: KeyType;
+  /** For "enum" type: valid values */
+  values?: readonly string[];
+  /** For "number" keys stored in different units: multiply raw value */
+  multiplier?: number;
+}
+
+const SETTABLE_KEYS: Record<string, SettableKeyDef> = {
+  "render.hide_thinking": { path: ["render", "hideThinking"], type: "boolean" },
+  "render.show_turn_stats": { path: ["render", "showTurnStats"], type: "boolean" },
+  "render.inline_max_bytes": { path: ["render", "inlineMaxBytes"], type: "number" },
+  "logging.level": {
+    path: ["logging", "level"],
+    type: "enum",
+    values: ["trace", "debug", "info", "warn", "error"],
+  },
+  "claude.default_model": { path: ["claude", "defaultModel"], type: "string" },
+  "claude.default_cwd": { path: ["claude", "defaultCwd"], type: "string" },
+  "claude.default_permission_mode": {
+    path: ["claude", "defaultPermissionMode"],
+    type: "enum",
+    values: ["default", "acceptEdits", "plan", "bypassPermissions"],
+  },
+  "claude.permission_timeout_seconds": {
+    path: ["claude", "permissionTimeoutMs"],
+    type: "number",
+    multiplier: 1000,
+  },
+  "claude.permission_warn_before_seconds": {
+    path: ["claude", "permissionWarnBeforeMs"],
+    type: "number",
+    multiplier: 1000,
+  },
+};
+
+function parseConfigValue(
+  raw: string,
+  def: SettableKeyDef,
+): { ok: true; value: string | number | boolean } | { ok: false; reason: string } {
+  switch (def.type) {
+    case "boolean":
+      if (raw === "true") return { ok: true, value: true };
+      if (raw === "false") return { ok: true, value: false };
+      return { ok: false, reason: "布尔值，需要 true 或 false" };
+    case "number": {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n <= 0) {
+        return { ok: false, reason: "正整数" };
+      }
+      return { ok: true, value: n };
+    }
+    case "string":
+      if (!raw) return { ok: false, reason: "非空字符串" };
+      return { ok: true, value: raw };
+    case "enum":
+      if (def.values!.includes(raw)) return { ok: true, value: raw };
+      return { ok: false, reason: `枚举值: ${def.values!.join(" | ")}` };
+  }
+}
 
 export interface CommandContext {
   chatId: string;
@@ -44,6 +110,7 @@ export interface CommandDispatcherOptions {
   questionBroker: QuestionBroker;
   clock: Clock;
   logger: Logger;
+  configPath?: string;
 }
 
 export class CommandDispatcher {
@@ -54,6 +121,7 @@ export class CommandDispatcher {
   private readonly questionBroker: QuestionBroker;
   private readonly clock: Clock;
   private readonly logger: Logger;
+  private readonly configPath: string | undefined;
   private readonly pendingCdConfirms = new Map<string, PendingCdConfirm>();
 
   constructor(opts: CommandDispatcherOptions) {
@@ -64,6 +132,7 @@ export class CommandDispatcher {
     this.questionBroker = opts.questionBroker;
     this.clock = opts.clock;
     this.logger = opts.logger.child({ component: "CommandDispatcher" });
+    this.configPath = opts.configPath;
   }
 
   async dispatch(cmd: ParsedCommand, ctx: CommandContext): Promise<void> {
@@ -88,6 +157,8 @@ export class CommandDispatcher {
         return this.handleSessions(ctx);
       case "resume":
         return this.handleResume(cmd.target, ctx);
+      case "config_set":
+        return this.handleConfigSet(cmd.key, cmd.value, cmd.persist, ctx);
       default: {
         const _exhaustive: never = cmd;
         this.logger.warn({ cmd: _exhaustive }, "unhandled command");
@@ -126,6 +197,8 @@ export class CommandDispatcher {
       "",
       "配置与帮助",
       "  /config show  — 显示当前配置",
+      "  /config set <key> <value> — 运行时修改配置",
+      "  /config set <key> <value> --persist — 修改并写入文件",
       "  /help         — 显示此帮助",
     ].join("\n");
 
@@ -199,6 +272,62 @@ export class CommandDispatcher {
     }
 
     await this.feishu.replyText(ctx.parentMessageId, lines.join("\n"));
+  }
+
+  private async handleConfigSet(
+    key: string,
+    rawValue: string,
+    persist: boolean,
+    ctx: CommandContext,
+  ): Promise<void> {
+    const def = SETTABLE_KEYS[key];
+    if (!def) {
+      const validKeys = Object.keys(SETTABLE_KEYS).join(", ");
+      await this.feishu.replyText(
+        ctx.parentMessageId,
+        `不支持的配置项: ${key}\n可设置的配置项: ${validKeys}`,
+      );
+      return;
+    }
+
+    const parsed = parseConfigValue(rawValue, def);
+    if (!parsed.ok) {
+      await this.feishu.replyText(
+        ctx.parentMessageId,
+        `无效的值: ${rawValue}，${key} 需要 ${parsed.reason}`,
+      );
+      return;
+    }
+
+    // Mutate the shared config in place
+    const [section, field] = def.path;
+    const storeValue = def.multiplier
+      ? (parsed.value as number) * def.multiplier
+      : parsed.value;
+    (this.config as unknown as Record<string, Record<string, unknown>>)[section]![field] =
+      storeValue;
+
+    // Persist to TOML if requested
+    let persistMsg = "";
+    if (persist) {
+      if (!this.configPath) {
+        persistMsg = "（持久化跳过：configPath 未配置）";
+      } else {
+        try {
+          await writeConfigKey(this.configPath, key, parsed.value);
+          persistMsg = "（已持久化）";
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          persistMsg = `（写入 config.toml 失败: ${errMsg}）`;
+          this.logger.error({ err, key }, "writeConfigKey failed");
+        }
+      }
+    }
+
+    await this.feishu.replyText(
+      ctx.parentMessageId,
+      `配置已更新: ${key} = ${String(parsed.value)}${persistMsg ? " " + persistMsg : ""}`,
+    );
   }
 
   // --- Placeholder stubs for Tasks 8-9 ---

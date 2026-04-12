@@ -91,6 +91,13 @@ function formatZodError(error: z.ZodError): string {
     .join("\n");
 }
 
+// Stub — full implementation added in Task 3 (writeConfigKey)
+export async function writeConfigKey(
+  _path: string,
+  _key: string,
+  _value: string | number | boolean,
+): Promise<void> {}
+
 export async function loadConfig(path: string): Promise<AppConfig> {
   let raw: string;
   try {
