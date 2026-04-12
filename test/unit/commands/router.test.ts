@@ -262,3 +262,37 @@ describe("parseInput — Phase 6 commands", () => {
     });
   });
 });
+
+describe("/sessions", () => {
+  it("parses /sessions as a command", () => {
+    expect(parseInput("/sessions")).toEqual({ kind: "command", cmd: { name: "sessions" } });
+  });
+
+  it("parses /sessions with trailing whitespace", () => {
+    expect(parseInput("/sessions  ")).toEqual({ kind: "command", cmd: { name: "sessions" } });
+  });
+});
+
+describe("/resume", () => {
+  it("parses /resume <id> as a command with target", () => {
+    expect(parseInput("/resume ses_abc123")).toEqual({
+      kind: "command",
+      cmd: { name: "resume", target: "ses_abc123" },
+    });
+  });
+
+  it("trims target whitespace", () => {
+    expect(parseInput("/resume  ses_abc123  ")).toEqual({
+      kind: "command",
+      cmd: { name: "resume", target: "ses_abc123" },
+    });
+  });
+
+  it("/resume without argument is unknown_command", () => {
+    expect(parseInput("/resume")).toEqual({ kind: "unknown_command", raw: "/resume" });
+  });
+
+  it("/resume with empty arg is unknown_command", () => {
+    expect(parseInput("/resume   ")).toEqual({ kind: "unknown_command", raw: "/resume   " });
+  });
+});

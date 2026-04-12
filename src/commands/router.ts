@@ -12,7 +12,9 @@ export type ParsedCommand =
   | { name: "model"; model: string }
   | { name: "status" }
   | { name: "help" }
-  | { name: "config_show" };
+  | { name: "config_show" }
+  | { name: "sessions" }
+  | { name: "resume"; target: string };
 
 /**
  * Result of parsing one inbound chat message.
@@ -55,6 +57,8 @@ const KNOWN_COMMANDS = new Set([
   "help",
   "config",
   "stop",
+  "sessions",
+  "resume",
 ]);
 
 /**
@@ -151,6 +155,10 @@ function parseCommand(
     case "config":
       if (rest === "show") return { name: "config_show" };
       return null;
+    case "sessions":
+      return { name: "sessions" };
+    case "resume":
+      return rest ? { name: "resume", target: rest } : null;
     default:
       return null;
   }
