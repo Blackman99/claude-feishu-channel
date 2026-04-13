@@ -71,7 +71,7 @@ const CTX: CommandContext = {
   locale: "zh",
 };
 
-function makeHarness() {
+function makeHarness(configOverrides?: Partial<AppConfig>) {
   const feishu = {
     replyText: vi.fn().mockResolvedValue({ messageId: "om_reply" }),
     replyCard: vi.fn().mockResolvedValue({ messageId: "om_card" }),
@@ -81,9 +81,10 @@ function makeHarness() {
   const permissionBroker = new FakePermissionBroker();
   const questionBroker = new FakeQuestionBroker();
   const clock = new FakeClock(0);
+  const config: AppConfig = { ...BASE_CONFIG, ...configOverrides };
 
   const sessionManager = new ClaudeSessionManager({
-    config: BASE_CONFIG.claude,
+    config: config.claude,
     queryFn: NOOP_QUERY,
     clock,
     permissionBroker,
@@ -94,7 +95,7 @@ function makeHarness() {
   const dispatcher = new CommandDispatcher({
     sessionManager,
     feishu,
-    config: BASE_CONFIG,
+    config,
     permissionBroker,
     questionBroker,
     clock,
@@ -566,6 +567,56 @@ describe("CommandDispatcher — /sessions", () => {
     // Body should contain session info as markdown elements
     const bodyJson = JSON.stringify(card.body);
     expect(bodyJson).toContain("活跃");
+  });
+});
+
+describe("CommandDispatcher — /projects", () => {
+  it("replies '暂无已配置项目' when projects config is empty", async () => {
+    const { feishu, dispatcher } = makeHarness({ projects: {} });
+
+    await dispatcher.dispatch({ name: "projects" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("暂无已配置项目");
+  });
+
+  it("replies with a card listing configured projects", async () => {
+    // BASE_CONFIG has projects: { "my-app": "/home/user/my-app" }
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch({ name: "projects" }, CTX);
+
+    expect(feishu.replyCard).toHaveBeenCalledOnce();
+    const card = (feishu.replyCard as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(card).toHaveProperty("schema", "2.0");
+    expect(card.header?.title.content).toContain("项目");
+    const bodyJson = JSON.stringify(card.body);
+    expect(bodyJson).toContain("my-app");
+    expect(bodyJson).toContain("/home/user/my-app");
+  });
+
+  it("marks the active project with 📌 当前", async () => {
+    const { feishu, sessionManager, dispatcher } = makeHarness();
+    sessionManager.switchProject(CTX.chatId, "my-app", "/home/user/my-app");
+
+    await dispatcher.dispatch({ name: "projects" }, CTX);
+
+    expect(feishu.replyCard).toHaveBeenCalledOnce();
+    const card = (feishu.replyCard as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(JSON.stringify(card.body)).toContain("📌");
+  });
+
+  it("shows 🟢 活跃会话 when the project has an active session", async () => {
+    const { feishu, sessionManager, dispatcher } = makeHarness();
+    // Create an active session for my-app in this chat
+    sessionManager.switchProject(CTX.chatId, "my-app", "/home/user/my-app");
+    sessionManager.getOrCreate(CTX.chatId);
+
+    await dispatcher.dispatch({ name: "projects" }, CTX);
+
+    const card = (feishu.replyCard as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(JSON.stringify(card.body)).toContain("🟢");
   });
 });
 

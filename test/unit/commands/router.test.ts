@@ -273,6 +273,16 @@ describe("/sessions", () => {
   });
 });
 
+describe("/projects", () => {
+  it("parses /projects as a command", () => {
+    expect(parseInput("/projects")).toEqual({ kind: "command", cmd: { name: "projects" } });
+  });
+
+  it("parses /projects with trailing whitespace", () => {
+    expect(parseInput("/projects  ")).toEqual({ kind: "command", cmd: { name: "projects" } });
+  });
+});
+
 describe("/resume", () => {
   it("parses /resume <id> as a command with target", () => {
     expect(parseInput("/resume ses_abc123")).toEqual({

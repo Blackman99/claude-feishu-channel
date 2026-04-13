@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildAnswerCard,
+  buildProjectsCard,
   buildSessionsCard,
   buildStatusCard,
   buildThinkingCard,
@@ -10,6 +11,7 @@ import {
   STATUS_ELEMENT_ID,
   THINKING_ELEMENT_ID,
   TOOL_ACTIVITY_ELEMENT_ID,
+  type ProjectEntry,
   type SessionEntry,
   type ToolActivityEntry,
 } from "../../../src/feishu/cards.js";
@@ -467,5 +469,73 @@ describe("buildSessionsCard", () => {
     const bodyJson = JSON.stringify(card.body);
     // The second entry has no model
     expect(bodyJson).toContain("模型：-");
+  });
+});
+
+describe("buildProjectsCard", () => {
+  const PROJECTS: ProjectEntry[] = [
+    { alias: "my-app", cwd: "/home/user/my-app", currentProject: true, sessionStatus: "active" },
+    { alias: "infra", cwd: "/home/user/infra", currentProject: false, sessionStatus: "stale" },
+    { alias: "docs", cwd: "/home/user/docs", currentProject: false, sessionStatus: "none" },
+  ];
+
+  it("renders a Card v2 with blue header titled 📋 项目列表 (zh)", () => {
+    const card = buildProjectsCard(PROJECTS, "zh");
+    expect(card.schema).toBe("2.0");
+    expect(card.header?.title.content).toBe("📋 项目列表");
+    expect(card.header?.template).toBe("blue");
+  });
+
+  it("renders with English header when locale is en", () => {
+    const card = buildProjectsCard(PROJECTS, "en");
+    expect(card.header?.title.content).toBe("📋 Projects");
+  });
+
+  it("shows project count in the first body element", () => {
+    const card = buildProjectsCard(PROJECTS, "zh");
+    const first = card.body?.elements[0];
+    if (!first || first.tag !== "markdown") throw new Error("expected markdown");
+    expect(first.content).toContain("3");
+  });
+
+  it("shows alias and cwd for each project", () => {
+    const card = buildProjectsCard(PROJECTS, "zh");
+    const bodyJson = JSON.stringify(card.body);
+    expect(bodyJson).toContain("my-app");
+    expect(bodyJson).toContain("/home/user/my-app");
+    expect(bodyJson).toContain("infra");
+    expect(bodyJson).toContain("/home/user/infra");
+  });
+
+  it("marks the current project with 📌 当前", () => {
+    const card = buildProjectsCard(PROJECTS, "zh");
+    const bodyJson = JSON.stringify(card.body);
+    expect(bodyJson).toContain("📌");
+  });
+
+  it("shows 🟢 for active session, ⚪ for stale, — for none", () => {
+    const card = buildProjectsCard(PROJECTS, "zh");
+    const bodyJson = JSON.stringify(card.body);
+    expect(bodyJson).toContain("🟢");
+    expect(bodyJson).toContain("⚪");
+    expect(bodyJson).toContain("— 无会话");
+  });
+
+  it("inserts hr dividers between projects but not before the first", () => {
+    const card = buildProjectsCard(PROJECTS, "zh");
+    const tags = (card.body?.elements ?? []).map((e) => e.tag);
+    // count-md, proj1-md, hr, proj2-md, hr, proj3-md
+    expect(tags[0]).toBe("markdown");
+    expect(tags[1]).toBe("markdown"); // first project (no hr before it)
+    expect(tags[2]).toBe("hr");
+  });
+
+  it("handles a single project without hr", () => {
+    const single: ProjectEntry[] = [
+      { alias: "solo", cwd: "/solo", currentProject: false, sessionStatus: "none" },
+    ];
+    const card = buildProjectsCard(single, "zh");
+    const tags = (card.body?.elements ?? []).map((e) => e.tag);
+    expect(tags).not.toContain("hr");
   });
 });

@@ -339,6 +339,69 @@ function renderEntry(
   return `${header}\n\n${inputBlock}\n\n${resultBlock}`;
 }
 
+// ── Projects card ─────────────────────────────────────────────────
+
+export type ProjectSessionStatus = "active" | "stale" | "none";
+
+export interface ProjectEntry {
+  alias: string;
+  cwd: string;
+  /** Whether this project is the currently-active one for the chat. */
+  currentProject: boolean;
+  /** Session status for this project in the current chat. */
+  sessionStatus: ProjectSessionStatus;
+}
+
+/**
+ * Build a Feishu Card v2 listing all configured projects. Each project
+ * shows its alias, directory, whether it is currently active in this chat,
+ * and whether it has an active/stale/no session.
+ */
+export function buildProjectsCard(
+  entries: readonly ProjectEntry[],
+  locale: Locale = "zh",
+): FeishuCardV2 {
+  const strings = t(locale);
+  const elements: FeishuElement[] = [];
+
+  elements.push({
+    tag: "markdown",
+    content: strings.projectsCount(entries.length),
+  });
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]!;
+    if (i > 0) elements.push({ tag: "hr" });
+
+    const sessionBadge =
+      entry.sessionStatus === "active"
+        ? strings.projectsSessionActive
+        : entry.sessionStatus === "stale"
+          ? strings.projectsSessionStale
+          : strings.projectsSessionNone;
+
+    const headerParts = [`**📁 ${entry.alias}**`];
+    if (entry.currentProject) headerParts.push(strings.projectsActive);
+    headerParts.push(sessionBadge);
+
+    const lines = [
+      headerParts.join("  "),
+      strings.projectsCwd(entry.cwd),
+    ];
+
+    elements.push({ tag: "markdown", content: lines.join("\n") });
+  }
+
+  return {
+    schema: "2.0",
+    header: {
+      title: { tag: "plain_text", content: strings.projectsHeader },
+      template: "blue",
+    },
+    body: { elements },
+  };
+}
+
 // ── Sessions card ──────────────────────────────────────────────────
 
 export interface SessionEntry {

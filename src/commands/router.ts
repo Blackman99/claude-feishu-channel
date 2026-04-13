@@ -15,6 +15,7 @@ export type ParsedCommand =
   | { name: "config_show" }
   | { name: "config_set"; key: string; value: string; persist: boolean }
   | { name: "sessions" }
+  | { name: "projects" }
   | { name: "resume"; target: string };
 
 /**
@@ -59,6 +60,7 @@ const KNOWN_COMMANDS = new Set([
   "config",
   "stop",
   "sessions",
+  "projects",
   "resume",
 ]);
 
@@ -170,6 +172,8 @@ function parseCommand(
       return null;
     case "sessions":
       return { name: "sessions" };
+    case "projects":
+      return { name: "projects" };
     case "resume":
       return rest ? { name: "resume", target: rest } : null;
     default:

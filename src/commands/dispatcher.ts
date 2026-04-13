@@ -15,7 +15,7 @@ import {
   buildCdConfirmCancelled,
   buildCdConfirmTimedOut,
 } from "../feishu/cards/cd-confirm-card.js";
-import { buildSessionsCard } from "../feishu/cards.js";
+import { buildProjectsCard, buildSessionsCard } from "../feishu/cards.js";
 import { writeConfigKey } from "../config.js";
 import type { Locale } from "../util/i18n.js";
 
@@ -160,6 +160,8 @@ export class CommandDispatcher {
         return this.handleProject(cmd.alias, ctx);
       case "sessions":
         return this.handleSessions(ctx);
+      case "projects":
+        return this.handleProjects(ctx);
       case "resume":
         return this.handleResume(cmd.target, ctx);
       case "config_set":
@@ -190,6 +192,7 @@ export class CommandDispatcher {
       "  /status       — 查看当前会话状态",
       "  /stop         — 中断当前生成",
       "  /sessions     — 列出所有已知会话",
+      "  /projects     — 查看所有已配置项目",
       "  /resume <id>  — 恢复到指定会话",
       "",
       "工作目录",
@@ -448,6 +451,37 @@ export class CommandDispatcher {
       ctx.parentMessageId,
       `已切换到项目 ${alias}，工作目录: ${resolved}${suffix}`,
     );
+  }
+
+  private async handleProjects(ctx: CommandContext): Promise<void> {
+    const configured = Object.entries(this.config.projects);
+    if (configured.length === 0) {
+      await this.feishu.replyText(ctx.parentMessageId, "暂无已配置项目");
+      return;
+    }
+
+    // Build a lookup: projectAlias → session status for this chatId.
+    const allSessions = this.sessionManager.getAllSessions();
+    const sessionStatusMap = new Map<string, "active" | "stale">();
+    for (const entry of allSessions) {
+      if (entry.chatId !== ctx.chatId) continue;
+      if (entry.projectAlias === undefined) continue;
+      // active wins over stale if both somehow exist
+      if (entry.active || !sessionStatusMap.has(entry.projectAlias)) {
+        sessionStatusMap.set(entry.projectAlias, entry.active ? "active" : "stale");
+      }
+    }
+
+    const activeAlias = this.sessionManager.getActiveProject(ctx.chatId);
+    const entries = configured.map(([alias, cwd]) => ({
+      alias,
+      cwd,
+      currentProject: alias === activeAlias,
+      sessionStatus: sessionStatusMap.get(alias) ?? ("none" as const),
+    }));
+
+    const card = buildProjectsCard(entries, ctx.locale);
+    await this.feishu.replyCard(ctx.parentMessageId, card);
   }
 
   private async handleSessions(ctx: CommandContext): Promise<void> {

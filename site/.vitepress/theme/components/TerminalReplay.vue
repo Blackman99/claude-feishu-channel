@@ -122,7 +122,7 @@
               <span class="q-resolved-arrow">→</span>
               <span class="q-resolved-answer">{{ questionAnswer(i) }}</span>
             </div>
-            <!-- Pending: question with option buttons -->
+            <!-- Pending / clicking: question with option buttons -->
             <div v-else class="question-card">
               <div class="question-header">🙋 问题</div>
               <div class="question-text">{{ step.text }}</div>
@@ -131,6 +131,7 @@
                   v-for="(opt, oi) in step.options"
                   :key="oi"
                   class="q-opt-btn"
+                  :class="{ 'q-opt-btn--selected': questionClickingOption(i) === oi }"
                 >{{ opt }}</button>
               </div>
             </div>
@@ -366,9 +367,26 @@ function questionAnswer(stepIndex: number): string | null {
   const steps = currentSteps.value
   for (let j = stepIndex + 1; j < steps.length; j++) {
     if (steps[j].type === 'question-click') {
-      if (visibleUpTo.value >= j) {
+      // Only collapse (resolved) when we are *past* the click step,
+      // so the "clicking" highlight phase is visible while visibleUpTo === j.
+      if (visibleUpTo.value > j) {
         const optIdx = steps[j].optionIndex ?? 0
         return steps[stepIndex].options?.[optIdx] ?? null
+      }
+      return null
+    }
+  }
+  return null
+}
+
+// Returns the optionIndex being "clicked" during the question-click step,
+// or null when outside that window (pending or already resolved).
+function questionClickingOption(stepIndex: number): number | null {
+  const steps = currentSteps.value
+  for (let j = stepIndex + 1; j < steps.length; j++) {
+    if (steps[j].type === 'question-click') {
+      if (visibleUpTo.value === j) {
+        return steps[j].optionIndex ?? 0
       }
       return null
     }
@@ -808,6 +826,8 @@ onUnmounted(() => {
 }
 
 .q-opt-btn {
+  position: relative;
+  overflow: hidden;
   border: 1px solid #89b4fa44;
   border-radius: 6px;
   padding: 4px 12px;
@@ -817,7 +837,31 @@ onUnmounted(() => {
   font-family: inherit;
   background: #89b4fa1a;
   color: #89b4fa;
-  transition: none;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.q-opt-btn--selected {
+  background: #89b4fa;
+  color: #1e1e2e;
+  border-color: #89b4fa;
+  transform: scale(1.04);
+}
+
+.q-opt-btn--selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  animation: q-ripple 500ms ease-out forwards;
+}
+
+@keyframes q-ripple {
+  0%   { width: 0;    height: 0;    opacity: 0.5; }
+  100% { width: 220%; height: 220%; opacity: 0; }
 }
 
 /* Question card — resolved state */
