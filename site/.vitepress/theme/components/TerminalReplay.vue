@@ -82,7 +82,7 @@
           >
             <!-- Resolved: compact one-liner, buttons gone -->
             <div
-              v-if="isPermissionClicked(i)"
+              v-if="isPermissionResolved(i)"
               class="permission-card-resolved step-visible"
             >
               <span class="perm-resolved-icon">✅</span>
@@ -90,7 +90,23 @@
               <span class="perm-resolved-sep">·</span>
               <code class="perm-resolved-tool">{{ step.tool }}</code>
             </div>
-            <!-- Pending: full card with buttons -->
+            <!-- Clicking: full card, allow button in highlight+ripple state -->
+            <div v-else-if="isPermissionClicking(i)" class="permission-card">
+              <div class="permission-header">
+                <span>🔐 权限请求 · {{ step.tool }}</span>
+              </div>
+              <div class="permission-info">
+                <span class="tool-icon">🔧</span>
+                <span class="tool-name">{{ step.tool }}</span>
+                <span class="tool-detail">{{ step.command }}</span>
+              </div>
+              <div class="permission-buttons">
+                <button class="perm-btn perm-allow perm-allow--clicking">✅ 允许</button>
+                <button class="perm-btn perm-deny">❌ 拒绝</button>
+              </div>
+              <div class="perm-hint">只有发起者可点击 · 5 分钟未响应自动拒绝</div>
+            </div>
+            <!-- Pending: full card, normal state -->
             <div v-else class="permission-card">
               <div class="permission-header">
                 <span>🔐 权限请求 · {{ step.tool }}</span>
