@@ -39,14 +39,15 @@ import {
 } from "./feishu/messages.js";
 import type { IncomingMessage } from "./types.js";
 
-function resolveConfigPath(): string {
+function resolveConfigPath(override?: string): string {
+  if (override) return override;
   const envOverride = process.env["CLAUDE_FEISHU_CONFIG"];
   if (envOverride) return envOverride;
   return join(homedir(), ".claude-feishu-channel", "config.toml");
 }
 
-async function main(): Promise<void> {
-  const configPath = resolveConfigPath();
+export async function main(configPathOverride?: string): Promise<void> {
+  const configPath = resolveConfigPath(configPathOverride);
 
   let config;
   try {
@@ -886,7 +887,3 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error("Fatal startup error:", err);
-  process.exit(1);
-});
