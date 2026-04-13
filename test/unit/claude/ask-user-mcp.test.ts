@@ -45,6 +45,7 @@ describe("createAskUserMcpServer", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_parent",
+      locale: "zh",
       logger: SILENT,
     });
     expect(server.type).toBe("sdk");
@@ -62,6 +63,7 @@ describe("createAskUserMcpServer", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_parent",
+      locale: "zh",
       logger: SILENT,
     });
     const handler = getToolHandler(server, "ask_user");
@@ -112,6 +114,7 @@ describe("createAskUserMcpServer", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_parent",
+      locale: "zh",
       logger: SILENT,
     });
     const handler = getToolHandler(server, "ask_user");
@@ -145,6 +148,7 @@ describe("createAskUserMcpServer", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_parent",
+      locale: "zh",
       logger: SILENT,
     });
     const handler = getToolHandler(server, "ask_user");
@@ -187,6 +191,7 @@ describe("createAskUserMcpServer", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_parent",
+      locale: "zh",
       logger: fakeLogger,
     });
     const handler = getToolHandler(server, "ask_user");

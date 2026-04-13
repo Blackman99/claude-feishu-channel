@@ -320,6 +320,7 @@ describe("ClaudeSessionManager — Save triggers", () => {
         text: "hello",
         senderOpenId: "ou_sender",
         parentMessageId: "om_parent",
+        locale: "zh",
       },
       spy.emit,
     );
@@ -402,6 +403,7 @@ describe("ClaudeSessionManager — Save triggers", () => {
         text: "hello",
         senderOpenId: "ou_s",
         parentMessageId: "om_p",
+        locale: "zh",
       },
       spy.emit,
     );
@@ -492,6 +494,7 @@ describe("ClaudeSessionManager — Query methods", () => {
         text: "hello",
         senderOpenId: "ou_s",
         parentMessageId: "om_p",
+        locale: "zh",
       },
       spy.emit,
     );

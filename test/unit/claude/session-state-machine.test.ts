@@ -72,7 +72,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
 
     expect(h.session._testGetState()).toBe("idle");
     const outcome = await h.session.submit(
-      { kind: "run", text: "hello", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "hello", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     expect(outcome.kind).toBe("started");
@@ -87,7 +87,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     const spy = new SpyRenderer();
 
     const outcome = await h.session.submit(
-      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     expect(outcome.kind).toBe("started");
@@ -158,7 +158,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     });
     const spy = new SpyRenderer();
     const outcome = await session.submit(
-      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     if (outcome.kind !== "started") throw new Error("unreachable");
@@ -187,7 +187,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     const h = makeHarness();
     const spy = new SpyRenderer();
     const outcome = await h.session.submit(
-      { kind: "run", text: "boom", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "boom", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     if (outcome.kind !== "started") throw new Error("unreachable");
@@ -206,7 +206,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     const h = makeHarness();
     const spy = new SpyRenderer();
     const outcome = await h.session.submit(
-      { kind: "run", text: "incomplete", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "incomplete", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     if (outcome.kind !== "started") throw new Error("unreachable");
@@ -221,7 +221,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     const spy = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     if (first.kind !== "started") throw new Error("unreachable");
@@ -235,7 +235,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     expect(h.session._testGetState()).toBe("idle");
 
     const second = await h.session.submit(
-      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     expect(second.kind).toBe("started");
@@ -259,7 +259,7 @@ describe("ClaudeSession — FIFO queue", () => {
     const spy2 = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy1.emit,
     );
     await flushMicrotasks();
@@ -267,7 +267,7 @@ describe("ClaudeSession — FIFO queue", () => {
     expect(first.kind).toBe("started");
 
     const second = await h.session.submit(
-      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy2.emit,
     );
     expect(second.kind).toBe("queued");
@@ -287,13 +287,13 @@ describe("ClaudeSession — FIFO queue", () => {
     const spy3 = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy1.emit,
     );
     await flushMicrotasks();
-    await h.session.submit({ kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" }, spy2.emit);
+    await h.session.submit({ kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" }, spy2.emit);
     const third = await h.session.submit(
-      { kind: "run", text: "three", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "three", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy3.emit,
     );
 
@@ -311,16 +311,16 @@ describe("ClaudeSession — FIFO queue", () => {
     const spy3 = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy1.emit,
     );
     await flushMicrotasks();
     const second = await h.session.submit(
-      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy2.emit,
     );
     const third = await h.session.submit(
-      { kind: "run", text: "three", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "three", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy3.emit,
     );
     if (
@@ -390,12 +390,12 @@ describe("ClaudeSession — FIFO queue", () => {
     const spy2 = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "bad", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "bad", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy1.emit,
     );
     await flushMicrotasks();
     const second = await h.session.submit(
-      { kind: "run", text: "good", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "good", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy2.emit,
     );
     if (first.kind !== "started" || second.kind !== "queued") {
@@ -437,12 +437,12 @@ describe("ClaudeSession — /stop", () => {
     const stopSpy = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy1.emit,
     );
     await flushMicrotasks();
     const second = await h.session.submit(
-      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy2.emit,
     );
     if (first.kind !== "started" || second.kind !== "queued") {
@@ -494,7 +494,7 @@ describe("ClaudeSession — /stop", () => {
     // stays alive and regressions don't sneak in.
     const h = makeHarness();
     const spy = new SpyRenderer();
-    const outcome = await h.session.submit({ kind: "stop", senderOpenId: "ou_test", parentMessageId: "om_test" }, spy.emit);
+    const outcome = await h.session.submit({ kind: "stop", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" }, spy.emit);
     expect(outcome).toEqual({ kind: "rejected", reason: "stop" });
     expect(spy.events).toEqual([{ type: "stop_ack" }]);
     expect(h.session._testGetState()).toBe("idle");
@@ -506,13 +506,13 @@ describe("ClaudeSession — /stop", () => {
     const stopSpy = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy1.emit,
     );
     if (first.kind !== "started") throw new Error("unreachable");
     await flushMicrotasks();
 
-    const stopOutcome = await h.session.submit({ kind: "stop", senderOpenId: "ou_test", parentMessageId: "om_test" }, stopSpy.emit);
+    const stopOutcome = await h.session.submit({ kind: "stop", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" }, stopSpy.emit);
     expect(stopOutcome).toEqual({ kind: "rejected", reason: "stop" });
     expect(h.fakes[0]!.interrupted).toBe(true);
 
@@ -529,7 +529,7 @@ describe("ClaudeSession — /stop", () => {
     const spy2 = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy1.emit,
     );
     if (first.kind !== "started") throw new Error("unreachable");
@@ -540,7 +540,7 @@ describe("ClaudeSession — /stop", () => {
     expect(h.session._testGetState()).toBe("idle");
 
     const second = await h.session.submit(
-      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy2.emit,
     );
     expect(second.kind).toBe("started");
@@ -561,7 +561,7 @@ describe("ClaudeSession — ! prefix interrupt", () => {
     const h = makeHarness();
     const spy = new SpyRenderer();
     const outcome = await h.session.submit(
-      { kind: "interrupt_and_run", text: "urgent", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "interrupt_and_run", text: "urgent", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     expect(outcome.kind).toBe("started");
@@ -578,16 +578,16 @@ describe("ClaudeSession — ! prefix interrupt", () => {
     const spyBang = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy1.emit,
     );
     await flushMicrotasks();
     const second = await h.session.submit(
-      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "two", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy2.emit,
     );
     const third = await h.session.submit(
-      { kind: "run", text: "three", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "three", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy3.emit,
     );
     if (
@@ -600,7 +600,7 @@ describe("ClaudeSession — ! prefix interrupt", () => {
 
     // Fire the bang.
     const bang = await h.session.submit(
-      { kind: "interrupt_and_run", text: "urgent", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "interrupt_and_run", text: "urgent", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spyBang.emit,
     );
     expect(bang.kind).toBe("started");
@@ -651,17 +651,17 @@ describe("ClaudeSession — ! prefix interrupt", () => {
     const spyBang2 = new SpyRenderer();
 
     const first = await h.session.submit(
-      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "one", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy1.emit,
     );
     await flushMicrotasks();
 
     const bang1 = await h.session.submit(
-      { kind: "interrupt_and_run", text: "bang1", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "interrupt_and_run", text: "bang1", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spyBang1.emit,
     );
     const bang2 = await h.session.submit(
-      { kind: "interrupt_and_run", text: "bang2", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "interrupt_and_run", text: "bang2", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spyBang2.emit,
     );
     if (
@@ -731,6 +731,7 @@ describe("ClaudeSession — sessionAcceptEditsSticky", () => {
         text: "hi",
         senderOpenId: "ou_test",
         parentMessageId: "om_test",
+        locale: "zh",
       },
       new SpyRenderer().emit,
     );
@@ -779,6 +780,7 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
         text: "hi",
         senderOpenId: "ou_alice",
         parentMessageId: "om_root_1",
+        locale: "zh",
       },
       spy.emit,
     );
@@ -811,6 +813,7 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
         text: "hi",
         senderOpenId: "ou_alice",
         parentMessageId: "om_root_1",
+        locale: "zh",
       },
       spy.emit,
     );
@@ -844,6 +847,7 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
         text: "hi",
         senderOpenId: "ou_alice",
         parentMessageId: "om_root_1",
+        locale: "zh",
       },
       spy.emit,
     );
@@ -867,6 +871,7 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
         text: "hi",
         senderOpenId: "ou_alice",
         parentMessageId: "om_root_1",
+        locale: "zh",
       },
       spy.emit,
     );
@@ -892,6 +897,7 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
         text: "hi",
         senderOpenId: "ou_alice",
         parentMessageId: "om_root_1",
+        locale: "zh",
       },
       spy.emit,
     );
@@ -918,6 +924,7 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
         text: "one",
         senderOpenId: "ou_alice",
         parentMessageId: "om_root_1",
+        locale: "zh",
       },
       spy.emit,
     );
@@ -954,6 +961,7 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
         text: "one",
         senderOpenId: "ou_alice",
         parentMessageId: "om_root_1",
+        locale: "zh",
       },
       spy.emit,
     );
@@ -976,6 +984,7 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
       chatId: "oc_x",
       ownerOpenId: "ou_alice",
       parentMessageId: "om_root_1",
+      locale: "zh",
     });
     expect(h.questionBroker.pendingCount()).toBe(1);
 
@@ -1000,6 +1009,7 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
         text: "one",
         senderOpenId: "ou_a",
         parentMessageId: "om_1",
+        locale: "zh",
       },
       spy1.emit,
     );
@@ -1010,6 +1020,7 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
         text: "two",
         senderOpenId: "ou_a",
         parentMessageId: "om_2",
+        locale: "zh",
       },
       spy2.emit,
     );
@@ -1027,6 +1038,7 @@ describe("ClaudeSession — canUseTool bridging via PermissionBroker", () => {
         text: "urgent",
         senderOpenId: "ou_a",
         parentMessageId: "om_3",
+        locale: "zh",
       },
       spyBang.emit,
     );
@@ -1061,6 +1073,7 @@ describe("Session runtime overrides + stats", () => {
         text: "hi",
         senderOpenId: "ou_alice",
         parentMessageId: "om_root_1",
+        locale: "zh",
       },
       spy.emit,
     );
@@ -1095,6 +1108,7 @@ describe("Session runtime overrides + stats", () => {
         text: "hi",
         senderOpenId: "ou_alice",
         parentMessageId: "om_root_1",
+        locale: "zh",
       },
       spy.emit,
     );
@@ -1125,6 +1139,7 @@ describe("Session runtime overrides + stats", () => {
         text: "hi",
         senderOpenId: "ou_alice",
         parentMessageId: "om_root_1",
+        locale: "zh",
       },
       spy.emit,
     );
@@ -1148,7 +1163,7 @@ describe("ClaudeSession — session_id capture and resume", () => {
     const h = makeHarness();
     const spy = new SpyRenderer();
     const outcome = await h.session.submit(
-      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     if (outcome.kind !== "started") throw new Error("unreachable");
@@ -1179,7 +1194,7 @@ describe("ClaudeSession — session_id capture and resume", () => {
     const h = makeHarness();
     const spy = new SpyRenderer();
     const outcome = await h.session.submit(
-      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     if (outcome.kind !== "started") throw new Error("unreachable");
@@ -1207,7 +1222,7 @@ describe("ClaudeSession — session_id capture and resume", () => {
     const h = makeHarness({ onSessionIdCaptured: () => { captureCount++; } });
     const spy = new SpyRenderer();
     const outcome = await h.session.submit(
-      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     if (outcome.kind !== "started") throw new Error("unreachable");
@@ -1236,7 +1251,7 @@ describe("ClaudeSession — session_id capture and resume", () => {
 
     // Turn 1: emit a message with session_id
     const first = await h.session.submit(
-      { kind: "run", text: "turn1", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "turn1", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     if (first.kind !== "started") throw new Error("unreachable");
@@ -1251,7 +1266,7 @@ describe("ClaudeSession — session_id capture and resume", () => {
 
     // Turn 2: should pass resume
     const second = await h.session.submit(
-      { kind: "run", text: "turn2", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "turn2", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     if (second.kind !== "started") throw new Error("unreachable");
@@ -1267,7 +1282,7 @@ describe("ClaudeSession — session_id capture and resume", () => {
     const h = makeHarness();
     const spy = new SpyRenderer();
     const outcome = await h.session.submit(
-      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test" },
+      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
       spy.emit,
     );
     if (outcome.kind !== "started") throw new Error("unreachable");

@@ -251,7 +251,7 @@ describe("CommandDispatcher — /mode", () => {
     // Start a turn to put session in generating state
     const noopEmit = async () => {};
     session.submit(
-      { kind: "run", text: "hello", senderOpenId: "ou_alice", parentMessageId: "om_p0" },
+      { kind: "run", text: "hello", senderOpenId: "ou_alice", parentMessageId: "om_p0", locale: "zh" },
       noopEmit,
     );
     await flushMicrotasks();
@@ -289,7 +289,7 @@ describe("CommandDispatcher — /model", () => {
     // Start a turn to put session in generating state
     const noopEmit = async () => {};
     session.submit(
-      { kind: "run", text: "hello", senderOpenId: "ou_alice", parentMessageId: "om_p0" },
+      { kind: "run", text: "hello", senderOpenId: "ou_alice", parentMessageId: "om_p0", locale: "zh" },
       noopEmit,
     );
     await flushMicrotasks();
@@ -379,7 +379,7 @@ describe("CommandDispatcher — /cd", () => {
     const session = sessionManager.getOrCreate(CTX.chatId);
     const noopEmit = async () => {};
     session.submit(
-      { kind: "run", text: "hello", senderOpenId: "ou_alice", parentMessageId: "om_p0" },
+      { kind: "run", text: "hello", senderOpenId: "ou_alice", parentMessageId: "om_p0", locale: "zh" },
       noopEmit,
     );
     await flushMicrotasks();
@@ -593,7 +593,7 @@ describe("CommandDispatcher — /resume", () => {
     const session = sessionManager.getOrCreate(CTX.chatId);
     const noopEmit = async () => {};
     session.submit(
-      { kind: "run", text: "hello", senderOpenId: "ou_alice", parentMessageId: "om_p0" },
+      { kind: "run", text: "hello", senderOpenId: "ou_alice", parentMessageId: "om_p0", locale: "zh" },
       noopEmit,
     );
     await flushMicrotasks();
