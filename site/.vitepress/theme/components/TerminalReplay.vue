@@ -322,9 +322,9 @@ const STEP_DELAYS: Record<string, number> = {
   status: 600,
   tool: 700,
   permission: 900,
-  'permission-click': 700,
+  'permission-click': 1100,
   question: 1000,
-  'question-click': 800,
+  'question-click': 1100,
   response: 900,
   system: 800,
   interrupt: 900,
@@ -351,11 +351,25 @@ const sceneDurationMs = computed(() => {
   return total + 2500 // + end pause
 })
 
-function isPermissionClicked(stepIndex: number): boolean {
+// Returns true when the permission-click step is currently being "played"
+// (visibleUpTo === j) — the clicking highlight phase.
+function isPermissionClicking(stepIndex: number): boolean {
   const steps = currentSteps.value
   for (let j = stepIndex + 1; j < steps.length; j++) {
     if (steps[j].type === 'permission-click') {
-      return visibleUpTo.value >= j
+      return visibleUpTo.value === j
+    }
+  }
+  return false
+}
+
+// Returns true once the permission-click step is fully past
+// (visibleUpTo > j) — collapses to the resolved one-liner.
+function isPermissionResolved(stepIndex: number): boolean {
+  const steps = currentSteps.value
+  for (let j = stepIndex + 1; j < steps.length; j++) {
+    if (steps[j].type === 'permission-click') {
+      return visibleUpTo.value > j
     }
   }
   return false
