@@ -30,6 +30,7 @@
     "@types/node": "^25.5.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
+    "vite": "^6.4.2",
     "vitepress": "^1.6.4",
     "vitest": "^4.1.4"
   }
