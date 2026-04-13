@@ -1,3 +1,17 @@
+/* Terminal CSS variables (always dark, independent of VitePress theme) */
+:root {
+  --term-bg: #1e1e2e;
+  --term-border: #313244;
+  --term-surface: #45475a;
+  --term-text: #cdd6f4;
+  --term-subtext: #a6adc8;
+  --term-muted: #6c7086;
+  --term-blue: #89b4fa;
+  --term-red: #f38ba8;
+  --term-yellow: #f9e2af;
+  --term-green: #a6e3a1;
+}
+
 .terminal-replay-wrapper {
   max-width: 720px;
   margin: 2rem auto 3rem;
