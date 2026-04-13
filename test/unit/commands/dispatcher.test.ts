@@ -68,6 +68,7 @@ const CTX: CommandContext = {
   chatId: "oc_1",
   senderOpenId: "ou_alice",
   parentMessageId: "om_p1",
+  locale: "zh",
 };
 
 function makeHarness() {

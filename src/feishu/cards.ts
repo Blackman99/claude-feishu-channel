@@ -4,6 +4,7 @@ import type {
 } from "./card-types.js";
 import { formatToolParams } from "./tool-formatters.js";
 import { sanitizeForFeishuMarkdown, truncateForInline } from "./truncate.js";
+import { t, type Locale } from "../util/i18n.js";
 
 /**
  * Sanitize then truncate. The order matters: sanitization shortens
@@ -104,6 +105,7 @@ export const STATUS_ELEMENT_ID = "status_md";
 export function buildThinkingCard(
   text: string,
   config: CardRenderConfig,
+  locale: Locale = "zh",
 ): FeishuCardV2 {
   const inner =
     text.length === 0 ? "_(empty)_" : prepareInline(text, config.inlineMaxBytes);
@@ -129,7 +131,7 @@ export function buildThinkingCard(
           tag: "collapsible_panel",
           expanded: false,
           background_color: "grey-100",
-          header: collapsiblePanelHeader("💭 思考"),
+          header: collapsiblePanelHeader(t(locale).thinkingPanelHeader),
           elements: [
             { tag: "markdown", element_id: THINKING_ELEMENT_ID, content: inner },
           ],
@@ -182,8 +184,8 @@ export function buildAnswerCard(text: string): FeishuCardV2 {
  * `cardElement.content` updates, and `update_multi` stays on as a
  * fallback path in case `idConvert` fails on the initial send.
  */
-export function buildStatusCard(initial: string): FeishuCardV2 {
-  const text = initial.length === 0 ? "⏳ 正在处理..." : initial;
+export function buildStatusCard(initial: string, locale: Locale = "zh"): FeishuCardV2 {
+  const text = initial.length === 0 ? t(locale).statusProcessing : initial;
   return {
     schema: "2.0",
     config: {
@@ -238,8 +240,9 @@ export interface ToolActivityEntry {
 export function buildToolActivityCard(
   entries: readonly ToolActivityEntry[],
   config: CardRenderConfig,
+  locale: Locale = "zh",
 ): FeishuCardV2 {
-  const bodyText = renderToolActivityBody(entries, config.inlineMaxBytes);
+  const bodyText = renderToolActivityBody(entries, config.inlineMaxBytes, locale);
   return {
     schema: "2.0",
     config: {
@@ -267,7 +270,7 @@ export function buildToolActivityCard(
           // would stay frozen at the value from the initial
           // sendCard. The running count is rendered inside the
           // streamed body instead, so it actually updates.
-          header: collapsiblePanelHeader("🔧 工具活动"),
+          header: collapsiblePanelHeader(t(locale).toolActivityPanelHeader),
           elements: [
             {
               tag: "markdown",
@@ -295,11 +298,12 @@ export function buildToolActivityCard(
 export function renderToolActivityBody(
   entries: readonly ToolActivityEntry[],
   inlineMaxBytes: number,
+  locale: Locale = "zh",
 ): string {
   if (entries.length === 0) return "_(no tools yet)_";
-  const summary = `共 ${entries.length} 个工具`;
+  const summary = t(locale).toolCount(entries.length);
   const body = entries
-    .map((e, i) => renderEntry(i + 1, e, inlineMaxBytes))
+    .map((e, i) => renderEntry(i + 1, e, inlineMaxBytes, locale))
     .join("\n\n");
   return `${summary}\n\n${body}`;
 }
@@ -308,6 +312,7 @@ function renderEntry(
   index: number,
   entry: ToolActivityEntry,
   inlineMaxBytes: number,
+  locale: Locale = "zh",
 ): string {
   // Use an h3 header instead of `**bold**`. Feishu's markdown parser
   // requires spaces around `**` markers and won't reliably render
@@ -320,7 +325,7 @@ function renderEntry(
   const inputBlock = prepareInline(paramSummary, inlineMaxBytes);
   let resultBlock: string;
   if (!entry.result) {
-    resultBlock = "⏳ 执行中...";
+    resultBlock = t(locale).toolRunning;
   } else {
     const marker = entry.result.isError ? "❌" : "✅";
     const body =

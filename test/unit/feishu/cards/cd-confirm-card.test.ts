@@ -22,30 +22,30 @@ function collectButtons(card: ReturnType<typeof buildCdConfirmCard>): Array<Reco
 
 describe("buildCdConfirmCard (pending)", () => {
   it("has schema 2.0 and update_multi true", () => {
-    const card = buildCdConfirmCard({ requestId: "req_123", targetPath: "/home/user" });
+    const card = buildCdConfirmCard({ requestId: "req_123", targetPath: "/home/user", locale: "zh" });
     expect(card.schema).toBe("2.0");
     expect(card.config?.update_multi).toBe(true);
   });
 
   it("has a blue header containing 切换工作目录", () => {
-    const card = buildCdConfirmCard({ requestId: "req_123", targetPath: "/home/user" });
+    const card = buildCdConfirmCard({ requestId: "req_123", targetPath: "/home/user", locale: "zh" });
     expect(card.header?.title.content).toContain("切换工作目录");
     expect(card.header?.template).toBe("blue");
   });
 
   it("includes the target path in the body", () => {
-    const card = buildCdConfirmCard({ requestId: "req_123", targetPath: "/home/user/projects" });
+    const card = buildCdConfirmCard({ requestId: "req_123", targetPath: "/home/user/projects", locale: "zh" });
     expect(JSON.stringify(card)).toContain("/home/user/projects");
   });
 
   it("has exactly 2 buttons (confirm and cancel)", () => {
-    const card = buildCdConfirmCard({ requestId: "req_abc", targetPath: "/tmp" });
+    const card = buildCdConfirmCard({ requestId: "req_abc", targetPath: "/tmp", locale: "zh" });
     const buttons = collectButtons(card);
     expect(buttons).toHaveLength(2);
   });
 
   it("buttons carry kind=cd_confirm with request_id and accepted boolean", () => {
-    const card = buildCdConfirmCard({ requestId: "req_xyz", targetPath: "/tmp" });
+    const card = buildCdConfirmCard({ requestId: "req_xyz", targetPath: "/tmp", locale: "zh" });
     const buttons = collectButtons(card);
     for (const b of buttons) {
       expect(b.kind).toBe("cd_confirm");
@@ -58,12 +58,12 @@ describe("buildCdConfirmCard (pending)", () => {
   });
 
   it("includes an owner-only footer note", () => {
-    const card = buildCdConfirmCard({ requestId: "req_1", targetPath: "/tmp" });
+    const card = buildCdConfirmCard({ requestId: "req_1", targetPath: "/tmp", locale: "zh" });
     expect(JSON.stringify(card)).toMatch(/发起者|owner|only/i);
   });
 
   it("uses a column_set layout for buttons", () => {
-    const card = buildCdConfirmCard({ requestId: "req_1", targetPath: "/tmp" });
+    const card = buildCdConfirmCard({ requestId: "req_1", targetPath: "/tmp", locale: "zh" });
     const json = JSON.stringify(card);
     expect(json).toContain('"tag":"column_set"');
   });
@@ -71,7 +71,7 @@ describe("buildCdConfirmCard (pending)", () => {
 
 describe("buildCdConfirmResolved", () => {
   it("shows the path in a markdown element, no header, no buttons", () => {
-    const card = buildCdConfirmResolved({ targetPath: "/workspace/myapp" });
+    const card = buildCdConfirmResolved({ targetPath: "/workspace/myapp", locale: "zh" });
     const json = JSON.stringify(card);
     expect(card.header).toBeUndefined();
     expect(json).not.toContain('"tag":"button"');
@@ -79,19 +79,19 @@ describe("buildCdConfirmResolved", () => {
   });
 
   it("contains 工作目录已切换 text", () => {
-    const card = buildCdConfirmResolved({ targetPath: "/foo" });
+    const card = buildCdConfirmResolved({ targetPath: "/foo", locale: "zh" });
     expect(JSON.stringify(card)).toMatch(/工作目录已切换/);
   });
 
   it("body has exactly one element", () => {
-    const card = buildCdConfirmResolved({ targetPath: "/foo" });
+    const card = buildCdConfirmResolved({ targetPath: "/foo", locale: "zh" });
     expect(card.body?.elements).toHaveLength(1);
   });
 });
 
 describe("buildCdConfirmCancelled", () => {
   it("shows a cancel notice, no header, no buttons", () => {
-    const card = buildCdConfirmCancelled();
+    const card = buildCdConfirmCancelled({ locale: "zh" });
     const json = JSON.stringify(card);
     expect(card.header).toBeUndefined();
     expect(json).not.toContain('"tag":"button"');
@@ -99,14 +99,14 @@ describe("buildCdConfirmCancelled", () => {
   });
 
   it("body has exactly one element", () => {
-    const card = buildCdConfirmCancelled();
+    const card = buildCdConfirmCancelled({ locale: "zh" });
     expect(card.body?.elements).toHaveLength(1);
   });
 });
 
 describe("buildCdConfirmTimedOut", () => {
   it("shows a timeout notice, no header, no buttons", () => {
-    const card = buildCdConfirmTimedOut();
+    const card = buildCdConfirmTimedOut({ locale: "zh" });
     const json = JSON.stringify(card);
     expect(card.header).toBeUndefined();
     expect(json).not.toContain('"tag":"button"');
@@ -114,7 +114,7 @@ describe("buildCdConfirmTimedOut", () => {
   });
 
   it("body has exactly one element", () => {
-    const card = buildCdConfirmTimedOut();
+    const card = buildCdConfirmTimedOut({ locale: "zh" });
     expect(card.body?.elements).toHaveLength(1);
   });
 });

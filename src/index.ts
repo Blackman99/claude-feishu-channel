@@ -38,6 +38,7 @@ import {
   formatStopAck,
 } from "./feishu/messages.js";
 import type { IncomingMessage } from "./types.js";
+import { detectLocale, t } from "./util/i18n.js";
 
 function resolveConfigPath(override?: string): string {
   if (override) return override;
@@ -158,6 +159,7 @@ export async function main(configPathOverride?: string): Promise<void> {
 
   const onMessage = async (msg: IncomingMessage): Promise<void> => {
     logger.info({ chat_id: msg.chatId, len: msg.text.length }, "Message received");
+    const locale = detectLocale(msg.text);
     const session = sessionManager.getOrCreate(msg.chatId);
 
     // Per-turn render state. The user sees at most one status card,
@@ -508,6 +510,22 @@ export async function main(configPathOverride?: string): Promise<void> {
             );
           }
           return;
+        case "context_reset":
+          // Session auto-reset due to "Request too large" (>20 MB).
+          // Notify the user that context was dropped and the message
+          // is being retried in a fresh session.
+          try {
+            await feishuClient.replyText(
+              msg.messageId,
+              t(locale).contextReset,
+            );
+          } catch (err) {
+            logger.warn(
+              { err, chat_id: msg.chatId },
+              "context_reset notice send failed",
+            );
+          }
+          return;
         default: {
           // Exhaustiveness check — a future RenderEvent variant will make
           // this line fail to compile, forcing the dispatcher to be updated.
@@ -616,6 +634,7 @@ export async function main(configPathOverride?: string): Promise<void> {
           chatId: msg.chatId,
           senderOpenId: msg.senderOpenId,
           parentMessageId: msg.messageId,
+          locale,
         });
         return;
       }
@@ -624,6 +643,7 @@ export async function main(configPathOverride?: string): Promise<void> {
           chatId: msg.chatId,
           senderOpenId: msg.senderOpenId,
           parentMessageId: msg.messageId,
+          locale,
         });
         return;
       }
@@ -632,6 +652,7 @@ export async function main(configPathOverride?: string): Promise<void> {
           ...parsed,
           senderOpenId: msg.senderOpenId,
           parentMessageId: msg.messageId,
+          locale,
         },
         emit,
       );

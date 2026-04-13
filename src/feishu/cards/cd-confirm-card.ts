@@ -2,25 +2,28 @@ import type {
   FeishuCardV2,
   FeishuElement,
 } from "../card-types.js";
+import { t, type Locale } from "../../util/i18n.js";
 
 // --- public builders ---
 
 export function buildCdConfirmCard(args: {
   requestId: string;
   targetPath: string;
+  locale: Locale;
 }): FeishuCardV2 {
+  const s = t(args.locale);
   const elements: FeishuElement[] = [
     {
       tag: "markdown",
-      content: `切换工作目录至：\`${escapeMd(args.targetPath)}\``,
+      content: s.cdCardPrompt(escapeMd(args.targetPath)),
     },
     buttonRow([
-      makeButton("✅ 确认", args.requestId, true, "primary"),
-      makeButton("❌ 取消", args.requestId, false, "danger"),
+      makeButton(s.cdBtnConfirm, args.requestId, true, "primary"),
+      makeButton(s.cdBtnCancel, args.requestId, false, "danger"),
     ]),
     {
       tag: "markdown",
-      content: '<font color="grey">只有发起者可点击 · 5 分钟未响应自动取消</font>',
+      content: `<font color="grey">${s.cdFooter}</font>`,
     },
   ];
 
@@ -30,7 +33,7 @@ export function buildCdConfirmCard(args: {
     header: {
       title: {
         tag: "plain_text",
-        content: "📁 切换工作目录",
+        content: s.cdCardHeader,
       },
       template: "blue",
     },
@@ -38,7 +41,11 @@ export function buildCdConfirmCard(args: {
   };
 }
 
-export function buildCdConfirmResolved(args: { targetPath: string }): FeishuCardV2 {
+export function buildCdConfirmResolved(args: {
+  targetPath: string;
+  locale: Locale;
+}): FeishuCardV2 {
+  const s = t(args.locale);
   return {
     schema: "2.0",
     config: { update_multi: true },
@@ -46,14 +53,15 @@ export function buildCdConfirmResolved(args: { targetPath: string }): FeishuCard
       elements: [
         {
           tag: "markdown",
-          content: `📁 工作目录已切换为 \`${escapeMd(args.targetPath)}\``,
+          content: s.cdResolved(escapeMd(args.targetPath)),
         },
       ],
     },
   };
 }
 
-export function buildCdConfirmCancelled(): FeishuCardV2 {
+export function buildCdConfirmCancelled(args: { locale: Locale }): FeishuCardV2 {
+  const s = t(args.locale);
   return {
     schema: "2.0",
     config: { update_multi: true },
@@ -61,14 +69,15 @@ export function buildCdConfirmCancelled(): FeishuCardV2 {
       elements: [
         {
           tag: "markdown",
-          content: "🛑 已取消切换工作目录",
+          content: s.cdCancelled,
         },
       ],
     },
   };
 }
 
-export function buildCdConfirmTimedOut(): FeishuCardV2 {
+export function buildCdConfirmTimedOut(args: { locale: Locale }): FeishuCardV2 {
+  const s = t(args.locale);
   return {
     schema: "2.0",
     config: { update_multi: true },
@@ -76,7 +85,7 @@ export function buildCdConfirmTimedOut(): FeishuCardV2 {
       elements: [
         {
           tag: "markdown",
-          content: "⏰ 切换工作目录已超时",
+          content: s.cdTimedOut,
         },
       ],
     },

@@ -3,6 +3,7 @@ import type {
   FeishuElement,
 } from "../card-types.js";
 import { truncateForInline } from "../truncate.js";
+import { t, type Locale } from "../../util/i18n.js";
 
 /** Upper bound for the code-block preview of a tool's input. */
 const INPUT_PREVIEW_MAX_BYTES = 1_500;
@@ -12,6 +13,7 @@ interface BuildPendingArgs {
   toolName: string;
   input: unknown;
   ownerOpenId: string;
+  locale: Locale;
 }
 
 /**
@@ -26,28 +28,28 @@ interface BuildPendingArgs {
  * aren't streamed, only patched.
  */
 export function buildPermissionCard(args: BuildPendingArgs): FeishuCardV2 {
+  const s = t(args.locale);
   const preview = formatInputPreview(args.input);
   const elements: FeishuElement[] = [
     {
       tag: "markdown",
-      content: `Claude 要调用工具 **${escapeMd(args.toolName)}**：`,
+      content: s.permCardPrompt(escapeMd(args.toolName)),
     },
     {
       tag: "markdown",
       content: "```json\n" + preview + "\n```",
     },
     buttonRow([
-      makeButton("✅ 允许", "allow", args.requestId, "primary"),
-      makeButton("❌ 拒绝", "deny", args.requestId, "danger"),
+      makeButton(s.permBtnAllow, "allow", args.requestId, "primary"),
+      makeButton(s.permBtnDeny, "deny", args.requestId, "danger"),
     ]),
     buttonRow([
-      makeButton("✅ 本轮 acceptEdits", "allow_turn", args.requestId, "default"),
-      makeButton("✅ 会话 acceptEdits", "allow_session", args.requestId, "default"),
+      makeButton(s.permBtnAllowTurn, "allow_turn", args.requestId, "default"),
+      makeButton(s.permBtnAllowSession, "allow_session", args.requestId, "default"),
     ]),
     {
       tag: "markdown",
-      content:
-        '<font color="grey">只有发起者可点击 · 5 分钟未响应自动拒绝</font>',
+      content: `<font color="grey">${s.permFooter}</font>`,
     },
   ];
 
@@ -57,7 +59,7 @@ export function buildPermissionCard(args: BuildPendingArgs): FeishuCardV2 {
     header: {
       title: {
         tag: "plain_text",
-        content: `🔐 权限请求 · ${args.toolName}`,
+        content: s.permCardHeader(args.toolName),
       },
       template: "yellow",
     },
@@ -68,6 +70,7 @@ export function buildPermissionCard(args: BuildPendingArgs): FeishuCardV2 {
 interface BuildResolvedArgs {
   toolName: string;
   choice: "allow" | "deny" | "allow_turn" | "allow_session";
+  locale: Locale;
 }
 
 /**
@@ -78,7 +81,13 @@ interface BuildResolvedArgs {
 export function buildPermissionCardResolved(
   args: BuildResolvedArgs,
 ): FeishuCardV2 {
-  const label = RESOLVED_LABEL[args.choice];
+  const s = t(args.locale);
+  const label = {
+    allow: s.permResolvedAllow,
+    deny: s.permResolvedDeny,
+    allow_turn: s.permResolvedAllowTurn,
+    allow_session: s.permResolvedAllowSession,
+  }[args.choice];
   const icon = args.choice === "deny" ? "❌" : "✅";
   return {
     schema: "2.0",
@@ -94,17 +103,12 @@ export function buildPermissionCardResolved(
   };
 }
 
-const RESOLVED_LABEL: Record<BuildResolvedArgs["choice"], string> = {
-  allow: "允许",
-  deny: "拒绝",
-  allow_turn: "本轮 acceptEdits",
-  allow_session: "会话 acceptEdits",
-};
-
 export function buildPermissionCardCancelled(args: {
   toolName: string;
   reason: string;
+  locale: Locale;
 }): FeishuCardV2 {
+  const s = t(args.locale);
   return {
     schema: "2.0",
     config: { update_multi: true },
@@ -112,7 +116,7 @@ export function buildPermissionCardCancelled(args: {
       elements: [
         {
           tag: "markdown",
-          content: `🛑 已取消 \`${escapeMd(args.toolName)}\`（${escapeMd(args.reason)}）`,
+          content: s.permCancelled(escapeMd(args.toolName), escapeMd(args.reason)),
         },
       ],
     },
@@ -121,7 +125,9 @@ export function buildPermissionCardCancelled(args: {
 
 export function buildPermissionCardTimedOut(args: {
   toolName: string;
+  locale: Locale;
 }): FeishuCardV2 {
+  const s = t(args.locale);
   return {
     schema: "2.0",
     config: { update_multi: true },
@@ -129,7 +135,7 @@ export function buildPermissionCardTimedOut(args: {
       elements: [
         {
           tag: "markdown",
-          content: `⏰ 已超时 \`${escapeMd(args.toolName)}\``,
+          content: s.permTimedOut(escapeMd(args.toolName)),
         },
       ],
     },

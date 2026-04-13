@@ -23,4 +23,8 @@ export type RenderEvent =
   // Phase 4: dedicated stop ack. Distinct from `text` so the dispatcher
   // renders it as a plain one-liner rather than routing it through the
   // answer-card / "✅ 完成" status path — stopping is not completing.
-  | { type: "stop_ack" };
+  | { type: "stop_ack" }
+  // Emitted when a "Request too large" error triggers an automatic
+  // session reset + retry. The consumer should notify the user that
+  // prior context was dropped and the message is being retried.
+  | { type: "context_reset" };

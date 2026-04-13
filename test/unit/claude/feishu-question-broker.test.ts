@@ -84,6 +84,7 @@ describe("FeishuQuestionBroker.request — happy path", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_parent_1",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -101,6 +102,7 @@ describe("FeishuQuestionBroker.request — happy path", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     const result = await Promise.race([
       p,
@@ -118,6 +120,7 @@ describe("FeishuQuestionBroker.request — happy path", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     expect(res).toEqual({
       kind: "cancelled",
@@ -135,6 +138,7 @@ describe("FeishuQuestionBroker.resolveByCard — single question", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -174,6 +178,7 @@ describe("FeishuQuestionBroker.resolveByCard — single question", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -212,6 +217,7 @@ describe("FeishuQuestionBroker.resolveByCard — single question", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -240,6 +246,7 @@ describe("FeishuQuestionBroker.resolveByCard — multi question", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -302,6 +309,7 @@ describe("FeishuQuestionBroker.resolveByCard — multi question", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -342,6 +350,7 @@ describe("FeishuQuestionBroker.cancelAll", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p1",
+      locale: "zh",
     });
     f.replyCard.mockResolvedValueOnce({ messageId: "om_card_2" });
     const p2 = broker.request({
@@ -349,6 +358,7 @@ describe("FeishuQuestionBroker.cancelAll", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p2",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -383,6 +393,7 @@ describe("FeishuQuestionBroker.cancelAll", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -401,6 +412,7 @@ describe("FeishuQuestionBroker timers", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -421,6 +433,7 @@ describe("FeishuQuestionBroker timers", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();

@@ -3,6 +3,7 @@ import type {
   FeishuElement,
 } from "../card-types.js";
 import type { AskUserQuestionSpec } from "../../claude/question-broker.js";
+import { t, type Locale } from "../../util/i18n.js";
 
 /** Max characters for a button label before it wraps unpleasantly. */
 const BUTTON_LABEL_MAX = 18;
@@ -17,6 +18,7 @@ interface BuildPendingArgs {
    * one-line ✅ row).
    */
   answers: ReadonlyArray<string | null>;
+  locale: Locale;
 }
 
 /**
@@ -30,6 +32,7 @@ interface BuildPendingArgs {
  * route clicks back to `broker.resolveByCard`.
  */
 export function buildQuestionCard(args: BuildPendingArgs): FeishuCardV2 {
+  const s = t(args.locale);
   const elements: FeishuElement[] = [];
 
   args.questions.forEach((q, i) => {
@@ -61,8 +64,7 @@ export function buildQuestionCard(args: BuildPendingArgs): FeishuCardV2 {
 
   elements.push({
     tag: "markdown",
-    content:
-      '<font color="grey">只有发起者可点击 · 5 分钟未响应自动取消</font>',
+    content: `<font color="grey">${s.questionFooter}</font>`,
   });
 
   return {
@@ -71,7 +73,7 @@ export function buildQuestionCard(args: BuildPendingArgs): FeishuCardV2 {
     header: {
       title: {
         tag: "plain_text",
-        content: `🙋 问题${args.questions.length > 1 ? ` (${args.questions.length})` : ""}`,
+        content: s.questionCardHeader(args.questions.length),
       },
       template: "yellow",
     },
@@ -113,7 +115,9 @@ export function buildQuestionCardResolved(
 
 export function buildQuestionCardCancelled(args: {
   reason: string;
+  locale: Locale;
 }): FeishuCardV2 {
+  const s = t(args.locale);
   return {
     schema: "2.0",
     config: { update_multi: true },
@@ -121,14 +125,15 @@ export function buildQuestionCardCancelled(args: {
       elements: [
         {
           tag: "markdown",
-          content: `🛑 已取消提问（${escapeMd(args.reason)}）`,
+          content: s.questionCancelled(escapeMd(args.reason)),
         },
       ],
     },
   };
 }
 
-export function buildQuestionCardTimedOut(): FeishuCardV2 {
+export function buildQuestionCardTimedOut(args: { locale: Locale }): FeishuCardV2 {
+  const s = t(args.locale);
   return {
     schema: "2.0",
     config: { update_multi: true },
@@ -136,7 +141,7 @@ export function buildQuestionCardTimedOut(): FeishuCardV2 {
       elements: [
         {
           tag: "markdown",
-          content: `⏰ 提问已超时`,
+          content: s.questionTimedOut,
         },
       ],
     },

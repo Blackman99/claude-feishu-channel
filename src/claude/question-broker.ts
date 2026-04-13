@@ -44,6 +44,8 @@ export interface QuestionRequest {
    * card threads under the exact request that caused it.
    */
   parentMessageId: string;
+  /** Display language for all user-visible card strings. */
+  locale: import("../util/i18n.js").Locale;
 }
 
 /**

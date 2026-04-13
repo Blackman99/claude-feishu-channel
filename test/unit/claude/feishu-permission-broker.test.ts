@@ -39,6 +39,7 @@ describe("FeishuPermissionBroker.request — happy path", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_parent_1",
+      locale: "zh",
     });
     // Let the async send settle.
     await Promise.resolve();
@@ -59,6 +60,7 @@ describe("FeishuPermissionBroker.request — happy path", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     const result = await Promise.race([
       p,
@@ -77,6 +79,7 @@ describe("FeishuPermissionBroker.request — happy path", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     expect(res).toEqual({
       behavior: "deny",
@@ -100,6 +103,7 @@ describe("FeishuPermissionBroker.resolveByCard", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -134,6 +138,7 @@ describe("FeishuPermissionBroker.resolveByCard", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -157,6 +162,7 @@ describe("FeishuPermissionBroker.resolveByCard", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -178,6 +184,7 @@ describe("FeishuPermissionBroker.resolveByCard", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -199,6 +206,7 @@ describe("FeishuPermissionBroker.resolveByCard", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -239,6 +247,7 @@ describe("FeishuPermissionBroker.resolveByCard", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -273,6 +282,7 @@ describe("FeishuPermissionBroker.cancelAll", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p1",
+      locale: "zh",
     });
     // Second request uses a different parent message id.
     f.replyCard.mockResolvedValueOnce({ messageId: "om_card_2" });
@@ -282,6 +292,7 @@ describe("FeishuPermissionBroker.cancelAll", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p2",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -309,6 +320,7 @@ describe("FeishuPermissionBroker.cancelAll", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -333,6 +345,7 @@ describe("FeishuPermissionBroker.cancelAll", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -355,6 +368,7 @@ describe("FeishuPermissionBroker timers", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -382,6 +396,7 @@ describe("FeishuPermissionBroker timers", () => {
       chatId: "oc_1",
       ownerOpenId: "ou_x",
       parentMessageId: "om_p",
+      locale: "zh",
     });
     await Promise.resolve();
     await Promise.resolve();

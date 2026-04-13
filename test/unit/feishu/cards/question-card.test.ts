@@ -58,6 +58,7 @@ describe("buildQuestionCard (pending)", () => {
       requestId: "req_1",
       questions: [Q1],
       answers: [null],
+      locale: "zh",
     });
     expect(card.schema).toBe("2.0");
     expect(card.config?.update_multi).toBe(true);
@@ -81,6 +82,7 @@ describe("buildQuestionCard (pending)", () => {
       requestId: "r",
       questions: [Q1],
       answers: [null],
+      locale: "zh",
     });
     const json = JSON.stringify(card);
     expect(json).toContain("Which editor do you prefer?");
@@ -92,6 +94,7 @@ describe("buildQuestionCard (pending)", () => {
       requestId: "r",
       questions: [Q1, Q2],
       answers: [null, null],
+      locale: "zh",
     });
     const buttons = collectButtons(card);
     // 2 options for Q1 + 3 for Q2 = 5 total
@@ -109,6 +112,7 @@ describe("buildQuestionCard (pending)", () => {
       requestId: "r",
       questions: [Q1, Q2],
       answers: ["Vim", null],
+      locale: "zh",
     });
     const buttons = collectButtons(card);
     // Q1 is answered → no buttons for question_index 0.
@@ -124,6 +128,7 @@ describe("buildQuestionCard (pending)", () => {
       requestId: "r",
       questions: [Q1],
       answers: [null],
+      locale: "zh",
     });
     const json = JSON.stringify(card);
     expect(json).toMatch(/发起者|owner|only/i);
@@ -144,6 +149,7 @@ describe("buildQuestionCard (pending)", () => {
         },
       ],
       answers: [null],
+      locale: "zh",
     });
     const buttons = collectButtons(card);
     const longBtn = buttons.find((b) => b.label !== "short");
@@ -172,7 +178,7 @@ describe("buildQuestionCardResolved", () => {
 
 describe("buildQuestionCardCancelled", () => {
   it("renders a cancelled notice with the reason, no buttons, no header", () => {
-    const card = buildQuestionCardCancelled({ reason: "User issued /stop" });
+    const card = buildQuestionCardCancelled({ reason: "User issued /stop", locale: "zh" });
     const json = JSON.stringify(card);
     expect(json).not.toContain('"tag":"button"');
     expect(card.header).toBeUndefined();
@@ -183,7 +189,7 @@ describe("buildQuestionCardCancelled", () => {
 
 describe("buildQuestionCardTimedOut", () => {
   it("renders a timed-out notice with no buttons, no header", () => {
-    const card = buildQuestionCardTimedOut();
+    const card = buildQuestionCardTimedOut({ locale: "zh" });
     const json = JSON.stringify(card);
     expect(json).not.toContain('"tag":"button"');
     expect(card.header).toBeUndefined();

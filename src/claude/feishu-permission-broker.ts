@@ -16,6 +16,7 @@ import type {
   PermissionRequest,
   PermissionResponse,
 } from "./permission-broker.js";
+import { t, type Locale } from "../util/i18n.js";
 
 interface PendingRequest {
   readonly requestId: string;
@@ -25,6 +26,7 @@ interface PendingRequest {
   readonly ownerOpenId: string;
   readonly toolName: string;
   readonly createdAt: number;
+  readonly locale: Locale;
   timeoutTimer: TimeoutHandle;
   warnTimer: TimeoutHandle;
 }
@@ -76,6 +78,7 @@ export class FeishuPermissionBroker implements PermissionBroker {
           toolName: req.toolName,
           input: req.input,
           ownerOpenId: req.ownerOpenId,
+          locale: req.locale,
         }),
       );
       cardMessageId = res.messageId;
@@ -113,6 +116,7 @@ export class FeishuPermissionBroker implements PermissionBroker {
       ownerOpenId: req.ownerOpenId,
       toolName: req.toolName,
       createdAt: this.clock.now(),
+      locale: req.locale,
       timeoutTimer,
       warnTimer,
     });
@@ -142,6 +146,7 @@ export class FeishuPermissionBroker implements PermissionBroker {
     const resolvedCard = buildPermissionCardResolved({
       toolName: p.toolName,
       choice: args.choice,
+      locale: p.locale,
     });
 
     switch (args.choice) {
@@ -176,7 +181,7 @@ export class FeishuPermissionBroker implements PermissionBroker {
       void this.feishu
         .patchCard(
           p.cardMessageId,
-          buildPermissionCardCancelled({ toolName: p.toolName, reason }),
+          buildPermissionCardCancelled({ toolName: p.toolName, reason, locale: p.locale }),
         )
         .catch((err) => {
           this.logger.warn(
@@ -200,7 +205,7 @@ export class FeishuPermissionBroker implements PermissionBroker {
     void this.feishu
       .patchCard(
         p.cardMessageId,
-        buildPermissionCardTimedOut({ toolName: p.toolName }),
+        buildPermissionCardTimedOut({ toolName: p.toolName, locale: p.locale }),
       )
       .catch((err) => {
         this.logger.warn(
@@ -217,7 +222,7 @@ export class FeishuPermissionBroker implements PermissionBroker {
     void this.feishu
       .replyText(
         p.parentMessageId,
-        `⏰ 权限请求（${p.toolName}）将在 ${secondsLeft}s 后自动拒绝`,
+        t(p.locale).permWarnReminder(p.toolName, secondsLeft),
       )
       .catch((err) => {
         this.logger.warn(

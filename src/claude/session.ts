@@ -118,6 +118,8 @@ interface QueuedInput {
   readonly done: Deferred<void>;
   /** Monotonic id for logging — not exposed to the outside. */
   readonly seq: number;
+  /** Display language detected from the user's message text. */
+  readonly locale: import("../util/i18n.js").Locale;
 }
 
 /**
@@ -128,6 +130,8 @@ interface QueuedInput {
 export type SubmitInput = CommandRouterResult & {
   senderOpenId: string;
   parentMessageId: string;
+  /** Display language detected from the user's message text. */
+  locale: import("../util/i18n.js").Locale;
 };
 
 /**
@@ -178,7 +182,7 @@ export class ClaudeSession {
   private turnCount = 0;
   private totalInputTokens = 0;
   private totalOutputTokens = 0;
-  private claudeSessionId?: string;
+  private claudeSessionId: string | undefined;
   private readonly onSessionIdCaptured?: () => void;
   private readonly onTurnComplete?: () => void;
   private createdAt: string;
@@ -234,6 +238,7 @@ export class ClaudeSession {
       emit,
       done: createDeferred<void>(),
       seq: this.nextSeq++,
+      locale: input.locale,
     };
 
     if (input.kind === "interrupt_and_run") {
@@ -464,6 +469,7 @@ export class ClaudeSession {
         chatId: this.chatId,
         ownerOpenId: next.senderOpenId,
         parentMessageId: next.parentMessageId,
+        locale: next.locale,
         logger: this.logger,
       });
       const handle = this.queryFn({
@@ -487,8 +493,51 @@ export class ClaudeSession {
       try {
         await this.runTurn(next, handle);
       } catch (err) {
-        this.logger.error({ err, seq: next.seq }, "Claude turn failed");
-        turnError = err;
+        // When the accumulated conversation context exceeds 20 MB the
+        // Claude API rejects the request outright. Detect this, drop
+        // the session id (so the next attempt starts a fresh context),
+        // notify the user, and retry the same input once.
+        if (this.isRequestTooLargeError(err) && this.claudeSessionId !== undefined) {
+          this.logger.warn(
+            { err, seq: next.seq, old_session_id: this.claudeSessionId },
+            "Request too large — resetting session and retrying",
+          );
+          this.claudeSessionId = undefined;
+          try {
+            await next.emit({ type: "context_reset" });
+          } catch (emitErr) {
+            this.logger.warn({ err: emitErr }, "context_reset emit threw");
+          }
+
+          // Rebuild handle without resume (fresh session).
+          const retryHandle = this.queryFn({
+            prompt: next.text,
+            options: {
+              cwd: this.config.defaultCwd,
+              model: this.modelOverride ?? this.config.defaultModel,
+              permissionMode,
+              settingSources: ["user", "project"],
+              mcpServers: [askUserMcp],
+              disallowedTools: ["AskUserQuestion"],
+              // no resume — start fresh
+            },
+            canUseTool: this.buildCanUseToolClosure(next),
+          });
+          this.currentTurn = { input: next, handle: retryHandle };
+
+          try {
+            await this.runTurn(next, retryHandle);
+          } catch (retryErr) {
+            this.logger.error(
+              { err: retryErr, seq: next.seq },
+              "Retry after context reset also failed",
+            );
+            turnError = retryErr;
+          }
+        } else {
+          this.logger.error({ err, seq: next.seq }, "Claude turn failed");
+          turnError = err;
+        }
       }
 
       // Flip to idle BEFORE resolving/rejecting the caller's Deferred
@@ -679,6 +728,18 @@ export class ClaudeSession {
     return this.sessionAcceptEditsSticky;
   }
 
+  /**
+   * Detect whether an error is the Claude API "Request too large"
+   * rejection. The SDK surfaces this as an error message containing
+   * "Request too large" or "max 20MB" — match both variants and
+   * common casing variations so we don't miss it.
+   */
+  private isRequestTooLargeError(err: unknown): boolean {
+    const msg =
+      err instanceof Error ? err.message : typeof err === "string" ? err : "";
+    return /request too large|max 20\s?mb/i.test(msg);
+  }
+
   private buildCanUseToolClosure(input: QueuedInput): CanUseToolFn {
     return async (toolName, rawInput, _sdkOpts) => {
       this.logger.info(
@@ -715,6 +776,7 @@ export class ClaudeSession {
           chatId: this.chatId,
           ownerOpenId: input.senderOpenId,
           parentMessageId: input.parentMessageId,
+          locale: input.locale,
         });
       } finally {
         await this.mutex.run(async () => {

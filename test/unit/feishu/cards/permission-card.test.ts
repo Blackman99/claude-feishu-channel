@@ -13,6 +13,7 @@ describe("buildPermissionCard (pending)", () => {
       toolName: "Bash",
       input: { command: "ls -la" },
       ownerOpenId: "ou_owner",
+      locale: "zh",
     });
     expect(card.schema).toBe("2.0");
     expect(card.config?.update_multi).toBe(true);
@@ -46,6 +47,7 @@ describe("buildPermissionCard (pending)", () => {
       toolName: "Edit",
       input: { content: huge },
       ownerOpenId: "ou",
+      locale: "zh",
     });
     const serialized = JSON.stringify(card);
     // Card must not blow past a reasonable size.
@@ -58,6 +60,7 @@ describe("buildPermissionCard (pending)", () => {
       toolName: "Bash",
       input: {},
       ownerOpenId: "ou",
+      locale: "zh",
     });
     const text = JSON.stringify(card);
     expect(text).toMatch(/发起者|owner|only/i);
@@ -69,6 +72,7 @@ describe("buildPermissionCardResolved", () => {
     const card = buildPermissionCardResolved({
       toolName: "Bash",
       choice: "allow",
+      locale: "zh",
     });
     const json = JSON.stringify(card);
     expect(json).not.toContain('"tag":"button"');
@@ -82,6 +86,7 @@ describe("buildPermissionCardResolved", () => {
     const card = buildPermissionCardResolved({
       toolName: "Bash",
       choice: "deny",
+      locale: "zh",
     });
     expect(JSON.stringify(card)).toMatch(/拒绝|denied/);
   });
@@ -90,6 +95,7 @@ describe("buildPermissionCardResolved", () => {
     const card = buildPermissionCardResolved({
       toolName: "Bash",
       choice: "allow_turn",
+      locale: "zh",
     });
     expect(JSON.stringify(card)).toMatch(/本轮.*acceptEdits/);
   });
@@ -98,6 +104,7 @@ describe("buildPermissionCardResolved", () => {
     const card = buildPermissionCardResolved({
       toolName: "Bash",
       choice: "allow_session",
+      locale: "zh",
     });
     expect(JSON.stringify(card)).toMatch(/会话.*acceptEdits/);
   });
@@ -108,6 +115,7 @@ describe("buildPermissionCardCancelled", () => {
     const card = buildPermissionCardCancelled({
       toolName: "Bash",
       reason: "User issued /stop",
+      locale: "zh",
     });
     const json = JSON.stringify(card);
     expect(json).not.toContain('"tag":"button"');
@@ -118,7 +126,7 @@ describe("buildPermissionCardCancelled", () => {
 
 describe("buildPermissionCardTimedOut", () => {
   it("renders a timed-out notice without buttons", () => {
-    const card = buildPermissionCardTimedOut({ toolName: "Bash" });
+    const card = buildPermissionCardTimedOut({ toolName: "Bash", locale: "zh" });
     const json = JSON.stringify(card);
     expect(json).not.toContain('"tag":"button"');
     expect(json).toMatch(/超时|timed out/i);

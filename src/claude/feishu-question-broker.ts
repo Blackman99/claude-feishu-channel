@@ -17,6 +17,7 @@ import type {
   QuestionRequest,
   QuestionResponse,
 } from "./question-broker.js";
+import { t, type Locale } from "../util/i18n.js";
 
 interface PendingRequest {
   readonly requestId: string;
@@ -28,6 +29,7 @@ interface PendingRequest {
   /** One slot per question; null = still awaiting an answer. */
   readonly answers: Array<string | null>;
   readonly createdAt: number;
+  readonly locale: Locale;
   timeoutTimer: TimeoutHandle;
   warnTimer: TimeoutHandle;
 }
@@ -79,6 +81,7 @@ export class FeishuQuestionBroker implements QuestionBroker {
           requestId,
           questions: req.questions,
           answers,
+          locale: req.locale,
         }),
       );
       cardMessageId = res.messageId;
@@ -117,6 +120,7 @@ export class FeishuQuestionBroker implements QuestionBroker {
       questions: req.questions,
       answers,
       createdAt: this.clock.now(),
+      locale: req.locale,
       timeoutTimer,
       warnTimer,
     });
@@ -188,6 +192,7 @@ export class FeishuQuestionBroker implements QuestionBroker {
         requestId: p.requestId,
         questions: p.questions,
         answers: p.answers,
+        locale: p.locale,
       });
       return { kind: "resolved", card: updated };
     }
@@ -229,7 +234,7 @@ export class FeishuQuestionBroker implements QuestionBroker {
       // /stop and ! paths call cancelAll synchronously and we don't
       // want to block them on a card patch round-trip.
       void this.feishu
-        .patchCard(p.cardMessageId, buildQuestionCardCancelled({ reason }))
+        .patchCard(p.cardMessageId, buildQuestionCardCancelled({ reason, locale: p.locale }))
         .catch((err) => {
           this.logger.warn(
             { err, request_id: p.requestId },
@@ -246,7 +251,7 @@ export class FeishuQuestionBroker implements QuestionBroker {
     this.pending.delete(requestId);
     p.deferred.resolve({ kind: "timed_out" });
     void this.feishu
-      .patchCard(p.cardMessageId, buildQuestionCardTimedOut())
+      .patchCard(p.cardMessageId, buildQuestionCardTimedOut({ locale: p.locale }))
       .catch((err) => {
         this.logger.warn(
           { err, request_id: requestId },
@@ -262,7 +267,7 @@ export class FeishuQuestionBroker implements QuestionBroker {
     void this.feishu
       .replyText(
         p.parentMessageId,
-        `⏰ 问题将在 ${secondsLeft}s 后自动取消`,
+        t(p.locale).questionWarnReminder(secondsLeft),
       )
       .catch((err) => {
         this.logger.warn(

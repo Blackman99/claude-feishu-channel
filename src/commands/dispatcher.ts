@@ -16,6 +16,7 @@ import {
   buildCdConfirmTimedOut,
 } from "../feishu/cards/cd-confirm-card.js";
 import { writeConfigKey } from "../config.js";
+import type { Locale } from "../util/i18n.js";
 
 type KeyType = "boolean" | "number" | "string" | "enum";
 
@@ -86,6 +87,8 @@ export interface CommandContext {
   chatId: string;
   senderOpenId: string;
   parentMessageId: string;
+  /** Display language detected from the user's message text. */
+  locale: Locale;
 }
 
 export type CdConfirmResult =
@@ -99,6 +102,7 @@ interface PendingCdConfirm {
   cardMessageId: string;
   targetPath: string;
   chatId: string;
+  locale: Locale;
   timer: TimeoutHandle;
 }
 
@@ -392,7 +396,7 @@ export class CommandDispatcher {
       return;
     }
     const requestId = crypto.randomUUID();
-    const card = buildCdConfirmCard({ requestId, targetPath: path });
+    const card = buildCdConfirmCard({ requestId, targetPath: path, locale: ctx.locale });
     let cardMessageId: string;
     try {
       const res = await this.feishu.replyCard(ctx.parentMessageId, card);
@@ -409,6 +413,7 @@ export class CommandDispatcher {
       cardMessageId,
       targetPath: path,
       chatId: ctx.chatId,
+      locale: ctx.locale,
       timer,
     });
   }
@@ -491,16 +496,16 @@ export class CommandDispatcher {
     if (args.accepted) {
       this.sessionManager.delete(p.chatId);
       this.sessionManager.setCwdOverride(p.chatId, p.targetPath);
-      return { kind: "resolved", card: buildCdConfirmResolved({ targetPath: p.targetPath }) };
+      return { kind: "resolved", card: buildCdConfirmResolved({ targetPath: p.targetPath, locale: p.locale }) };
     }
-    return { kind: "resolved", card: buildCdConfirmCancelled() };
+    return { kind: "resolved", card: buildCdConfirmCancelled({ locale: p.locale }) };
   }
 
   private cdTimeout(requestId: string): void {
     const p = this.pendingCdConfirms.get(requestId);
     if (!p) return;
     this.pendingCdConfirms.delete(requestId);
-    void this.feishu.patchCard(p.cardMessageId, buildCdConfirmTimedOut()).catch((err) => {
+    void this.feishu.patchCard(p.cardMessageId, buildCdConfirmTimedOut({ locale: p.locale })).catch((err) => {
       this.logger.warn({ err, requestId }, "cd timeout patch failed");
     });
   }

@@ -64,6 +64,8 @@ export interface CreateAskUserMcpServerOptions {
   ownerOpenId: string;
   /** Feishu `message_id` the card should reply to. */
   parentMessageId: string;
+  /** Display language for all user-visible card strings. */
+  locale: import("../util/i18n.js").Locale;
   logger: Logger;
 }
 
@@ -124,6 +126,7 @@ export function createAskUserMcpServer(
         chatId: opts.chatId,
         ownerOpenId: opts.ownerOpenId,
         parentMessageId: opts.parentMessageId,
+        locale: opts.locale,
       });
 
       return toCallToolResult(questions, response);
