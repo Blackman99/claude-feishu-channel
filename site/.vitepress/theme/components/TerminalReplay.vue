@@ -1,5 +1,25 @@
 <template>
   <div ref="rootEl" class="terminal-replay-wrapper">
+    <!-- Scene tab bar -->
+    <div class="scene-tabs">
+      <button
+        v-for="(scene, si) in SCENES"
+        :key="si"
+        class="scene-tab"
+        :class="{ 'scene-tab-active': si === sceneIndex }"
+        @click="goToScene(si)"
+      >
+        <span class="scene-tab-icon">{{ scene.icon }}</span>
+        <span class="scene-tab-text">{{ scene.title }}</span>
+        <!-- Auto-play progress bar -->
+        <span
+          v-if="si === sceneIndex"
+          class="scene-tab-progress"
+          :style="{ animationDuration: sceneDurationMs + 'ms', animationPlayState: autoPlaying ? 'running' : 'paused' }"
+        ></span>
+      </button>
+    </div>
+
     <div class="terminal-window">
       <!-- Chrome bar -->
       <div class="terminal-chrome">
@@ -9,8 +29,15 @@
           <span class="dot dot-green"></span>
         </div>
         <span class="terminal-title">Claude Feishu Channel</span>
-        <span class="scene-label">{{ currentSceneLabel }}</span>
       </div>
+
+      <!-- Prev / Next arrows -->
+      <button class="nav-arrow nav-arrow-left" @click="prevScene" aria-label="Previous">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="nav-arrow nav-arrow-right" @click="nextSceneManual" aria-label="Next">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
 
       <!-- Chat area -->
       <div class="terminal-body" :class="{ 'scene-fade': fading }">
@@ -22,7 +49,7 @@
           >
             <div class="bubble bubble-user">
               <span>{{ step.text }}</span>
-              <span v-if="i === visibleUpTo" class="typing-cursor"></span>
+              <span v-if="i === visibleUpTo && autoPlaying" class="typing-cursor"></span>
             </div>
           </div>
 
@@ -72,7 +99,7 @@
             </div>
           </div>
 
-          <!-- System message (command response) -->
+          <!-- System message -->
           <div
             v-if="step.type === 'system' && i <= visibleUpTo"
             class="chat-row chat-row-left step-visible"
@@ -82,7 +109,7 @@
             </div>
           </div>
 
-          <!-- Interrupt marker -->
+          <!-- Interrupt -->
           <div
             v-if="step.type === 'interrupt' && i <= visibleUpTo"
             class="chat-row chat-row-right step-visible"
@@ -117,16 +144,6 @@
           </div>
         </template>
       </div>
-
-      <!-- Scene indicators -->
-      <div class="scene-dots">
-        <span
-          v-for="(_, si) in SCENES"
-          :key="si"
-          class="scene-dot"
-          :class="{ 'scene-dot-active': si === sceneIndex }"
-        ></span>
-      </div>
     </div>
   </div>
 </template>
@@ -151,13 +168,15 @@ interface Step {
 }
 
 interface Scene {
-  label: string
+  icon: string
+  title: string
   steps: Step[]
 }
 
 const SCENES: Scene[] = [
   {
-    label: '🤖 Full Agent Capabilities',
+    icon: '🤖',
+    title: 'Agent Capabilities',
     steps: [
       { type: 'user', text: '帮我重构 src/utils.ts，提取公共方法' },
       { type: 'status', text: 'Thinking...' },
@@ -171,7 +190,8 @@ const SCENES: Scene[] = [
     ],
   },
   {
-    label: '🔐 Permission Brokering',
+    icon: '🔐',
+    title: 'Permission Brokering',
     steps: [
       { type: 'user', text: '清理构建产物并重新编译' },
       { type: 'status', text: 'Thinking...' },
@@ -184,7 +204,8 @@ const SCENES: Scene[] = [
     ],
   },
   {
-    label: '⚡ Queue & Interrupt',
+    icon: '⚡',
+    title: 'Queue & Interrupt',
     steps: [
       { type: 'user', text: '分析一下项目的性能瓶颈' },
       { type: 'status', text: 'Analyzing...' },
@@ -196,7 +217,8 @@ const SCENES: Scene[] = [
     ],
   },
   {
-    label: '⚙️ Runtime Configuration',
+    icon: '⚙️',
+    title: 'Runtime Config',
     steps: [
       { type: 'user', text: '/config set logging.level debug --persist' },
       { type: 'system', text: '✅ 配置已更新: logging.level = debug (已持久化)' },
@@ -216,7 +238,8 @@ const SCENES: Scene[] = [
     ],
   },
   {
-    label: '💾 Session Persistence',
+    icon: '💾',
+    title: 'Session Persistence',
     steps: [
       { type: 'system', text: '⚠️ 上次 bot 异常重启，已恢复会话' },
       { type: 'user', text: '/sessions' },
@@ -235,16 +258,37 @@ const SCENES: Scene[] = [
   },
 ]
 
+const STEP_DELAYS: Record<string, number> = {
+  user: 1000,
+  status: 600,
+  tool: 700,
+  permission: 900,
+  'permission-click': 700,
+  response: 900,
+  system: 800,
+  interrupt: 900,
+  stats: 1000,
+}
+
 const sceneIndex = ref(0)
 const visibleUpTo = ref(-1)
 const fading = ref(false)
+const autoPlaying = ref(true)
 const rootEl = ref<HTMLElement | null>(null)
 let timer: ReturnType<typeof setTimeout> | null = null
 let observer: IntersectionObserver | null = null
 let isVisible = true
 
 const currentSteps = computed(() => SCENES[sceneIndex.value].steps)
-const currentSceneLabel = computed(() => SCENES[sceneIndex.value].label)
+
+// Total animation duration for the progress bar
+const sceneDurationMs = computed(() => {
+  let total = 0
+  for (const step of currentSteps.value) {
+    total += STEP_DELAYS[step.type] ?? 600
+  }
+  return total + 2500 // + end pause
+})
 
 function isPermissionClicked(stepIndex: number): boolean {
   const steps = currentSteps.value
@@ -256,29 +300,50 @@ function isPermissionClicked(stepIndex: number): boolean {
   return false
 }
 
-function getDelay(step: Step): number {
-  switch (step.type) {
-    case 'user': return 1000
-    case 'status': return 600
-    case 'tool': return 700
-    case 'permission': return 900
-    case 'permission-click': return 700
-    case 'response': return 900
-    case 'system': return 800
-    case 'interrupt': return 900
-    case 'stats': return 1000
-    default: return 600
+function clearTimer() {
+  if (timer) {
+    clearTimeout(timer)
+    timer = null
   }
 }
 
-function nextScene() {
+function switchScene(index: number) {
+  clearTimer()
   fading.value = true
   timer = setTimeout(() => {
     visibleUpTo.value = -1
-    sceneIndex.value = (sceneIndex.value + 1) % SCENES.length
+    sceneIndex.value = index
     fading.value = false
-    timer = setTimeout(advance, 600)
-  }, 400)
+    timer = setTimeout(advance, 500)
+  }, 350)
+}
+
+function goToScene(index: number) {
+  if (index === sceneIndex.value && visibleUpTo.value >= currentSteps.value.length - 1) {
+    // Clicked the same completed scene — replay it
+    switchScene(index)
+    return
+  }
+  if (index === sceneIndex.value) return
+  autoPlaying.value = true
+  switchScene(index)
+}
+
+function prevScene() {
+  const next = (sceneIndex.value - 1 + SCENES.length) % SCENES.length
+  autoPlaying.value = true
+  switchScene(next)
+}
+
+function nextSceneManual() {
+  const next = (sceneIndex.value + 1) % SCENES.length
+  autoPlaying.value = true
+  switchScene(next)
+}
+
+function nextSceneAuto() {
+  const next = (sceneIndex.value + 1) % SCENES.length
+  switchScene(next)
 }
 
 function advance() {
@@ -288,11 +353,14 @@ function advance() {
   }
   const steps = currentSteps.value
   if (visibleUpTo.value >= steps.length - 1) {
-    timer = setTimeout(nextScene, 2500)
+    if (autoPlaying.value) {
+      timer = setTimeout(nextSceneAuto, 2500)
+    }
     return
   }
   visibleUpTo.value++
-  timer = setTimeout(advance, getDelay(steps[visibleUpTo.value]))
+  const delay = STEP_DELAYS[steps[visibleUpTo.value].type] ?? 600
+  timer = setTimeout(advance, delay)
 }
 
 onMounted(() => {
@@ -311,16 +379,89 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (timer) clearTimeout(timer)
+  clearTimer()
   if (observer) observer.disconnect()
 })
 </script>
 
 <style scoped>
-.terminal-window {
+/* Scene tab bar */
+.scene-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 0 2px;
+}
+
+.scene-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.scene-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: none;
+  background: #313244;
+  color: #6c7086;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 10px 10px 0 0;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s;
+  overflow: hidden;
+  flex: 1;
+  justify-content: center;
+}
+
+.scene-tab:hover {
+  background: #45475a;
+  color: #cdd6f4;
+}
+
+.scene-tab-active {
   background: var(--term-bg, #1e1e2e);
-  border-radius: 12px;
+  color: #cdd6f4;
+}
+
+.scene-tab-icon {
+  font-size: 14px;
+}
+
+.scene-tab-text {
+  font-size: 12px;
+}
+
+/* Progress bar under active tab */
+.scene-tab-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: #89b4fa;
+  animation: tabProgress linear forwards;
+  width: 0;
+}
+
+@keyframes tabProgress {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+/* Terminal window */
+.terminal-window {
+  position: relative;
+  background: var(--term-bg, #1e1e2e);
+  border-radius: 0 0 12px 12px;
   border: 1px solid var(--term-border, #313244);
+  border-top: none;
   overflow: hidden;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
   font-size: 14px;
@@ -360,47 +501,52 @@ onUnmounted(() => {
   opacity: 0.7;
 }
 
-.scene-label {
-  margin-left: auto;
+/* Navigation arrows */
+.nav-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #45475a;
+  background: #313244;
+  color: #6c7086;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  padding: 0;
+}
+
+.nav-arrow:hover {
+  background: #45475a;
   color: #cdd6f4;
-  font-size: 11px;
-  opacity: 0.6;
-  white-space: nowrap;
+  border-color: #6c7086;
+}
+
+.nav-arrow-left {
+  left: 8px;
+}
+
+.nav-arrow-right {
+  right: 8px;
 }
 
 /* Chat body */
 .terminal-body {
-  padding: 16px;
+  padding: 16px 48px;
   min-height: 220px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  transition: opacity 0.35s ease;
+  transition: opacity 0.3s ease;
 }
 
 .scene-fade {
   opacity: 0;
-}
-
-/* Scene indicator dots */
-.scene-dots {
-  display: flex;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 0 12px;
-}
-
-.scene-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #45475a;
-  transition: background 0.3s ease, transform 0.3s ease;
-}
-
-.scene-dot-active {
-  background: #89b4fa;
-  transform: scale(1.3);
 }
 
 /* Chat rows */
@@ -621,13 +767,13 @@ onUnmounted(() => {
 }
 
 /* Responsive */
-@media (max-width: 480px) {
+@media (max-width: 640px) {
   .terminal-window {
     font-size: 12px;
   }
 
   .terminal-body {
-    padding: 12px;
+    padding: 12px 40px;
     min-height: 180px;
   }
 
@@ -637,6 +783,41 @@ onUnmounted(() => {
 
   .stats-card {
     min-width: unset;
+  }
+
+  .scene-tab {
+    padding: 8px 10px;
+  }
+
+  .scene-tab-text {
+    font-size: 11px;
+  }
+
+  .nav-arrow {
+    width: 26px;
+    height: 26px;
+  }
+
+  .nav-arrow-left { left: 4px; }
+  .nav-arrow-right { right: 4px; }
+}
+
+@media (max-width: 480px) {
+  .scene-tab-text {
+    display: none;
+  }
+
+  .scene-tab {
+    padding: 8px 12px;
+    flex: unset;
+  }
+
+  .scene-tabs {
+    justify-content: center;
+  }
+
+  .terminal-body {
+    padding: 10px 36px;
   }
 }
 </style>
