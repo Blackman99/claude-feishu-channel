@@ -4,6 +4,9 @@ hero:
   name: Claude Feishu Channel
   text: Bridge Claude Code to Feishu
   tagline: Full agent capabilities, interactive permission cards, streaming responses — all in your Feishu group chat.
+  image:
+    src: /logo.svg
+    alt: CFC Logo
   actions:
     - theme: brand
       text: Get Started
