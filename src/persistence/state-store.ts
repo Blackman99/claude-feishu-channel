@@ -11,15 +11,23 @@ export interface SessionRecord {
 }
 
 export interface State {
-  version: 1;
+  version: 2;
   lastCleanShutdown: boolean;
+  /**
+   * Sessions keyed by chatId (default project) or `chatId\tprojectAlias`
+   * (named project). The tab character is used as a separator since it
+   * cannot appear in Feishu chat IDs or project alias names.
+   */
   sessions: Record<string, SessionRecord>;
+  /** Tracks the currently active project alias per chatId. */
+  activeProjects: Record<string, string>;
 }
 
 const INITIAL_STATE: State = {
-  version: 1,
+  version: 2,
   lastCleanShutdown: true,
   sessions: {},
+  activeProjects: {},
 };
 
 export class StateStore {
@@ -46,9 +54,18 @@ export class StateStore {
         `Malformed JSON in state file ${this.path}: ${(err as Error).message}`,
       );
     }
-    if (parsed.version !== 1) {
+    // Migrate v1 → v2: add activeProjects field.
+    if ((parsed as { version: number }).version === 1) {
+      return {
+        version: 2,
+        lastCleanShutdown: (parsed as unknown as { lastCleanShutdown: boolean }).lastCleanShutdown,
+        sessions: (parsed as unknown as { sessions: Record<string, SessionRecord> }).sessions,
+        activeProjects: {},
+      };
+    }
+    if (parsed.version !== 2) {
       throw new Error(
-        `Unsupported state file version ${parsed.version} in ${this.path}`,
+        `Unsupported state file version ${(parsed as { version: number }).version} in ${this.path}`,
       );
     }
     return parsed;

@@ -675,6 +675,11 @@ export class ClaudeSession {
     this.modelOverride = model;
   }
 
+  /** Returns true if the session has any explicit configuration overrides worth persisting. */
+  hasExplicitOverrides(): boolean {
+    return this.modelOverride !== undefined || this.permissionModeOverride !== undefined;
+  }
+
   /** Set the Claude session ID for resume. Used by SessionManager during lazy restore. */
   setClaudeSessionId(id: string): void {
     this.claudeSessionId = id;

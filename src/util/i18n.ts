@@ -138,7 +138,15 @@ const STRINGS = {
     projectUnknown: (alias: string, list: string) =>
       `未知项目别名: ${alias}，可用别名: ${list}`,
     sessionsNone: "暂无会话记录",
-    sessionsHeader: "已知会话：",
+    sessionsHeader: "📋 会话列表",
+    sessionsCount: (n: number) => `共 ${n} 个会话`,
+    sessionsProject: (alias: string) => `📁 ${alias}`,
+    sessionsDefaultProject: "默认项目",
+    sessionsCwd: (cwd: string) => `目录：\`${cwd}\``,
+    sessionsModel: (model: string) => `模型：${model}`,
+    sessionsActive: "🟢 活跃",
+    sessionsStale: "⚪ 未活跃",
+    sessionsLastActive: (timeAgo: string) => `最近活跃：${timeAgo}`,
     resumeNotFound: (id: string) => `未找到会话 ${id}`,
     resumeAlreadyHere: "已经在该会话中",
     resumeSuccess: (shortId: string, cwd: string) =>
@@ -269,7 +277,15 @@ const STRINGS = {
     projectUnknown: (alias: string, list: string) =>
       `Unknown project alias: ${alias} — available: ${list}`,
     sessionsNone: "No sessions found",
-    sessionsHeader: "Known sessions:",
+    sessionsHeader: "📋 Sessions",
+    sessionsCount: (n: number) => `${n} session${n === 1 ? "" : "s"}`,
+    sessionsProject: (alias: string) => `📁 ${alias}`,
+    sessionsDefaultProject: "Default project",
+    sessionsCwd: (cwd: string) => `Dir: \`${cwd}\``,
+    sessionsModel: (model: string) => `Model: ${model}`,
+    sessionsActive: "🟢 Active",
+    sessionsStale: "⚪ Stale",
+    sessionsLastActive: (timeAgo: string) => `Last active: ${timeAgo}`,
     resumeNotFound: (id: string) => `Session not found: ${id}`,
     resumeAlreadyHere: "Already in this session",
     resumeSuccess: (shortId: string, cwd: string) =>

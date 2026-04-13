@@ -40,14 +40,41 @@ const DEBOUNCE_MS = 30_000;
  * - `saveNow()` always cancels any pending debounced timer first.
  */
 export class ClaudeSessionManager {
+  /**
+   * Internal maps use a *session key* rather than raw chatId.
+   *
+   * Key format:
+   *   - Default project : `chatId`
+   *   - Named project   : `chatId\tprojectAlias`
+   *
+   * The tab character is the separator — it cannot appear in Feishu chat IDs
+   * or project alias names, so it's safe to use without escaping.
+   */
   private readonly sessions = new Map<string, ClaudeSession>();
   private readonly cwdOverrides = new Map<string, string>();
   private readonly staleRecords = new Map<string, SessionRecord>();
+  /** chatId → currently-active project alias (absent = default project). */
+  private readonly activeProjects = new Map<string, string>();
   private readonly opts: ClaudeSessionManagerOptions;
   private debounceTimer: TimeoutHandle | null = null;
 
   constructor(opts: ClaudeSessionManagerOptions) {
     this.opts = opts;
+  }
+
+  // --- project helpers ---
+
+  /** Returns the session-map key for the currently active project of chatId. */
+  private activeSessionKey(chatId: string): string {
+    const alias = this.activeProjects.get(chatId);
+    return alias ? `${chatId}\t${alias}` : chatId;
+  }
+
+  /** Parse a session key back into its components. */
+  private parseSessionKey(key: string): { chatId: string; projectAlias?: string } {
+    const tab = key.indexOf("\t");
+    if (tab === -1) return { chatId: key };
+    return { chatId: key.slice(0, tab), projectAlias: key.slice(tab + 1) };
   }
 
   // --- lifecycle ---
@@ -58,10 +85,16 @@ export class ClaudeSessionManager {
     const now = Date.now();
     const ttlMs = (this.opts.sessionTtlDays ?? 30) * 24 * 60 * 60 * 1000;
 
-    for (const [chatId, record] of Object.entries(state.sessions)) {
+    // Sessions are keyed by chatId or chatId\tprojectAlias — preserve as-is.
+    for (const [key, record] of Object.entries(state.sessions)) {
       const lastActive = new Date(record.lastActiveAt).getTime();
       if (now - lastActive > ttlMs) continue;
-      this.staleRecords.set(chatId, record);
+      this.staleRecords.set(key, record);
+    }
+
+    // Restore active project per chatId.
+    for (const [chatId, alias] of Object.entries(state.activeProjects ?? {})) {
+      this.activeProjects.set(chatId, alias);
     }
 
     // Persist the pruned set so expired sessions are dropped from disk.
@@ -73,9 +106,16 @@ export class ClaudeSessionManager {
     if (!this.opts.feishuClient) return;
 
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
-    for (const [chatId, record] of this.staleRecords) {
+    // Deduplicate by real chatId so we send at most one notification per chat
+    // even when that chat has multiple project sessions.
+    const notified = new Set<string>();
+    for (const [key, record] of this.staleRecords) {
       const lastActive = new Date(record.lastActiveAt).getTime();
       if (lastActive < oneHourAgo) continue;
+
+      const { chatId } = this.parseSessionKey(key);
+      if (notified.has(chatId)) continue;
+      notified.add(chatId);
 
       try {
         await this.opts.feishuClient.sendText(
@@ -94,11 +134,12 @@ export class ClaudeSessionManager {
   // --- session CRUD ---
 
   getOrCreate(chatId: string): ClaudeSession {
-    let session = this.sessions.get(chatId);
+    const key = this.activeSessionKey(chatId);
+    let session = this.sessions.get(key);
     if (session !== undefined) return session;
 
-    const stale = this.staleRecords.get(chatId);
-    const cwdOverride = this.cwdOverrides.get(chatId);
+    const stale = this.staleRecords.get(key);
+    const cwdOverride = this.cwdOverrides.get(key);
 
     let cwd: string;
     let permissionMode:
@@ -114,7 +155,7 @@ export class ClaudeSessionManager {
         | undefined;
       model = stale.model;
       claudeSessionId = stale.claudeSessionId;
-      this.staleRecords.delete(chatId);
+      this.staleRecords.delete(key);
     } else {
       cwd = cwdOverride ?? this.opts.config.defaultCwd;
     }
@@ -144,23 +185,45 @@ export class ClaudeSessionManager {
       session.setTimestamps(stale.createdAt, stale.lastActiveAt);
     }
 
-    this.sessions.set(chatId, session);
+    this.sessions.set(key, session);
     return session;
   }
 
   delete(chatId: string): void {
-    this.sessions.delete(chatId);
-    this.staleRecords.delete(chatId);
+    const key = this.activeSessionKey(chatId);
+    this.sessions.delete(key);
+    this.staleRecords.delete(key);
     void this.saveNow();
   }
 
   setCwdOverride(chatId: string, cwd: string): void {
-    this.cwdOverrides.set(chatId, cwd);
+    this.cwdOverrides.set(this.activeSessionKey(chatId), cwd);
   }
 
   setStaleRecord(chatId: string, record: SessionRecord): void {
-    this.staleRecords.set(chatId, record);
+    this.staleRecords.set(this.activeSessionKey(chatId), record);
     void this.saveNow();
+  }
+
+  /**
+   * Switch the active project for a chat.  The previous project's session
+   * stays alive in memory and can be restored by switching back.  If the
+   * target project has no saved session yet, `cwd` is used as the initial
+   * working directory.
+   */
+  switchProject(chatId: string, alias: string, cwd: string): void {
+    const newKey = `${chatId}\t${alias}`;
+    // Only apply the cwd as an initial override if no session exists yet.
+    if (!this.sessions.has(newKey) && !this.staleRecords.has(newKey)) {
+      this.cwdOverrides.set(newKey, cwd);
+    }
+    this.activeProjects.set(chatId, alias);
+    void this.saveNow();
+  }
+
+  /** Returns the currently active project alias, or undefined for the default project. */
+  getActiveProject(chatId: string): string | undefined {
+    return this.activeProjects.get(chatId);
   }
 
   // --- query ---
@@ -169,49 +232,63 @@ export class ClaudeSessionManager {
     target: string,
   ): { chatId: string; record: SessionRecord } | undefined {
     // By claudeSessionId in active sessions
-    for (const [chatId, session] of this.sessions) {
+    for (const [key, session] of this.sessions) {
       const status = session.getStatus();
       if (status.claudeSessionId === target) {
+        const { chatId } = this.parseSessionKey(key);
         return { chatId, record: this.statusToRecord(status) };
       }
     }
     // By claudeSessionId in stale
-    for (const [chatId, record] of this.staleRecords) {
+    for (const [key, record] of this.staleRecords) {
       if (record.claudeSessionId === target) {
+        const { chatId } = this.parseSessionKey(key);
         return { chatId, record };
       }
     }
-    // By chatId in active
-    if (this.sessions.has(target)) {
-      const status = this.sessions.get(target)!.getStatus();
+    // By chatId: match against the active session key for that chatId
+    const activeKey = this.activeSessionKey(target);
+    if (this.sessions.has(activeKey)) {
+      const status = this.sessions.get(activeKey)!.getStatus();
       return { chatId: target, record: this.statusToRecord(status) };
     }
-    // By chatId in stale
-    if (this.staleRecords.has(target)) {
-      return { chatId: target, record: this.staleRecords.get(target)! };
+    if (this.staleRecords.has(activeKey)) {
+      return { chatId: target, record: this.staleRecords.get(activeKey)! };
     }
     return undefined;
   }
 
   getAllSessions(): Array<{
     chatId: string;
+    projectAlias?: string;
     record: SessionRecord;
     active: boolean;
   }> {
     const result: Array<{
       chatId: string;
+      projectAlias?: string;
       record: SessionRecord;
       active: boolean;
     }> = [];
-    for (const [chatId, session] of this.sessions) {
-      result.push({
+    for (const [key, session] of this.sessions) {
+      const { chatId, projectAlias } = this.parseSessionKey(key);
+      const entry: { chatId: string; projectAlias?: string; record: SessionRecord; active: boolean } = {
         chatId,
         record: this.statusToRecord(session.getStatus()),
         active: true,
-      });
+      };
+      if (projectAlias !== undefined) entry.projectAlias = projectAlias;
+      result.push(entry);
     }
-    for (const [chatId, record] of this.staleRecords) {
-      result.push({ chatId, record, active: false });
+    for (const [key, record] of this.staleRecords) {
+      const { chatId, projectAlias } = this.parseSessionKey(key);
+      const entry: { chatId: string; projectAlias?: string; record: SessionRecord; active: boolean } = {
+        chatId,
+        record,
+        active: false,
+      };
+      if (projectAlias !== undefined) entry.projectAlias = projectAlias;
+      result.push(entry);
     }
     return result;
   }
@@ -226,15 +303,20 @@ export class ClaudeSessionManager {
     }
   }
 
+  getActiveProjectsSnapshot(): Record<string, string> {
+    return Object.fromEntries(this.activeProjects);
+  }
+
   buildSessionsSnapshot(): Record<string, SessionRecord> {
     const sessions: Record<string, SessionRecord> = {};
-    for (const [chatId, session] of this.sessions) {
+    // Active sessions use composite keys; preserve them as-is.
+    for (const [key, session] of this.sessions) {
       const status = session.getStatus();
-      if (!status.claudeSessionId) continue;
-      sessions[chatId] = this.statusToRecord(status);
+      if (!status.claudeSessionId && !session.hasExplicitOverrides()) continue;
+      sessions[key] = this.statusToRecord(status);
     }
-    for (const [chatId, record] of this.staleRecords) {
-      sessions[chatId] = record;
+    for (const [key, record] of this.staleRecords) {
+      sessions[key] = record;
     }
     return sessions;
   }
@@ -264,9 +346,10 @@ export class ClaudeSessionManager {
       this.debounceTimer = null;
     }
     const state: State = {
-      version: 1,
+      version: 2,
       lastCleanShutdown: false,
       sessions: this.buildSessionsSnapshot(),
+      activeProjects: Object.fromEntries(this.activeProjects),
     };
     try {
       await this.opts.stateStore.save(state);

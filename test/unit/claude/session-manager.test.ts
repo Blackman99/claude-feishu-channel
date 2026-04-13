@@ -40,7 +40,7 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 class FakeStateStore {
-  state: State = { version: 1, lastCleanShutdown: true, sessions: {} };
+  state: State = { version: 2, lastCleanShutdown: true, sessions: {}, activeProjects: {} };
   saveCount = 0;
   lastSaved: State | null = null;
   async load(): Promise<State> {

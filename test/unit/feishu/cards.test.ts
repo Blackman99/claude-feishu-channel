@@ -1,13 +1,16 @@
 import { describe, it, expect } from "vitest";
 import {
   buildAnswerCard,
+  buildSessionsCard,
   buildStatusCard,
   buildThinkingCard,
   buildToolActivityCard,
+  formatRelativeTime,
   renderToolActivityBody,
   STATUS_ELEMENT_ID,
   THINKING_ELEMENT_ID,
   TOOL_ACTIVITY_ELEMENT_ID,
+  type SessionEntry,
   type ToolActivityEntry,
 } from "../../../src/feishu/cards.js";
 import type {
@@ -340,5 +343,129 @@ describe("buildStatusCard", () => {
     const first = card.body?.elements[0];
     if (!first || first.tag !== "markdown") throw new Error("unreachable");
     expect(first.content).toBe("⏳ 正在处理...");
+  });
+});
+
+describe("formatRelativeTime", () => {
+  const NOW = new Date("2024-04-13T12:00:00.000Z").getTime();
+
+  it("returns '刚刚' for timestamps less than 60s ago (zh)", () => {
+    const ts = new Date(NOW - 30_000).toISOString();
+    expect(formatRelativeTime(ts, "zh", NOW)).toBe("刚刚");
+  });
+
+  it("returns 'just now' for timestamps less than 60s ago (en)", () => {
+    const ts = new Date(NOW - 30_000).toISOString();
+    expect(formatRelativeTime(ts, "en", NOW)).toBe("just now");
+  });
+
+  it("returns minutes for timestamps 1-59 minutes ago", () => {
+    const ts = new Date(NOW - 5 * 60_000).toISOString();
+    expect(formatRelativeTime(ts, "zh", NOW)).toBe("5 分钟前");
+    expect(formatRelativeTime(ts, "en", NOW)).toBe("5m ago");
+  });
+
+  it("returns hours for timestamps 1-23 hours ago", () => {
+    const ts = new Date(NOW - 3 * 3600_000).toISOString();
+    expect(formatRelativeTime(ts, "zh", NOW)).toBe("3 小时前");
+    expect(formatRelativeTime(ts, "en", NOW)).toBe("3h ago");
+  });
+
+  it("returns days for timestamps 24+ hours ago", () => {
+    const ts = new Date(NOW - 2 * 86400_000).toISOString();
+    expect(formatRelativeTime(ts, "zh", NOW)).toBe("2 天前");
+    expect(formatRelativeTime(ts, "en", NOW)).toBe("2d ago");
+  });
+
+  it("returns the raw string for invalid timestamps", () => {
+    expect(formatRelativeTime("not-a-date", "zh", NOW)).toBe("not-a-date");
+  });
+});
+
+describe("buildSessionsCard", () => {
+  const NOW = new Date("2024-04-13T12:00:00.000Z").getTime();
+
+  const ENTRIES: SessionEntry[] = [
+    {
+      chatId: "oc_abc123",
+      projectAlias: "my-app",
+      record: {
+        claudeSessionId: "sess_1",
+        cwd: "/home/user/my-app",
+        createdAt: "2024-04-13T10:00:00.000Z",
+        lastActiveAt: "2024-04-13T11:30:00.000Z",
+        model: "claude-opus-4-6",
+      },
+      active: true,
+    },
+    {
+      chatId: "oc_def456",
+      record: {
+        claudeSessionId: "sess_2",
+        cwd: "/home/user/other",
+        createdAt: "2024-04-12T08:00:00.000Z",
+        lastActiveAt: "2024-04-11T12:00:00.000Z",
+      },
+      active: false,
+    },
+  ];
+
+  it("renders a Card v2 with blue header and session count", () => {
+    const card = buildSessionsCard(ENTRIES, "zh", NOW);
+    expect(card.schema).toBe("2.0");
+    expect(card.header?.title.content).toBe("📋 会话列表");
+    expect(card.header?.template).toBe("blue");
+    // First body element is the session count
+    const first = card.body?.elements[0];
+    expect(first).toBeDefined();
+    if (first!.tag !== "markdown") throw new Error("unreachable");
+    expect(first!.content).toContain("2");
+  });
+
+  it("shows project alias when present and '默认项目' when absent (zh)", () => {
+    const card = buildSessionsCard(ENTRIES, "zh", NOW);
+    const bodyJson = JSON.stringify(card.body);
+    expect(bodyJson).toContain("📁 my-app");
+    expect(bodyJson).toContain("默认项目");
+  });
+
+  it("shows cwd, model, status, and relative time for each session", () => {
+    const card = buildSessionsCard(ENTRIES, "zh", NOW);
+    const bodyJson = JSON.stringify(card.body);
+    expect(bodyJson).toContain("/home/user/my-app");
+    expect(bodyJson).toContain("claude-opus-4-6");
+    expect(bodyJson).toContain("🟢 活跃");
+    expect(bodyJson).toContain("⚪ 未活跃");
+    expect(bodyJson).toContain("30 分钟前");
+  });
+
+  it("uses English strings when locale is en", () => {
+    const card = buildSessionsCard(ENTRIES, "en", NOW);
+    expect(card.header?.title.content).toBe("📋 Sessions");
+    const bodyJson = JSON.stringify(card.body);
+    expect(bodyJson).toContain("🟢 Active");
+    expect(bodyJson).toContain("⚪ Stale");
+    expect(bodyJson).toContain("Default project");
+  });
+
+  it("inserts hr dividers between sessions but not before the first", () => {
+    const card = buildSessionsCard(ENTRIES, "zh", NOW);
+    const elements = card.body?.elements ?? [];
+    // Layout: count-md, hr, session1-md, hr, session2-md
+    // Actually: count-md, session1-md, hr, session2-md
+    // (no hr before first session, hr between subsequent sessions)
+    const tags = elements.map((e) => e.tag);
+    // First is markdown (count), second is markdown (session 1),
+    // third is hr, fourth is markdown (session 2)
+    expect(tags[0]).toBe("markdown");
+    expect(tags[1]).not.toBe("hr");
+    expect(tags).toContain("hr");
+  });
+
+  it("shows '-' for model when model is not set", () => {
+    const card = buildSessionsCard(ENTRIES, "zh", NOW);
+    const bodyJson = JSON.stringify(card.body);
+    // The second entry has no model
+    expect(bodyJson).toContain("模型：-");
   });
 });

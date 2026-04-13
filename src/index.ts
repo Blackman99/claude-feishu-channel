@@ -862,9 +862,10 @@ export async function main(configPathOverride?: string): Promise<void> {
     try {
       await sessionManager.flushPendingSave();
       const finalState: State = {
-        version: 1,
+        version: 2,
         lastCleanShutdown: true,
         sessions: sessionManager.buildSessionsSnapshot(),
+        activeProjects: sessionManager.getActiveProjectsSnapshot(),
       };
       await stateStore.save(finalState);
     } catch (err) {

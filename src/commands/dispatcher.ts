@@ -15,6 +15,7 @@ import {
   buildCdConfirmCancelled,
   buildCdConfirmTimedOut,
 } from "../feishu/cards/cd-confirm-card.js";
+import { buildSessionsCard } from "../feishu/cards.js";
 import { writeConfigKey } from "../config.js";
 import type { Locale } from "../util/i18n.js";
 
@@ -212,9 +213,11 @@ export class CommandDispatcher {
   private async handleStatus(ctx: CommandContext): Promise<void> {
     const session = this.sessionManager.getOrCreate(ctx.chatId);
     const status = session.getStatus();
+    const projectAlias = this.sessionManager.getActiveProject(ctx.chatId);
 
-    const text = [
+    const lines = [
       `状态：${status.state}`,
+      ...(projectAlias ? [`项目：${projectAlias}`] : []),
       `工作目录：${status.cwd}`,
       `权限模式：${status.permissionMode}`,
       `模型：${status.model}`,
@@ -222,9 +225,9 @@ export class CommandDispatcher {
       `输入 Token 合计：${status.totalInputTokens}`,
       `输出 Token 合计：${status.totalOutputTokens}`,
       `队列长度：${status.queueLength}`,
-    ].join("\n");
+    ];
 
-    await this.feishu.replyText(ctx.parentMessageId, text);
+    await this.feishu.replyText(ctx.parentMessageId, lines.join("\n"));
   }
 
   private async handleConfigShow(ctx: CommandContext): Promise<void> {
@@ -426,7 +429,25 @@ export class CommandDispatcher {
       await this.feishu.replyText(ctx.parentMessageId, `未知项目别名: ${alias}，可用别名: ${list}`);
       return;
     }
-    return this.handleCd(resolved, ctx);
+
+    const session = this.sessionManager.getOrCreate(ctx.chatId);
+    if (session.getState() !== "idle") {
+      await this.feishu.replyText(ctx.parentMessageId, "会话正在执行中，请先发送 /stop 或等待完成");
+      return;
+    }
+
+    const previous = this.sessionManager.getActiveProject(ctx.chatId);
+    if (previous === alias) {
+      await this.feishu.replyText(ctx.parentMessageId, `已在项目 ${alias}，工作目录: ${session.getStatus().cwd}`);
+      return;
+    }
+
+    this.sessionManager.switchProject(ctx.chatId, alias, resolved);
+    const suffix = previous ? `（上一个项目: ${previous}）` : "";
+    await this.feishu.replyText(
+      ctx.parentMessageId,
+      `已切换到项目 ${alias}，工作目录: ${resolved}${suffix}`,
+    );
   }
 
   private async handleSessions(ctx: CommandContext): Promise<void> {
@@ -436,17 +457,8 @@ export class CommandDispatcher {
       return;
     }
 
-    const lines = ["已知会话：", ""];
-    for (const entry of all) {
-      const short = entry.chatId.length > 16
-        ? entry.chatId.slice(0, 16) + "…"
-        : entry.chatId;
-      const status = entry.active ? "active" : "stale";
-      lines.push(
-        `  ${short}  ${entry.record.cwd}  ${entry.record.model ?? "-"}  ${entry.record.lastActiveAt}  ${status}`,
-      );
-    }
-    await this.feishu.replyText(ctx.parentMessageId, lines.join("\n"));
+    const card = buildSessionsCard(all, ctx.locale);
+    await this.feishu.replyCard(ctx.parentMessageId, card);
   }
 
   private async handleResume(target: string, ctx: CommandContext): Promise<void> {

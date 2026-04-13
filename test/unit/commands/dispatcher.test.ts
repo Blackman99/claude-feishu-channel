@@ -489,7 +489,7 @@ const CONFIG_WITH_REAL_PROJECT: AppConfig = {
 };
 
 describe("CommandDispatcher — /project", () => {
-  it("resolves alias to path and sends confirm card with path", async () => {
+  it("resolves alias to path, switches project session, and replies with confirmation", async () => {
     const feishu = {
       replyText: vi.fn().mockResolvedValue({ messageId: "om_reply" }),
       replyCard: vi.fn().mockResolvedValue({ messageId: "om_card" }),
@@ -518,10 +518,14 @@ describe("CommandDispatcher — /project", () => {
 
     await dispatcher.dispatch({ name: "project", alias: "my-app" }, CTX);
 
-    expect(feishu.replyCard).toHaveBeenCalledOnce();
-    const cardArg = (feishu.replyCard as ReturnType<typeof vi.fn>).mock.calls[0]![1];
-    const json = JSON.stringify(cardArg);
-    expect(json).toContain("/tmp");
+    // /project now switches instantly — no confirm card, just a text reply.
+    expect(feishu.replyCard).not.toHaveBeenCalled();
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("my-app");
+    expect(text).toContain("/tmp");
+    // Active project should be updated in session manager.
+    expect(sessionManager.getActiveProject(CTX.chatId)).toBe("my-app");
   });
 
   it("unknown alias replies with error listing available aliases", async () => {
@@ -547,7 +551,7 @@ describe("CommandDispatcher — /sessions", () => {
     expect(text).toContain("暂无会话记录");
   });
 
-  it("lists sessions with chatId and 'active' when sessions exist", async () => {
+  it("replies with a card when sessions exist", async () => {
     const { feishu, sessionManager, dispatcher } = makeHarness();
 
     // Create an active session
@@ -555,10 +559,13 @@ describe("CommandDispatcher — /sessions", () => {
 
     await dispatcher.dispatch({ name: "sessions" }, CTX);
 
-    expect(feishu.replyText).toHaveBeenCalledOnce();
-    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
-    expect(text).toContain("oc_session1");
-    expect(text).toContain("active");
+    expect(feishu.replyCard).toHaveBeenCalledOnce();
+    const card = (feishu.replyCard as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(card).toHaveProperty("schema", "2.0");
+    expect(card).toHaveProperty("header");
+    // Body should contain session info as markdown elements
+    const bodyJson = JSON.stringify(card.body);
+    expect(bodyJson).toContain("活跃");
   });
 });
 

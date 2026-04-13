@@ -1,10 +1,12 @@
 import type {
   FeishuCardV2,
   FeishuCollapsiblePanelElement,
+  FeishuElement,
 } from "./card-types.js";
 import { formatToolParams } from "./tool-formatters.js";
 import { sanitizeForFeishuMarkdown, truncateForInline } from "./truncate.js";
 import { t, type Locale } from "../util/i18n.js";
+import type { SessionRecord } from "../persistence/state-store.js";
 
 /**
  * Sanitize then truncate. The order matters: sanitization shortens
@@ -335,4 +337,84 @@ function renderEntry(
     resultBlock = `${marker} ${body}`;
   }
   return `${header}\n\n${inputBlock}\n\n${resultBlock}`;
+}
+
+// ── Sessions card ──────────────────────────────────────────────────
+
+export interface SessionEntry {
+  chatId: string;
+  projectAlias?: string;
+  record: SessionRecord;
+  active: boolean;
+}
+
+/**
+ * Format an ISO timestamp as a human-readable relative time string.
+ * Uses the given `now` for testability; falls back to `Date.now()`.
+ */
+export function formatRelativeTime(
+  isoTimestamp: string,
+  locale: Locale,
+  now?: number,
+): string {
+  const ts = new Date(isoTimestamp).getTime();
+  if (Number.isNaN(ts)) return isoTimestamp;
+  const diffMs = (now ?? Date.now()) - ts;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return locale === "zh" ? "刚刚" : "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return locale === "zh" ? `${diffMin} 分钟前` : `${diffMin}m ago`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return locale === "zh" ? `${diffHour} 小时前` : `${diffHour}h ago`;
+  const diffDay = Math.floor(diffHour / 24);
+  return locale === "zh" ? `${diffDay} 天前` : `${diffDay}d ago`;
+}
+
+/**
+ * Build a Feishu Card v2 listing all known sessions. Each session is
+ * rendered as a structured markdown block with project name, working
+ * directory, model, last-active time, and status — far more readable
+ * than the old single-line plain-text format.
+ */
+export function buildSessionsCard(
+  entries: readonly SessionEntry[],
+  locale: Locale = "zh",
+  now?: number,
+): FeishuCardV2 {
+  const strings = t(locale);
+  const elements: FeishuElement[] = [];
+
+  elements.push({
+    tag: "markdown",
+    content: strings.sessionsCount(entries.length),
+  });
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]!;
+    if (i > 0) elements.push({ tag: "hr" });
+
+    const projectLabel = entry.projectAlias
+      ? strings.sessionsProject(entry.projectAlias)
+      : strings.sessionsDefaultProject;
+    const status = entry.active ? strings.sessionsActive : strings.sessionsStale;
+    const timeAgo = formatRelativeTime(entry.record.lastActiveAt, locale, now);
+
+    const lines = [
+      `**${projectLabel}** ${status}`,
+      strings.sessionsCwd(entry.record.cwd),
+      strings.sessionsModel(entry.record.model ?? "-"),
+      strings.sessionsLastActive(timeAgo),
+    ];
+
+    elements.push({ tag: "markdown", content: lines.join("\n") });
+  }
+
+  return {
+    schema: "2.0",
+    header: {
+      title: { tag: "plain_text", content: strings.sessionsHeader },
+      template: "blue",
+    },
+    body: { elements },
+  };
 }
