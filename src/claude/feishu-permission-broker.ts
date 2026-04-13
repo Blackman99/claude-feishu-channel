@@ -133,27 +133,16 @@ export class FeishuPermissionBroker implements PermissionBroker {
     this.clearTimers(p);
     this.pending.delete(args.requestId);
 
-    // Patch the card to its "resolved" variant. Failure warns but
-    // doesn't block the resolution — the Deferred must still fire so
-    // the SDK's canUseTool callback unblocks.
-    try {
-      await this.feishu.patchCard(
-        p.cardMessageId,
-        buildPermissionCardResolved({
-          toolName: p.toolName,
-          choice: args.choice,
-        }),
-      );
-    } catch (err) {
-      this.logger.warn(
-        {
-          err,
-          card_message_id: p.cardMessageId,
-          request_id: args.requestId,
-        },
-        "permission card patch failed on resolve — continuing",
-      );
-    }
+    // Build the resolved card to return in the callback response.
+    // Returning the card directly in the card.action.trigger callback
+    // is the only reliable way to update the card on click — the same
+    // mechanism used by the question broker. patchCard is NOT called
+    // here because Feishu silently ignores out-of-band patches that
+    // race with a click event on the same card.
+    const resolvedCard = buildPermissionCardResolved({
+      toolName: p.toolName,
+      choice: args.choice,
+    });
 
     switch (args.choice) {
       case "allow":
@@ -172,7 +161,7 @@ export class FeishuPermissionBroker implements PermissionBroker {
         p.deferred.resolve({ behavior: "allow_session" });
         break;
     }
-    return { kind: "resolved" };
+    return { kind: "resolved", card: resolvedCard };
   }
 
   cancelAll(reason: string): void {

@@ -91,7 +91,7 @@ describe("FeishuPermissionBroker.resolveByCard", () => {
   // internally, by walking the button value of the card that was
   // handed to the mocked replyCard.
 
-  it("owner click with choice=allow resolves with {allow} and patches card to resolved variant", async () => {
+  it("owner click with choice=allow resolves with {allow} and returns resolved card in result", async () => {
     const f = makeFakeFeishu();
     const broker = makeBroker(f.client, new FakeClock());
     const p = broker.request({
@@ -114,13 +114,15 @@ describe("FeishuPermissionBroker.resolveByCard", () => {
       senderOpenId: "ou_owner",
       choice: "allow",
     });
-    expect(result).toEqual({ kind: "resolved" });
+    // Result carries the resolved card for the gateway to return in the
+    // card.action.trigger callback response (same mechanism as question broker).
+    expect(result.kind).toBe("resolved");
+    expect(result).toHaveProperty("card");
     const resp = await p;
     expect(resp).toEqual({ behavior: "allow" });
-    expect(f.patchCard).toHaveBeenCalledWith(
-      "om_card_1",
-      expect.any(Object),
-    );
+    // patchCard must NOT be called during resolveByCard — the card is
+    // updated via the callback response, not an out-of-band patch.
+    expect(f.patchCard).not.toHaveBeenCalled();
   });
 
   it("owner click with choice=deny resolves with {deny, message}", async () => {
@@ -228,12 +230,11 @@ describe("FeishuPermissionBroker.resolveByCard", () => {
     expect(result).toEqual({ kind: "not_found" });
   });
 
-  it("patchCard failure during resolve does not block the resolution", async () => {
+  it("resolved result contains a FeishuCardV2 card with the correct choice label", async () => {
     const f = makeFakeFeishu();
-    f.patchCard.mockRejectedValueOnce(new Error("patch failed"));
     const broker = makeBroker(f.client, new FakeClock());
     const p = broker.request({
-      toolName: "Bash",
+      toolName: "Edit",
       input: {},
       chatId: "oc_1",
       ownerOpenId: "ou_owner",
@@ -246,10 +247,18 @@ describe("FeishuPermissionBroker.resolveByCard", () => {
     const result = await broker.resolveByCard({
       requestId,
       senderOpenId: "ou_owner",
-      choice: "allow",
+      choice: "deny",
     });
-    expect(result).toEqual({ kind: "resolved" });
-    expect(await p).toEqual({ behavior: "allow" });
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      // Card should be a valid Feishu card with schema 2.0
+      expect(result.card.schema).toBe("2.0");
+      // Body should contain a markdown element mentioning the tool and denial
+      const bodyText = JSON.stringify(result.card.body);
+      expect(bodyText).toContain("Edit");
+      expect(bodyText).toContain("拒绝");
+    }
+    expect(await p).toMatchObject({ behavior: "deny" });
   });
 });
 

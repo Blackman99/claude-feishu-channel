@@ -724,13 +724,19 @@ export async function main(configPathOverride?: string): Promise<void> {
           },
           "Non-owner permission card click — ignored",
         );
-      } else if (result.kind === "not_found") {
+        return;
+      }
+      if (result.kind === "not_found") {
         logger.info(
           { request_id: requestId },
           "Permission card action for unknown request — likely already resolved",
         );
+        return;
       }
-      return;
+      // Forward the resolved card in the callback response so Feishu
+      // updates the card immediately on click — same mechanism used by
+      // the question broker.
+      return { card: result.card };
     }
     if (kind === "question") {
       const requestId = value.request_id;

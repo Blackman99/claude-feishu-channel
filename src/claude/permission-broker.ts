@@ -40,7 +40,7 @@ export type CardChoice = "allow" | "deny" | "allow_turn" | "allow_session";
 
 /** Result of routing a `card.action.trigger` event to the broker. */
 export type CardActionResult =
-  | { kind: "resolved" }
+  | { kind: "resolved"; card: import("../feishu/card-types.js").FeishuCardV2 }
   | { kind: "not_found" }
   | { kind: "forbidden"; ownerOpenId: string };
 
