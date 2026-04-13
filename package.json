@@ -1,13 +1,22 @@
 {
   "name": "claude-feishu-channel",
   "version": "0.1.0",
-  "private": true,
   "description": "Bridge a Claude Code session to a Feishu bot",
   "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "cfc": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "config.example.toml"
+  ],
   "scripts": {
-    "build": "tsc --noEmit",
-    "dev": "tsx src/index.ts",
-    "start": "node --import tsx src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli.ts",
+    "start": "node --import tsx src/cli.ts",
+    "prepublishOnly": "npm run build && npm run test",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
