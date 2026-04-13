@@ -1,6 +1,20 @@
-# claude-feishu-channel
+<p align="center">
+  <img src="assets/logo.svg" width="180" alt="CFC Logo" />
+</p>
 
-Bridge between [Claude Code](https://claude.ai/claude-code) (Anthropic's CLI agent) and [Feishu / Lark](https://www.feishu.cn/) group chat. Send messages in a Feishu group → Claude processes them with full tool access (file read/write, shell, search) → results stream back as interactive Feishu cards.
+<h1 align="center">claude-feishu-channel</h1>
+
+<p align="center">
+  Bridge between <a href="https://claude.ai/claude-code">Claude Code</a> and <a href="https://www.feishu.cn/">Feishu / Lark</a> group chat.
+  <br />
+  Send messages in Feishu → Claude processes with full tool access → results stream back as interactive cards.
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/claude-feishu-channel"><img src="https://img.shields.io/npm/v/claude-feishu-channel.svg" alt="npm version" /></a>
+  <a href="https://github.com/Blackman99/claude-feishu-channel/actions/workflows/ci.yml"><img src="https://github.com/Blackman99/claude-feishu-channel/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <img src="https://img.shields.io/node/v/claude-feishu-channel" alt="node version" />
+</p>
 
 ## Features
 
@@ -11,36 +25,52 @@ Bridge between [Claude Code](https://claude.ai/claude-code) (Anthropic's CLI age
 - **Interactive cards** — streaming status, tool activity, thinking blocks, permissions
 - **Runtime config** — `/config set` to tune behavior without restart
 
-## Prerequisites
-
-- **Node.js** ≥ 20
-- **pnpm** (package manager)
-- **Claude CLI** — `claude` binary in `$PATH` (or set `claude.cli_path` in config)
-- **Feishu bot app** — created at [open.feishu.cn](https://open.feishu.cn/app)
-
 ## Quick Start
 
-1. **Install dependencies:**
+### Install
 
 ```bash
-pnpm install
+npm install -g claude-feishu-channel
 ```
 
-2. **Copy and edit config:**
+### Initialize config
 
 ```bash
-mkdir -p ~/.claude-feishu-channel
-cp config.example.toml ~/.claude-feishu-channel/config.toml
-# Edit config.toml: fill in Feishu credentials and your open_id
+cfc init
+# Creates ~/.claude-feishu-channel/config.toml from template
 ```
 
-3. **Run:**
+Edit the config with your Feishu credentials:
 
 ```bash
-pnpm dev
+vim ~/.claude-feishu-channel/config.toml
 ```
 
-The bot will connect to Feishu via WebSocket and start listening for messages.
+### Run
+
+```bash
+cfc
+```
+
+The bot connects to Feishu via WebSocket and starts listening for messages.
+
+### CLI Options
+
+```
+cfc [options]            Start the service
+cfc init                 Create config template at ~/.claude-feishu-channel/config.toml
+
+Options:
+  -c, --config <path>    Path to config.toml (overrides default location)
+  -v, --version          Show version number
+  -h, --help             Show help
+```
+
+## Prerequisites
+
+- **Node.js** >= 20
+- **Claude CLI** — `claude` binary in `$PATH` (or set `claude.cli_path` in config)
+- **Feishu bot app** — created at [open.feishu.cn](https://open.feishu.cn/app)
 
 ## Commands
 
@@ -129,14 +159,22 @@ FeishuGateway (event decryption, dedup, access control)
 ## Development
 
 ```bash
+# Clone and install
+git clone https://github.com/Blackman99/claude-feishu-channel.git
+cd claude-feishu-channel
+pnpm install
+
+# Run in dev mode
+pnpm dev
+
 # Run tests
 pnpm test
 
 # Type check
 pnpm typecheck
 
-# Run in dev mode (auto-restart)
-pnpm dev
+# Build
+pnpm build
 ```
 
 ## Environment Variables
@@ -146,3 +184,7 @@ pnpm dev
 | `CLAUDE_FEISHU_CONFIG` | Override config file path (default: `~/.claude-feishu-channel/config.toml`) |
 | `ANTHROPIC_BASE_URL` | Custom API endpoint for Claude SDK |
 | `ANTHROPIC_AUTH_TOKEN` | Auth token for custom endpoint |
+
+## License
+
+MIT

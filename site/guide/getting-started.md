@@ -7,34 +7,68 @@ Claude Feishu Channel bridges [Claude Code](https://claude.ai/claude-code) (Anth
 Before you begin, make sure you have:
 
 - **Node.js** >= 20
-- **pnpm** package manager
 - **Claude CLI** — the `claude` binary must be in your `$PATH` (or you can set `claude.cli_path` in the config file)
 - **A Feishu bot app** — created at [open.feishu.cn](https://open.feishu.cn/app)
 
+## Install
+
+Install globally via npm:
+
+```bash
+npm install -g claude-feishu-channel
+```
+
+This gives you the `cfc` command.
+
 ## Quick Start
 
-### 1. Install dependencies
+### 1. Initialize config
 
 ```bash
-pnpm install
+cfc init
 ```
 
-### 2. Copy and edit config
+This creates a config template at `~/.claude-feishu-channel/config.toml`.
+
+### 2. Edit config
 
 ```bash
-mkdir -p ~/.claude-feishu-channel
-cp config.example.toml ~/.claude-feishu-channel/config.toml
+vim ~/.claude-feishu-channel/config.toml
 ```
 
-Open `~/.claude-feishu-channel/config.toml` and fill in your Feishu credentials and allowed `open_id` values.
+Fill in your Feishu credentials and allowed `open_id` values.
 
 ### 3. Run
 
 ```bash
-pnpm dev
+cfc
 ```
 
 The bot will connect to Feishu via WebSocket and start listening for messages.
+
+### CLI Options
+
+```
+cfc [options]            Start the service
+cfc init                 Create config template
+
+Options:
+  -c, --config <path>    Path to config.toml (overrides default)
+  -v, --version          Show version number
+  -h, --help             Show help
+```
+
+You can also specify a custom config file:
+
+```bash
+cfc --config /path/to/my-config.toml
+```
+
+Or use the environment variable:
+
+```bash
+CLAUDE_FEISHU_CONFIG=/path/to/config.toml cfc
+```
 
 ## Setting Up Your Feishu Bot
 
@@ -50,3 +84,25 @@ Your `open_id` is a per-app user identifier that looks like `ou_xxxxxxxxxxxxxxxx
 ::: warning
 The bot has full shell and file access to your machine. Always configure `allowed_open_ids` to restrict who can interact with it.
 :::
+
+## Development Setup
+
+If you want to develop or contribute:
+
+```bash
+git clone https://github.com/Blackman99/claude-feishu-channel.git
+cd claude-feishu-channel
+pnpm install
+
+# Run in dev mode
+pnpm dev
+
+# Run tests
+pnpm test
+
+# Type check
+pnpm typecheck
+
+# Build
+pnpm build
+```

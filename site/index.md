@@ -9,8 +9,8 @@ hero:
       text: Get Started
       link: /guide/getting-started
     - theme: alt
-      text: GitHub
-      link: https://github.com/Blackman99/claude-feishu-channel
+      text: npm install -g claude-feishu-channel
+      link: https://www.npmjs.com/package/claude-feishu-channel
 features:
   - icon: 🤖
     title: Full Claude Code Agent
