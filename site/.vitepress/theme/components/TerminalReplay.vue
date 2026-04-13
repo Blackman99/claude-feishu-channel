@@ -53,6 +53,17 @@
             </div>
           </div>
 
+          <!-- Queued user message (sent while Claude is busy — awaiting turn) -->
+          <div
+            v-if="step.type === 'queued' && i <= visibleUpTo"
+            class="chat-row chat-row-right step-visible"
+          >
+            <div class="bubble bubble-user bubble-queued">
+              <span>{{ step.text }}</span>
+              <span class="queued-badge">⏳ queued</span>
+            </div>
+          </div>
+
           <!-- Status -->
           <div
             v-if="step.type === 'status' && i <= visibleUpTo"
@@ -278,7 +289,7 @@ interface StatsItem {
 }
 
 interface Step {
-  type: 'user' | 'status' | 'tool' | 'permission' | 'permission-click' | 'question' | 'question-click' | 'response' | 'system' | 'interrupt' | 'stats' | 'thinking-card' | 'tool-activity-card' | 'intermediate-card'
+  type: 'user' | 'queued' | 'status' | 'tool' | 'permission' | 'permission-click' | 'question' | 'question-click' | 'response' | 'system' | 'interrupt' | 'stats' | 'thinking-card' | 'tool-activity-card' | 'intermediate-card'
   text?: string
   icon?: string
   name?: string
@@ -355,10 +366,12 @@ const SCENES: Scene[] = [
       { type: 'user', text: 'Analyze the performance bottlenecks in this project' },
       { type: 'status', text: 'Analyzing...' },
       { type: 'tool', icon: '📄', name: 'Read', detail: 'src/index.ts' },
-      { type: 'interrupt', text: '! Stop — fix the login bug first' },
-      { type: 'system', text: '⚡ Task interrupted, switching to new request' },
+      { type: 'queued', text: 'Also check the DB query layer' },
+      { type: 'interrupt', text: 'Stop — fix the login bug first' },
+      { type: 'system', text: '⚡ Interrupted · 1 message in queue' },
       { type: 'tool', icon: '🔍', name: 'Grep', detail: '"login" src/' },
-      { type: 'response', text: 'Found it: src/auth.ts:42 has a wrong token expiry check…' },
+      { type: 'response', text: 'Found it: src/auth.ts:42 — wrong token expiry check.' },
+      { type: 'system', text: '📬 Resuming queued message…' },
     ],
   },
   {
@@ -415,6 +428,7 @@ const STEP_DELAYS: Record<string, number> = {
   system: 800,
   interrupt: 900,
   stats: 1000,
+  queued: 600,
   'thinking-card': 800,
   'tool-activity-card': 800,
   'intermediate-card': 700,
@@ -887,6 +901,22 @@ onUnmounted(() => {
 .bubble-interrupt {
   background: #f38ba8;
   color: #1e1e2e;
+}
+
+/* Queued message — right-aligned like user but dimmed + dashed border */
+.bubble-queued {
+  opacity: 0.72;
+  border: 1px dashed #585b70;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.queued-badge {
+  font-size: 10px;
+  color: #6c7086;
+  text-align: right;
+  font-style: italic;
 }
 
 .interrupt-prefix {
