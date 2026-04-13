@@ -2,6 +2,10 @@
   "name": "claude-feishu-channel",
   "version": "0.1.0",
   "description": "Bridge a Claude Code session to a Feishu bot",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Blackman99/claude-feishu-channel"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
