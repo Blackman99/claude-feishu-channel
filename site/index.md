@@ -31,5 +31,3 @@ features:
     title: Runtime Configuration
     details: /config set to tune behavior without restart. 12+ slash commands.
 ---
-
-<TerminalReplay />
