@@ -13,7 +13,22 @@
 }
 
 .terminal-replay-wrapper {
-  max-width: 960px;
+  /* Match VitePress hero container: max-width 1280px centered, 64px side padding */
+  max-width: 1280px;
   margin: 2rem auto 3rem;
-  padding: 0 1.5rem;
+  padding: 0 64px;
+  box-sizing: border-box;
+}
+
+/* Match VitePress responsive padding breakpoints */
+@media (max-width: 959px) {
+  .terminal-replay-wrapper {
+    padding: 0 32px;
+  }
+}
+
+@media (max-width: 639px) {
+  .terminal-replay-wrapper {
+    padding: 0 24px;
+  }
 }
