@@ -5,9 +5,9 @@
 <h1 align="center">claude-feishu-channel</h1>
 
 <p align="center">
-  Bridge between <a href="https://claude.ai/claude-code">Claude Code</a> and <a href="https://www.feishu.cn/">Feishu / Lark</a> group chat.
+  Claude CLI, natively in Feishu / Lark.
   <br />
-  Send messages in Feishu → Claude processes with full tool access → results stream back as interactive cards.
+  The full Claude Code agent experience — right inside your Feishu group chat.
 </p>
 
 <p align="center">
