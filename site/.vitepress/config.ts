@@ -3,6 +3,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'Claude Feishu Channel',
   description: 'Bridge Claude Code to Feishu group chat',
+  base: '/claude-feishu-channel/',
 
   themeConfig: {
     nav: [
