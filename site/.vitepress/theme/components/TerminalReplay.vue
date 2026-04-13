@@ -40,7 +40,7 @@
       </button>
 
       <!-- Chat area -->
-      <div class="terminal-body" :class="{ 'scene-fade': fading }">
+      <div ref="terminalBodyEl" class="terminal-body" :class="{ 'scene-fade': fading }">
         <template v-for="(step, i) in currentSteps" :key="`${sceneIndex}-${i}`">
           <!-- User message -->
           <div
@@ -197,13 +197,35 @@
             </div>
           </div>
         </template>
+
+        <!-- Fake cursor — animated into .perm-allow--clicking / .q-opt-btn--selected
+             during permission-click and question-click steps. Positioned absolute
+             relative to .terminal-body; JS computes the target button's center via
+             getBoundingClientRect so the cursor lands on the right spot regardless
+             of card position in the chat timeline. -->
+        <div
+          class="fake-cursor"
+          :class="{ 'fake-cursor--pressing': cursorPressing }"
+          :style="{
+            left: cursorX + 'px',
+            top: cursorY + 'px',
+            opacity: cursorVisible ? 1 : 0,
+            transition: cursorTransitioning
+              ? 'left 0.35s cubic-bezier(0.2,0.6,0.4,1), top 0.35s cubic-bezier(0.2,0.6,0.4,1), opacity 0.15s'
+              : 'opacity 0.2s',
+          }"
+        >
+          <svg width="16" height="20" viewBox="0 0 16 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 1l12 12-4.5.8 2.8 5.5-2 1-2.8-5.5L3.5 17z" fill="white" stroke="#333" stroke-width="0.8" stroke-linejoin="round"/>
+          </svg>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 
 interface StatsItem {
   label: string
@@ -352,9 +374,80 @@ const visibleUpTo = ref(-1)
 const fading = ref(false)
 const autoPlaying = ref(true)
 const rootEl = ref<HTMLElement | null>(null)
+const terminalBodyEl = ref<HTMLElement | null>(null)
 let timer: ReturnType<typeof setTimeout> | null = null
 let observer: IntersectionObserver | null = null
 let isVisible = true
+
+// ── Fake cursor ───────────────────────────────────────────────────
+// Moves from off-card to the target button during click steps so the
+// animation reads as "user moves mouse in → hovers → clicks", not just
+// a button that abruptly changes colour.
+const cursorVisible = ref(false)
+const cursorPressing = ref(false)
+const cursorX = ref(0)
+const cursorY = ref(0)
+const cursorTransitioning = ref(false)
+
+// Animate cursor from an off-card start position into the center of
+// `targetEl`, then simulate a click press and hide.
+async function animateCursorTo(targetEl: Element): Promise<void> {
+  if (!terminalBodyEl.value) return
+  const bodyRect = terminalBodyEl.value.getBoundingClientRect()
+  const btnRect = targetEl.getBoundingClientRect()
+  // Land slightly left-of-center and top-of-center so the cursor tip
+  // (top-left corner of the arrow SVG) points into the button.
+  const targetX = Math.round(btnRect.left - bodyRect.left + btnRect.width * 0.3)
+  const targetY = Math.round(btnRect.top - bodyRect.top + btnRect.height * 0.3)
+
+  // Snap to a start position: come in from the upper-left of the button.
+  cursorTransitioning.value = false
+  cursorX.value = targetX - 65
+  cursorY.value = targetY - 30
+  cursorPressing.value = false
+  cursorVisible.value = true
+
+  // Double rAF so the browser paints the start position before we
+  // re-enable the CSS transition — otherwise both changes collapse into
+  // a single frame and the cursor appears to teleport.
+  await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+
+  // Slide to the button.
+  cursorTransitioning.value = true
+  cursorX.value = targetX
+  cursorY.value = targetY
+
+  // After the slide (~350ms), simulate the press.
+  await new Promise<void>((r) => setTimeout(r, 380))
+  cursorPressing.value = true
+
+  // Hold the press, then fade out.
+  await new Promise<void>((r) => setTimeout(r, 600))
+  cursorTransitioning.value = false
+  cursorVisible.value = false
+  cursorPressing.value = false
+}
+
+// Trigger cursor animation whenever a click step becomes active.
+watch(visibleUpTo, async (newVal) => {
+  if (newVal < 0) {
+    cursorVisible.value = false
+    return
+  }
+  const steps = currentSteps.value
+  if (newVal >= steps.length) return
+  const step = steps[newVal]
+
+  if (step.type === 'permission-click') {
+    await nextTick()
+    const btn = terminalBodyEl.value?.querySelector('.perm-allow--clicking')
+    if (btn) animateCursorTo(btn)
+  } else if (step.type === 'question-click') {
+    await nextTick()
+    const btn = terminalBodyEl.value?.querySelector('.q-opt-btn--selected')
+    if (btn) animateCursorTo(btn)
+  }
+})
 
 const currentSteps = computed(() => SCENES[sceneIndex.value].steps)
 
@@ -661,12 +754,32 @@ onUnmounted(() => {
 
 /* Chat body */
 .terminal-body {
+  position: relative; /* anchor for .fake-cursor absolute positioning */
   padding: 16px 48px;
   min-height: 220px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   transition: opacity 0.3s ease;
+}
+
+/* ── Fake cursor ── */
+.fake-cursor {
+  position: absolute;
+  pointer-events: none;
+  z-index: 20;
+  /* left/top/opacity driven by Vue reactive style; transitions set inline */
+}
+
+.fake-cursor svg {
+  display: block;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+  transform-origin: 2px 2px; /* scale from tip of arrow */
+  transition: transform 0.12s ease;
+}
+
+.fake-cursor--pressing svg {
+  transform: scale(0.78);
 }
 
 .scene-fade {
