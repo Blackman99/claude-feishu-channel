@@ -108,6 +108,34 @@
             </div>
           </div>
 
+          <!-- Question card -->
+          <div
+            v-if="step.type === 'question' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <!-- Resolved: compact answer line, buttons gone -->
+            <div
+              v-if="questionAnswer(i) !== null"
+              class="question-card-resolved step-visible"
+            >
+              <span class="q-resolved-q">❓ Q1</span>
+              <span class="q-resolved-arrow">→</span>
+              <span class="q-resolved-answer">{{ questionAnswer(i) }}</span>
+            </div>
+            <!-- Pending: question with option buttons -->
+            <div v-else class="question-card">
+              <div class="question-header">🙋 问题</div>
+              <div class="question-text">{{ step.text }}</div>
+              <div class="question-options">
+                <button
+                  v-for="(opt, oi) in step.options"
+                  :key="oi"
+                  class="q-opt-btn"
+                >{{ opt }}</button>
+              </div>
+            </div>
+          </div>
+
           <!-- System message -->
           <div
             v-if="step.type === 'system' && i <= visibleUpTo"
@@ -166,7 +194,7 @@ interface StatsItem {
 }
 
 interface Step {
-  type: 'user' | 'status' | 'tool' | 'permission' | 'permission-click' | 'response' | 'system' | 'interrupt' | 'stats'
+  type: 'user' | 'status' | 'tool' | 'permission' | 'permission-click' | 'question' | 'question-click' | 'response' | 'system' | 'interrupt' | 'stats'
   text?: string
   icon?: string
   name?: string
@@ -174,6 +202,9 @@ interface Step {
   tool?: string
   command?: string
   items?: StatsItem[]
+  // question card
+  options?: string[]
+  optionIndex?: number
 }
 
 interface Scene {
@@ -210,6 +241,24 @@ const SCENES: Scene[] = [
       { type: 'status', text: 'Running command...' },
       { type: 'tool', icon: '🔧', name: 'Bash', detail: 'pnpm build' },
       { type: 'response', text: '构建完成，共编译 42 个文件，输出到 dist/' },
+    ],
+  },
+  {
+    icon: '🙋',
+    title: 'Interactive Q&A',
+    steps: [
+      { type: 'user', text: '帮我写一个用户登录页面' },
+      { type: 'status', text: 'Thinking...' },
+      {
+        type: 'question',
+        text: '用哪种前端框架？',
+        options: ['React', 'Vue', '原生 HTML'],
+      },
+      { type: 'question-click', optionIndex: 1 },
+      { type: 'status', text: 'Generating...' },
+      { type: 'tool', icon: '✏️', name: 'Write', detail: 'src/views/Login.vue' },
+      { type: 'tool', icon: '✏️', name: 'Edit', detail: 'src/router/index.ts' },
+      { type: 'response', text: '登录页已创建（Vue）。包含表单校验、错误提示、记住密码。' },
     ],
   },
   {
@@ -273,6 +322,8 @@ const STEP_DELAYS: Record<string, number> = {
   tool: 700,
   permission: 900,
   'permission-click': 700,
+  question: 1000,
+  'question-click': 800,
   response: 900,
   system: 800,
   interrupt: 900,
@@ -307,6 +358,22 @@ function isPermissionClicked(stepIndex: number): boolean {
     }
   }
   return false
+}
+
+// Returns the selected option label when question-click has been reached,
+// or null while still pending.
+function questionAnswer(stepIndex: number): string | null {
+  const steps = currentSteps.value
+  for (let j = stepIndex + 1; j < steps.length; j++) {
+    if (steps[j].type === 'question-click') {
+      if (visibleUpTo.value >= j) {
+        const optIdx = steps[j].optionIndex ?? 0
+        return steps[stepIndex].options?.[optIdx] ?? null
+      }
+      return null
+    }
+  }
+  return null
 }
 
 function clearTimer() {
@@ -709,6 +776,76 @@ onUnmounted(() => {
 .stats-value {
   color: #cdd6f4;
   font-weight: 500;
+}
+
+/* Question card — pending state */
+.question-card {
+  background: #1e2a3a;
+  border: 1px solid #89b4fa44;
+  border-top: 3px solid #89b4fa;
+  border-radius: 8px;
+  padding: 12px 14px;
+  max-width: 85%;
+}
+
+.question-header {
+  font-weight: 600;
+  font-size: 13px;
+  color: #89b4fa;
+  margin-bottom: 6px;
+}
+
+.question-text {
+  font-size: 13px;
+  color: #cdd6f4;
+  margin-bottom: 10px;
+}
+
+.question-options {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.q-opt-btn {
+  border: 1px solid #89b4fa44;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: default;
+  font-family: inherit;
+  background: #89b4fa1a;
+  color: #89b4fa;
+  transition: none;
+}
+
+/* Question card — resolved state */
+.question-card-resolved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #1e2535;
+  border: 1px solid #89b4fa33;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  animation: stepIn 0.35s ease both;
+}
+
+.q-resolved-q {
+  color: #6c7086;
+  font-size: 12px;
+}
+
+.q-resolved-arrow {
+  color: #45475a;
+  font-size: 12px;
+}
+
+.q-resolved-answer {
+  color: #89b4fa;
+  font-weight: 600;
 }
 
 /* Permission card — pending state */
