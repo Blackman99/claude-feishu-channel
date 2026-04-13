@@ -13,7 +13,8 @@
     "config.example.toml"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "dev": "tsx src/cli.ts",
     "start": "node --import tsx src/cli.ts",
     "prepublishOnly": "npm run build && npm run test",
