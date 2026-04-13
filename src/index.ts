@@ -19,6 +19,7 @@ import { CommandDispatcher } from "./commands/dispatcher.js";
 import type { RenderEvent } from "./claude/render-event.js";
 import {
   buildAnswerCard,
+  buildIntermediateRepliesCard,
   buildStatusCard,
   buildThinkingCard,
   buildToolActivityCard,
@@ -205,6 +206,8 @@ export async function main(configPathOverride?: string): Promise<void> {
       toolSequence: number;
       toolEntries: ToolActivityEntry[];
       toolDisabled: boolean;
+      /** All assistant text blocks emitted during this turn, in order. */
+      textBlocks: string[];
     } = {
       statusCardMessageId: null,
       statusCardId: null,
@@ -219,6 +222,7 @@ export async function main(configPathOverride?: string): Promise<void> {
       toolSequence: 0,
       toolEntries: [],
       toolDisabled: false,
+      textBlocks: [],
     };
 
     // Send the status card up front so the user has an immediate
@@ -309,15 +313,16 @@ export async function main(configPathOverride?: string): Promise<void> {
     const emit = async (event: RenderEvent): Promise<void> => {
       switch (event.type) {
         case "text":
-          // Final assistant text routinely contains markdown (code
-          // fences, bold, lists). Sending as msg_type:"text" would
-          // show the markup literally — use a card instead so Feishu
-          // renders it.
+          // Accumulate text blocks rather than sending each one
+          // immediately. Claude can emit multiple text blocks in a
+          // single turn (brief narration before each tool call, then
+          // a final answer after). Sending every block as its own card
+          // floods the chat with intermediate messages. We buffer here
+          // and flush at turn_end: N-1 blocks go into a collapsed
+          // "intermediate replies" card; the last block becomes the
+          // visible answer card.
           await updateStatus("✅ 完成");
-          await feishuClient.replyCard(
-            msg.messageId,
-            buildAnswerCard(event.text),
-          );
+          turnState.textBlocks.push(event.text);
           return;
         case "thinking": {
           if (config.render.hideThinking) return;
@@ -450,6 +455,7 @@ export async function main(configPathOverride?: string): Promise<void> {
           return;
         }
         case "turn_end":
+          await flushTextBlocks();
           if (!config.render.showTurnStats) return;
           await feishuClient.replyText(
             msg.messageId,
@@ -620,6 +626,58 @@ export async function main(configPathOverride?: string): Promise<void> {
         turnState.toolDisabled = true;
       }
     };
+
+    // Flush accumulated text blocks at turn end. If Claude emitted N
+    // text blocks (narration between tool calls + final answer), we:
+    //   • Send blocks 0..N-2 as a single default-collapsed card so the
+    //     chat timeline doesn't flood with intermediate messages.
+    //   • Send block N-1 as the visible final answer card.
+    // If there is only one block (the common case: no inter-tool
+    // narration) we skip the intermediate card entirely and just send
+    // the answer. If there are zero blocks (tool-only turn with no text
+    // output) we send nothing — the tool activity card already captured
+    // everything the user needs to see.
+    const flushTextBlocks = async (): Promise<void> => {
+      const blocks = turnState.textBlocks;
+      if (blocks.length === 0) return;
+      if (blocks.length > 1) {
+        try {
+          await feishuClient.replyCard(
+            msg.messageId,
+            buildIntermediateRepliesCard(
+              blocks.slice(0, -1),
+              locale,
+              config.render.inlineMaxBytes,
+            ),
+          );
+        } catch (err) {
+          logger.warn(
+            { err, chat_id: msg.chatId },
+            "intermediate replies card failed — sending them inline instead",
+          );
+          // Best-effort fallback: send each intermediate block as its
+          // own plain answer card so no content is lost.
+          for (const block of blocks.slice(0, -1)) {
+            try {
+              await feishuClient.replyCard(
+                msg.messageId,
+                buildAnswerCard(block),
+              );
+            } catch (innerErr) {
+              logger.warn(
+                { err: innerErr, chat_id: msg.chatId },
+                "fallback intermediate card failed — dropping block",
+              );
+            }
+          }
+        }
+      }
+      await feishuClient.replyCard(
+        msg.messageId,
+        buildAnswerCard(blocks[blocks.length - 1]!),
+      );
+    };
+
     try {
       const parsed = parseInput(msg.text);
       if (parsed.kind === "stop") {

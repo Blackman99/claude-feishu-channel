@@ -339,6 +339,43 @@ function renderEntry(
   return `${header}\n\n${inputBlock}\n\n${resultBlock}`;
 }
 
+// ── Intermediate replies card ──────────────────────────────────────
+
+/**
+ * Build a collapsed collapsible-panel card that bundles all non-final
+ * assistant text blocks emitted before the last one in a multi-text turn.
+ * Keeps the Feishu chat timeline clean: only the final answer card is
+ * fully visible; intermediate "let me check…" narration is tucked away.
+ *
+ * The panel's header carries the count so it's visible while collapsed.
+ * Blocks are separated by horizontal rules inside the panel body so each
+ * one reads as a distinct chunk.
+ */
+export function buildIntermediateRepliesCard(
+  blocks: readonly string[],
+  locale: Locale = "zh",
+  inlineMaxBytes: number,
+): FeishuCardV2 {
+  const header = t(locale).intermediateRepliesHeader(blocks.length);
+  const content = blocks
+    .map((b) => prepareInline(b, inlineMaxBytes))
+    .join("\n\n---\n\n");
+  return {
+    schema: "2.0",
+    body: {
+      elements: [
+        {
+          tag: "collapsible_panel",
+          expanded: false,
+          background_color: "grey-100",
+          header: collapsiblePanelHeader(header),
+          elements: [{ tag: "markdown", content }],
+        },
+      ],
+    },
+  };
+}
+
 // ── Projects card ─────────────────────────────────────────────────
 
 export type ProjectSessionStatus = "active" | "stale" | "none";
