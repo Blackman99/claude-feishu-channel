@@ -871,10 +871,36 @@ onUnmounted(() => {
 }
 
 .q-opt-btn--selected {
-  background: #89b4fa;
-  color: #1e1e2e;
-  border-color: #89b4fa;
-  transform: scale(1.04);
+  animation: q-btn-hover-click 1100ms ease forwards;
+}
+
+@keyframes q-btn-hover-click {
+  0%   {
+    background: #89b4fa1a;
+    color: #89b4fa;
+    border-color: #89b4fa44;
+    transform: scale(1);
+  }
+  20%  {
+    /* hover */
+    background: #89b4fa33;
+    color: #89b4fa;
+    border-color: #89b4fa88;
+    transform: scale(1.03);
+  }
+  42%  {
+    /* press */
+    background: #89b4fa;
+    color: #1e1e2e;
+    border-color: #89b4fa;
+    transform: scale(1.05);
+  }
+  100% {
+    background: #89b4fa;
+    color: #1e1e2e;
+    border-color: #89b4fa;
+    transform: scale(1.05);
+  }
 }
 
 .q-opt-btn--selected::after {
@@ -887,6 +913,7 @@ onUnmounted(() => {
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.45);
   animation: q-ripple 500ms ease-out forwards;
+  animation-delay: 400ms;
 }
 
 @keyframes q-ripple {
