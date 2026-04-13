@@ -961,6 +961,8 @@ onUnmounted(() => {
 }
 
 .perm-btn {
+  position: relative;
+  overflow: hidden;
   border: none;
   border-radius: 6px;
   padding: 5px 16px;
@@ -981,6 +983,68 @@ onUnmounted(() => {
   background: #f38ba822;
   color: #f38ba8;
   border: 1px solid #f38ba844;
+}
+
+/* Permission allow button — clicking phase */
+/* Plays a hover→press keyframe automatically so the animation reads as
+   "cursor moves in, button lights up, then click fires". The ripple ::after
+   is delayed to sync with the press moment in the keyframe. */
+.perm-allow--clicking {
+  animation: perm-btn-hover-click 1100ms ease forwards;
+}
+
+@keyframes perm-btn-hover-click {
+  0%   {
+    background: #a6e3a133;
+    color: #a6e3a1;
+    border-color: #a6e3a155;
+    transform: scale(1);
+    box-shadow: none;
+  }
+  20%  {
+    /* hover: subtle glow, slight scale */
+    background: #a6e3a144;
+    color: #a6e3a1;
+    border-color: #a6e3a188;
+    transform: scale(1.03);
+    box-shadow: 0 0 0 3px #a6e3a122;
+  }
+  42%  {
+    /* press: full fill, darker text, larger scale */
+    background: #a6e3a1;
+    color: #1e2e25;
+    border-color: #a6e3a1;
+    transform: scale(1.05);
+    box-shadow: 0 0 0 4px #a6e3a133;
+  }
+  100% {
+    /* hold pressed until resolved transition */
+    background: #a6e3a1;
+    color: #1e2e25;
+    border-color: #a6e3a1;
+    transform: scale(1.05);
+    box-shadow: 0 0 0 4px #a6e3a133;
+  }
+}
+
+/* Ripple — fires when the "press" keyframe hits (~42% × 1100ms ≈ 460ms) */
+.perm-allow--clicking::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  animation: perm-ripple 500ms ease-out forwards;
+  animation-delay: 400ms;
+  pointer-events: none;
+}
+
+@keyframes perm-ripple {
+  0%   { width: 0;    height: 0;    opacity: 0.5; }
+  100% { width: 220%; height: 220%; opacity: 0; }
 }
 
 .perm-hint {
