@@ -11,3 +11,7 @@ coverage/
 # Local config with secrets
 config.toml
 !config.example.toml
+
+# VitePress
+site/.vitepress/cache
+site/.vitepress/dist

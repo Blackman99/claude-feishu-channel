@@ -10,7 +10,10 @@
     "start": "node --import tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "docs:dev": "vitepress dev site",
+    "docs:build": "vitepress build site",
+    "docs:preview": "vitepress preview site"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -27,6 +30,7 @@
     "@types/node": "^25.5.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
+    "vitepress": "^1.6.4",
     "vitest": "^4.1.4"
   }
 }
