@@ -80,9 +80,20 @@
             v-if="step.type === 'permission' && i <= visibleUpTo"
             class="chat-row chat-row-left step-visible"
           >
-            <div class="permission-card">
+            <!-- Resolved: compact one-liner, buttons gone -->
+            <div
+              v-if="isPermissionClicked(i)"
+              class="permission-card-resolved step-visible"
+            >
+              <span class="perm-resolved-icon">✅</span>
+              <span class="perm-resolved-label">允许</span>
+              <span class="perm-resolved-sep">·</span>
+              <code class="perm-resolved-tool">{{ step.tool }}</code>
+            </div>
+            <!-- Pending: full card with buttons -->
+            <div v-else class="permission-card">
               <div class="permission-header">
-                <span>&#x26A0;&#xFE0F; Allow this command?</span>
+                <span>🔐 权限请求 · {{ step.tool }}</span>
               </div>
               <div class="permission-info">
                 <span class="tool-icon">🔧</span>
@@ -90,12 +101,10 @@
                 <span class="tool-detail">{{ step.command }}</span>
               </div>
               <div class="permission-buttons">
-                <button
-                  class="perm-btn perm-allow"
-                  :class="{ 'perm-allow-active': isPermissionClicked(i) }"
-                >Allow</button>
-                <button class="perm-btn perm-deny">Deny</button>
+                <button class="perm-btn perm-allow">✅ 允许</button>
+                <button class="perm-btn perm-deny">❌ 拒绝</button>
               </div>
+              <div class="perm-hint">只有发起者可点击 · 5 分钟未响应自动拒绝</div>
             </div>
           </div>
 
@@ -702,10 +711,11 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-/* Permission card */
+/* Permission card — pending state */
 .permission-card {
-  background: #f9e2af;
-  color: #1e1e2e;
+  background: #2a2520;
+  border: 1px solid #f9e2af44;
+  border-top: 3px solid #f9e2af;
   border-radius: 8px;
   padding: 12px 14px;
   max-width: 85%;
@@ -714,7 +724,8 @@ onUnmounted(() => {
 .permission-header {
   font-weight: 600;
   font-size: 13px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  color: #f9e2af;
 }
 
 .permission-info {
@@ -723,16 +734,14 @@ onUnmounted(() => {
   gap: 6px;
   font-size: 12px;
   margin-bottom: 10px;
-  opacity: 0.8;
 }
 
 .permission-info .tool-name {
-  color: #1e1e2e;
+  color: #89b4fa;
 }
 
 .permission-info .tool-detail {
-  color: #1e1e2e;
-  opacity: 0.7;
+  color: #a6adc8;
 }
 
 .permission-buttons {
@@ -747,23 +756,61 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 600;
   cursor: default;
-  transition: background 0.3s ease, color 0.3s ease;
   font-family: inherit;
+  flex: 1;
 }
 
 .perm-allow {
-  background: #a6e3a1;
-  color: #1e1e2e;
-}
-
-.perm-allow-active {
-  background: #40a02b;
-  color: #ffffff;
+  background: #a6e3a133;
+  color: #a6e3a1;
+  border: 1px solid #a6e3a155;
 }
 
 .perm-deny {
-  background: #6c7086;
-  color: #cdd6f4;
+  background: #f38ba822;
+  color: #f38ba8;
+  border: 1px solid #f38ba844;
+}
+
+.perm-hint {
+  font-size: 11px;
+  color: #585b70;
+  margin-top: 8px;
+}
+
+/* Permission card — resolved state (after click) */
+.permission-card-resolved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #1e3a28;
+  border: 1px solid #a6e3a133;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  animation: stepIn 0.35s ease both;
+}
+
+.perm-resolved-icon {
+  font-size: 13px;
+}
+
+.perm-resolved-label {
+  color: #a6e3a1;
+  font-weight: 600;
+}
+
+.perm-resolved-sep {
+  color: #585b70;
+}
+
+.perm-resolved-tool {
+  color: #89b4fa;
+  background: #313244;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
 }
 
 /* Responsive */
