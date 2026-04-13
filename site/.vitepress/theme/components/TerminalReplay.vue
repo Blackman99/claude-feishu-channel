@@ -86,14 +86,14 @@
               class="permission-card-resolved step-visible"
             >
               <span class="perm-resolved-icon">✅</span>
-              <span class="perm-resolved-label">允许</span>
+              <span class="perm-resolved-label">Allowed</span>
               <span class="perm-resolved-sep">·</span>
               <code class="perm-resolved-tool">{{ step.tool }}</code>
             </div>
             <!-- Clicking: full card, allow button in highlight+ripple state -->
             <div v-else-if="isPermissionClicking(i)" class="permission-card">
               <div class="permission-header">
-                <span>🔐 权限请求 · {{ step.tool }}</span>
+                <span>🔐 Permission Request · {{ step.tool }}</span>
               </div>
               <div class="permission-info">
                 <span class="tool-icon">🔧</span>
@@ -101,15 +101,15 @@
                 <span class="tool-detail">{{ step.command }}</span>
               </div>
               <div class="permission-buttons">
-                <button class="perm-btn perm-allow perm-allow--clicking">✅ 允许</button>
-                <button class="perm-btn perm-deny">❌ 拒绝</button>
+                <button class="perm-btn perm-allow perm-allow--clicking">✅ Allow</button>
+                <button class="perm-btn perm-deny">❌ Deny</button>
               </div>
-              <div class="perm-hint">只有发起者可点击 · 5 分钟未响应自动拒绝</div>
+              <div class="perm-hint">Only the requester can click · auto-denied after 5 min</div>
             </div>
             <!-- Pending: full card, normal state -->
             <div v-else class="permission-card">
               <div class="permission-header">
-                <span>🔐 权限请求 · {{ step.tool }}</span>
+                <span>🔐 Permission Request · {{ step.tool }}</span>
               </div>
               <div class="permission-info">
                 <span class="tool-icon">🔧</span>
@@ -117,10 +117,10 @@
                 <span class="tool-detail">{{ step.command }}</span>
               </div>
               <div class="permission-buttons">
-                <button class="perm-btn perm-allow">✅ 允许</button>
-                <button class="perm-btn perm-deny">❌ 拒绝</button>
+                <button class="perm-btn perm-allow">✅ Allow</button>
+                <button class="perm-btn perm-deny">❌ Deny</button>
               </div>
-              <div class="perm-hint">只有发起者可点击 · 5 分钟未响应自动拒绝</div>
+              <div class="perm-hint">Only the requester can click · auto-denied after 5 min</div>
             </div>
           </div>
 
@@ -140,7 +140,7 @@
             </div>
             <!-- Pending / clicking: question with option buttons -->
             <div v-else class="question-card">
-              <div class="question-header">🙋 问题</div>
+              <div class="question-header">🙋 Question</div>
               <div class="question-text">{{ step.text }}</div>
               <div class="question-options">
                 <button
