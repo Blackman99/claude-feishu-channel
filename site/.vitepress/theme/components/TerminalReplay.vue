@@ -196,6 +196,51 @@
               <span>🤖 {{ step.text }}</span>
             </div>
           </div>
+
+          <!-- Thinking card — collapsed panel showing truncated thought preview -->
+          <div
+            v-if="step.type === 'thinking-card' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <div class="panel-card panel-card--thinking">
+              <div class="panel-card-header">
+                <span class="panel-card-icon">💭</span>
+                <span class="panel-card-title">Thinking</span>
+                <span class="panel-card-preview">{{ step.preview }}</span>
+                <span class="panel-card-chevron">▶</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tool activity card — collapsed panel listing N tools that ran -->
+          <div
+            v-if="step.type === 'tool-activity-card' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <div class="panel-card panel-card--tools">
+              <div class="panel-card-header">
+                <span class="panel-card-icon">🔧</span>
+                <span class="panel-card-title">{{ step.count }} tools used</span>
+                <span class="panel-card-preview">{{ step.tools?.join(' · ') }}</span>
+                <span class="panel-card-chevron">▶</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Intermediate replies card — collapsed panel for N earlier text blocks -->
+          <div
+            v-if="step.type === 'intermediate-card' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <div class="panel-card panel-card--intermediate">
+              <div class="panel-card-header">
+                <span class="panel-card-icon">💬</span>
+                <span class="panel-card-title">{{ step.count }} earlier replies</span>
+                <span class="panel-card-preview">Tap to expand</span>
+                <span class="panel-card-chevron">▶</span>
+              </div>
+            </div>
+          </div>
         </template>
 
         <!-- Fake cursor — animated into .perm-allow--clicking / .q-opt-btn--selected
@@ -233,7 +278,7 @@ interface StatsItem {
 }
 
 interface Step {
-  type: 'user' | 'status' | 'tool' | 'permission' | 'permission-click' | 'question' | 'question-click' | 'response' | 'system' | 'interrupt' | 'stats'
+  type: 'user' | 'status' | 'tool' | 'permission' | 'permission-click' | 'question' | 'question-click' | 'response' | 'system' | 'interrupt' | 'stats' | 'thinking-card' | 'tool-activity-card' | 'intermediate-card'
   text?: string
   icon?: string
   name?: string
@@ -244,6 +289,10 @@ interface Step {
   // question card
   options?: string[]
   optionIndex?: number
+  // collapsed panel cards
+  count?: number     // tool count or intermediate-reply count
+  tools?: string[]   // tool names for tool-activity-card
+  preview?: string   // preview text for thinking-card
 }
 
 interface Scene {
@@ -257,15 +306,14 @@ const SCENES: Scene[] = [
     icon: '🤖',
     title: 'Agent Capabilities',
     steps: [
-      { type: 'user', text: 'Refactor src/utils.ts and extract shared helpers' },
-      { type: 'status', text: 'Thinking...' },
-      { type: 'tool', icon: '📄', name: 'Read', detail: 'src/utils.ts' },
-      { type: 'tool', icon: '🔍', name: 'Grep', detail: '"export function" src/' },
-      { type: 'status', text: 'Planning refactor...' },
-      { type: 'tool', icon: '✏️', name: 'Write', detail: 'src/utils/common.ts' },
-      { type: 'tool', icon: '✏️', name: 'Edit', detail: 'src/utils.ts — remove extracted functions' },
-      { type: 'tool', icon: '🔧', name: 'Bash', detail: 'pnpm test' },
-      { type: 'response', text: 'Done! Extracted 3 helpers into common.ts. All 12 tests pass.' },
+      { type: 'user', text: 'Refactor auth module and add test coverage' },
+      { type: 'status', text: '💭 Thinking...' },
+      { type: 'thinking-card', preview: 'Analyzing file structure, identifying shared patterns across auth modules…' },
+      { type: 'status', text: '🔧 Read · Grep · Bash — 3 tools running' },
+      { type: 'tool-activity-card', count: 3, tools: ['Read', 'Grep', 'Bash'] },
+      { type: 'status', text: '✅ Done' },
+      { type: 'intermediate-card', count: 2 },
+      { type: 'response', text: 'Refactored into 3 modules. Added 18 tests — all pass.' },
     ],
   },
   {
@@ -367,6 +415,9 @@ const STEP_DELAYS: Record<string, number> = {
   system: 800,
   interrupt: 900,
   stats: 1000,
+  'thinking-card': 800,
+  'tool-activity-card': 800,
+  'intermediate-card': 700,
 }
 
 const sceneIndex = ref(0)
@@ -1226,6 +1277,70 @@ onUnmounted(() => {
   border-radius: 4px;
   font-size: 12px;
   font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+}
+
+/* ── Panel cards — collapsed Feishu collapsible_panel style ── */
+/* Shared base: dark background, border, rounded corners */
+.panel-card {
+  background: #252535;
+  border: 1px solid #45475a;
+  border-radius: 8px;
+  max-width: 88%;
+  overflow: hidden;
+}
+
+.panel-card-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+}
+
+.panel-card-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.panel-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cdd6f4;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Preview text — muted, truncated */
+.panel-card-preview {
+  font-size: 12px;
+  color: #585b70;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Collapsed chevron → indicator */
+.panel-card-chevron {
+  font-size: 10px;
+  color: #585b70;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+/* Thinking panel — lavender left accent */
+.panel-card--thinking {
+  border-left: 3px solid #cba6f7;
+}
+
+/* Tool activity panel — blue left accent */
+.panel-card--tools {
+  border-left: 3px solid #89b4fa;
+}
+
+/* Intermediate replies panel — subdued grey accent */
+.panel-card--intermediate {
+  border-left: 3px solid #6c7086;
 }
 
 /* Responsive */
