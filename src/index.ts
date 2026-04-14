@@ -272,17 +272,23 @@ export async function main(configPathOverride?: string): Promise<void> {
             content: line,
             sequence: turnState.statusSequence,
           });
+          return;
         } catch (err) {
+          // Feishu closes the streaming session after enough updates
+          // (code=300309 "streaming mode is closed"). Clear statusCardId
+          // so all future calls fall through to the patchCard branch below,
+          // and attempt patchCard for this update too.
           logger.warn(
             { err, chat_id: msg.chatId, line },
-            "status stream failed",
+            "status stream failed; falling back to patchCard for remainder of turn",
           );
+          turnState.statusCardId = null;
         }
-        return;
       }
       if (turnState.statusCardMessageId !== null) {
-        // Fallback path: idConvert failed, so we can't stream —
-        // patch the whole card instead.
+        // Fallback path: idConvert failed on card creation, OR streaming
+        // session was closed mid-turn (e.g. code=300309 after many updates).
+        // Patch the whole card instead.
         try {
           await feishuClient.patchCard(
             turnState.statusCardMessageId,
