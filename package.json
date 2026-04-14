@@ -1,6 +1,6 @@
 {
   "name": "claude-feishu-channel",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Bridge a Claude Code session to a Feishu bot",
   "repository": {
     "type": "git",
