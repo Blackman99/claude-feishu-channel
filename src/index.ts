@@ -608,17 +608,22 @@ export async function main(configPathOverride?: string): Promise<void> {
             content: body,
             sequence: turnState.toolSequence,
           });
+          return;
         } catch (err) {
+          // Transient errors (502) or session expiry (300309) both fall
+          // back to patchCard for this and subsequent updates — mirrors
+          // the same pattern used by updateStatus.
           logger.warn(
             { err, chat_id: msg.chatId },
-            "tool activity stream failed; disabling tool card for this turn",
+            "tool activity stream failed; falling back to patchCard for remainder of turn",
           );
-          turnState.toolDisabled = true;
+          turnState.toolCardId = null;
+          // fall through to patchCard below
         }
-        return;
       }
       // Fallback: streaming never came up (idConvert failed on first
-      // send). Keep pushing full-card replacements via patchCard.
+      // send), OR streaming failed mid-turn (e.g. 502 / 300309).
+      // Keep pushing full-card replacements via patchCard.
       const card = buildToolActivityCard(turnState.toolEntries, {
         inlineMaxBytes: config.render.inlineMaxBytes,
       });
