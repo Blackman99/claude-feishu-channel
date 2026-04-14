@@ -152,6 +152,16 @@ export function buildThinkingCard(
 const ANSWER_MAX_BYTES = 28_000;
 
 /**
+ * Upper byte budget for the tool activity card body. The same 30KB
+ * card-payload cap applies; we use a tighter limit (20KB) because
+ * the tool card also carries a collapsible-panel envelope and a
+ * per-entry header on top of raw content. When this budget is
+ * exceeded, `renderToolActivityBody` drops the oldest entries and
+ * prepends an omission notice so the card always fits.
+ */
+const TOOL_ACTIVITY_MAX_BYTES = 20_000;
+
+/**
  * Build a Feishu Card v2 for a final assistant answer. Claude's
  * output routinely contains markdown (code fences, bold, lists) and
  * sending it as `msg_type: "text"` would show the markers literally
@@ -304,10 +314,29 @@ export function renderToolActivityBody(
 ): string {
   if (entries.length === 0) return "_(no tools yet)_";
   const summary = t(locale).toolCount(entries.length);
-  const body = entries
-    .map((e, i) => renderEntry(i + 1, e, inlineMaxBytes, locale))
-    .join("\n\n");
-  return `${summary}\n\n${body}`;
+  // Render with original 1-based indices so the numbers remain stable
+  // across updates even when old entries are later dropped.
+  const rendered = entries.map((e, i) => renderEntry(i + 1, e, inlineMaxBytes, locale));
+
+  // Drop oldest entries until the full body fits within the card size
+  // budget. The summary line always shows the true total count; the
+  // omission notice explains the gap to the user.
+  const encoder = new TextEncoder();
+  let omitted = 0;
+  while (omitted < rendered.length - 1) {
+    const visible = rendered.slice(omitted);
+    const omitLine =
+      omitted > 0 ? `_…${omitted} earlier ${omitted === 1 ? "call" : "calls"} omitted_\n\n` : "";
+    const body = `${summary}\n\n${omitLine}${visible.join("\n\n")}`;
+    if (encoder.encode(body).length <= TOOL_ACTIVITY_MAX_BYTES) {
+      return body;
+    }
+    omitted++;
+  }
+  // Last-resort: only the most recent entry (always fits if inlineMaxBytes
+  // is sane, since one entry is at most a few KB).
+  const last = rendered[rendered.length - 1]!;
+  return `${summary}\n\n_…${rendered.length - 1} earlier ${rendered.length - 1 === 1 ? "call" : "calls"} omitted_\n\n${last}`;
 }
 
 function renderEntry(
