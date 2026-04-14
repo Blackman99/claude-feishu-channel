@@ -81,6 +81,7 @@ Options:
 | `/stop` | Interrupt current generation |
 | `/status` | Show session state, model, token usage |
 | `/sessions` | List all known sessions |
+| `/projects` | List all configured project aliases |
 | `/resume <id>` | Resume a previous session |
 | `/cd <path>` | Change working directory (with confirm card) |
 | `/project <alias>` | Switch to a configured project alias |

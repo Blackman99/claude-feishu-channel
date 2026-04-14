@@ -10,6 +10,7 @@ Claude Feishu Channel supports slash commands and special input prefixes to cont
 | `/stop` | Interrupt current generation |
 | `/status` | Show session state, model, token usage |
 | `/sessions` | List all known sessions |
+| `/projects` | List all configured project aliases |
 | `/resume <id>` | Resume a previous session |
 | `/cd <path>` | Change working directory (with confirm card) |
 | `/project <alias>` | Switch to a configured project alias |
@@ -48,6 +49,10 @@ Displays the current session state, the active model, and token usage statistics
 ### `/sessions`
 
 Lists all known sessions for the current chat. Each session has an ID that you can use with `/resume`.
+
+### `/projects`
+
+Lists all project aliases defined in the `[projects]` section of `config.toml`, along with their paths and whether a session exists for each one. Use `/project <alias>` to switch to one.
 
 ### `/resume <id>`
 
