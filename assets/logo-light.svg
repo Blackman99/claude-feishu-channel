@@ -1,0 +1,8 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="200" height="200" rx="44" fill="#F8FAFC"/>
+  <g transform="translate(100,88)">
+    <path d="M -44 -14 Q -44 -34 -24 -34 L 24 -34 Q 44 -34 44 -14 L 44 14 Q 44 34 24 34 L -2 34 L -16 46 L -12 34 L -24 34 Q -44 34 -44 14 Z" fill="#3370FF"/>
+    <text x="0" y="10" text-anchor="middle" font-family="'Inter','Helvetica Neue',system-ui,sans-serif" font-size="36" font-weight="800" fill="#FFFFFF" letter-spacing="-2">afc</text>
+  </g>
+  <text x="100" y="166" text-anchor="middle" font-family="'Inter',system-ui,sans-serif" font-size="10" font-weight="500" letter-spacing="3" fill="#64748B">AGENT · FEISHU · CHANNEL</text>
+</svg>
