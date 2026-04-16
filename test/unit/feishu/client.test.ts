@@ -9,6 +9,9 @@ type MockLarkClient = {
         patch: ReturnType<typeof vi.fn>;
         reply: ReturnType<typeof vi.fn>;
       };
+      messageResource: {
+        get: ReturnType<typeof vi.fn>;
+      };
     };
   };
   cardkit: {
@@ -36,6 +39,12 @@ function makeMockLarkClient(): MockLarkClient {
           reply: vi.fn().mockResolvedValue({
             code: 0,
             data: { message_id: "om_reply_1" },
+          }),
+        },
+        messageResource: {
+          get: vi.fn().mockResolvedValue({
+            code: 0,
+            data: Buffer.from("image-bytes"),
           }),
         },
       },
@@ -290,6 +299,19 @@ describe("FeishuClient.patchCard", () => {
     await expect(
       fc.patchCard("om_oops", { schema: "2.0", body: { elements: [] } }),
     ).rejects.toThrow(/om_oops/);
+  });
+});
+
+describe("FeishuClient.downloadImage", () => {
+  it("downloads image bytes from messageResource.get", async () => {
+    const mock = makeMockLarkClient();
+    const fc = new FeishuClient(mock as never);
+    const result = await fc.downloadImage("om_parent", "img_v2_x");
+    expect(mock.im.v1.messageResource.get).toHaveBeenCalledWith({
+      path: { message_id: "om_parent", file_key: "img_v2_x" },
+      params: { type: "image" },
+    });
+    expect(result.equals(Buffer.from("image-bytes"))).toBe(true);
   });
 });
 

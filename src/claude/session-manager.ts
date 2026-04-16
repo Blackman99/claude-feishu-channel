@@ -13,6 +13,7 @@ import type { FeishuClient } from "../feishu/client.js";
 
 export interface ClaudeSessionManagerOptions {
   config: AppConfig["claude"];
+  mcpServers?: AppConfig["mcp"];
   queryFn: QueryFn;
   clock: Clock;
   permissionBroker: PermissionBroker;
@@ -163,6 +164,7 @@ export class ClaudeSessionManager {
     session = new ClaudeSession({
       chatId,
       config: { ...this.opts.config, defaultCwd: cwd },
+      mcpServers: this.opts.mcpServers ?? [],
       queryFn: this.opts.queryFn,
       clock: this.opts.clock,
       permissionBroker: this.opts.permissionBroker,

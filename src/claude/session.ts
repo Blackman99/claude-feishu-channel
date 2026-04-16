@@ -2,7 +2,8 @@ import type { Logger } from "pino";
 import { Mutex } from "../util/mutex.js";
 import { createDeferred, type Deferred } from "../util/deferred.js";
 import type { Clock } from "../util/clock.js";
-import type { AppConfig } from "../types.js";
+import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { AppConfig, McpServerConfig } from "../types.js";
 import type { RenderEvent } from "./render-event.js";
 import type { CanUseToolFn, QueryFn, QueryHandle } from "./query-handle.js";
 import type { PermissionBroker } from "./permission-broker.js";
@@ -87,6 +88,7 @@ export interface SessionStatus {
 export interface ClaudeSessionOptions {
   chatId: string;
   config: AppConfig["claude"];
+  mcpServers?: readonly McpServerConfig[];
   queryFn: QueryFn;
   clock: Clock;
   permissionBroker: PermissionBroker;
@@ -114,6 +116,7 @@ interface QueuedInput {
   readonly text: string;
   readonly senderOpenId: string;
   readonly parentMessageId: string;
+  readonly imageDataUri?: string;
   readonly emit: EmitFn;
   readonly done: Deferred<void>;
   /** Monotonic id for logging — not exposed to the outside. */
@@ -130,6 +133,7 @@ interface QueuedInput {
 export type SubmitInput = CommandRouterResult & {
   senderOpenId: string;
   parentMessageId: string;
+  imageDataUri?: string;
   /** Display language detected from the user's message text. */
   locale: import("../util/i18n.js").Locale;
 };
@@ -151,6 +155,7 @@ export class ClaudeSession {
   private readonly clock: Clock;
   private readonly permissionBroker: PermissionBroker;
   private readonly questionBroker: QuestionBroker;
+  private readonly mcpServers: readonly McpServerConfig[];
   private readonly logger: Logger;
   private readonly mutex = new Mutex();
 
@@ -195,6 +200,7 @@ export class ClaudeSession {
     this.clock = opts.clock;
     this.permissionBroker = opts.permissionBroker;
     this.questionBroker = opts.questionBroker;
+    this.mcpServers = opts.mcpServers ?? [];
     this.logger = opts.logger.child({ chat_id: opts.chatId });
     if (opts.onSessionIdCaptured !== undefined) {
       this.onSessionIdCaptured = opts.onSessionIdCaptured;
@@ -235,6 +241,7 @@ export class ClaudeSession {
       text: input.text,
       senderOpenId: input.senderOpenId,
       parentMessageId: input.parentMessageId,
+      ...(input.imageDataUri ? { imageDataUri: input.imageDataUri } : {}),
       emit,
       done: createDeferred<void>(),
       seq: this.nextSeq++,
@@ -472,15 +479,23 @@ export class ClaudeSession {
         locale: next.locale,
         logger: this.logger,
       });
+      const mcpServers = {
+        feishu: askUserMcp,
+        ...this.userMcpServerRecord(),
+      };
+      const prompt = this.buildPrompt(next);
       const handle = this.queryFn({
-        prompt: next.text,
+        prompt,
         options: {
           cwd: this.config.defaultCwd,
           model: this.modelOverride ?? this.config.defaultModel,
           permissionMode,
           settingSources: ["user", "project"],
-          mcpServers: [askUserMcp],
+          mcpServers,
           disallowedTools: ["AskUserQuestion"],
+          ...(this.config.autoCompactThreshold !== undefined
+            ? { autoCompactThreshold: this.config.autoCompactThreshold }
+            : {}),
           ...(this.claudeSessionId !== undefined
             ? { resume: this.claudeSessionId }
             : {}),
@@ -511,14 +526,17 @@ export class ClaudeSession {
 
           // Rebuild handle without resume (fresh session).
           const retryHandle = this.queryFn({
-            prompt: next.text,
+            prompt,
             options: {
               cwd: this.config.defaultCwd,
               model: this.modelOverride ?? this.config.defaultModel,
               permissionMode,
               settingSources: ["user", "project"],
-              mcpServers: [askUserMcp],
+              mcpServers,
               disallowedTools: ["AskUserQuestion"],
+              ...(this.config.autoCompactThreshold !== undefined
+                ? { autoCompactThreshold: this.config.autoCompactThreshold }
+                : {}),
               // no resume — start fresh
             },
             canUseTool: this.buildCanUseToolClosure(next),
@@ -731,6 +749,83 @@ export class ClaudeSession {
   /** @internal */
   _testGetSessionAcceptEditsSticky(): boolean {
     return this.sessionAcceptEditsSticky;
+  }
+
+  private buildPrompt(
+    input: QueuedInput,
+  ): string | AsyncIterable<SDKUserMessage> {
+    if (!input.imageDataUri) {
+      return input.text;
+    }
+
+    const match = input.imageDataUri.match(/^data:(image\/[^;]+);base64,(.+)$/);
+    const mediaType = (() => {
+      switch (match?.[1]) {
+        case "image/png":
+        case "image/gif":
+        case "image/webp":
+          return match[1];
+        default:
+          return "image/jpeg";
+      }
+    })();
+    const data = match?.[2] ?? input.imageDataUri;
+    const text =
+      input.text === "[Image]" || input.text.trim().length === 0
+        ? "What is in this image?"
+        : input.text;
+    const message: SDKUserMessage["message"] = {
+      role: "user",
+      content: [
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: mediaType,
+            data,
+          },
+        },
+        { type: "text", text },
+      ],
+    };
+
+    return {
+      async *[Symbol.asyncIterator](): AsyncGenerator<SDKUserMessage> {
+        yield {
+          type: "user",
+          message,
+          parent_tool_use_id: null,
+        };
+      },
+    };
+  }
+
+  private userMcpServerRecord(): Record<
+    string,
+    import("@anthropic-ai/claude-agent-sdk").McpServerConfig
+  > {
+    return Object.fromEntries(
+      this.mcpServers.map((server) => {
+        if (server.type === "sse") {
+          return [
+            server.name,
+            {
+              type: "sse" as const,
+              url: server.url!,
+            },
+          ] as const;
+        }
+        return [
+          server.name,
+          {
+            ...(server.type === "stdio" ? { type: "stdio" as const } : {}),
+            command: server.command!,
+            ...(server.args !== undefined ? { args: server.args } : {}),
+            ...(server.env !== undefined ? { env: server.env } : {}),
+          },
+        ] as const;
+      }),
+    );
   }
 
   /**

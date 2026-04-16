@@ -6,7 +6,12 @@ export type PermissionMode =
 
 export type ParsedCommand =
   | { name: "new" }
+  | { name: "cost" }
+  | { name: "context" }
+  | { name: "compact" }
   | { name: "cd"; path: string }
+  | { name: "memory_show" }
+  | { name: "memory_add"; text: string }
   | { name: "project"; alias: string }
   | { name: "mode"; mode: PermissionMode }
   | { name: "model"; model: string }
@@ -51,7 +56,11 @@ const VALID_MODES = new Set<string>([
 /** Command words that the parser recognizes after a leading `/`. */
 const KNOWN_COMMANDS = new Set([
   "new",
+  "cost",
+  "context",
+  "compact",
   "cd",
+  "memory",
   "project",
   "mode",
   "model",
@@ -140,8 +149,21 @@ function parseCommand(
   switch (word) {
     case "new":
       return { name: "new" };
+    case "cost":
+      return { name: "cost" };
+    case "context":
+      return { name: "context" };
+    case "compact":
+      return { name: "compact" };
     case "cd":
       return rest ? { name: "cd", path: rest } : null;
+    case "memory":
+      if (!rest) return { name: "memory_show" };
+      if (rest.startsWith("add ")) {
+        const text = rest.slice(4).trim();
+        return text ? { name: "memory_add", text } : null;
+      }
+      return null;
     case "project":
       return rest ? { name: "project", alias: rest } : null;
     case "mode":

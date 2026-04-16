@@ -165,6 +165,18 @@ cli_path = "/usr/local/bin/claude"
     expect(cfg.claude.cliPath).toBe("/usr/local/bin/claude");
   });
 
+  it("parses auto_compact_threshold", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/x"
+auto_compact_threshold = 0.7
+`);
+    const cfg = await loadConfig(path);
+    expect(cfg.claude.autoCompactThreshold).toBe(0.7);
+  });
+
   it("expands ~ in default_cwd", async () => {
     const path = writeConfig(`
 ${MINIMAL_CONFIG}
@@ -280,6 +292,51 @@ default_cwd = "/tmp/cfc-test"
 `);
     const cfg = await loadConfig(path);
     expect(cfg.projects).toEqual({});
+  });
+});
+
+describe("mcp config", () => {
+  it("defaults mcp to empty array", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/x"
+`);
+    const cfg = await loadConfig(path);
+    expect(cfg.mcp).toEqual([]);
+  });
+
+  it("parses [[mcp]] servers", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/x"
+
+[[mcp]]
+name = "my-server"
+type = "stdio"
+command = "npx"
+args = ["-y", "@my/mcp-server"]
+
+[[mcp]]
+name = "remote"
+type = "sse"
+url = "http://localhost:8080/sse"
+`);
+    const cfg = await loadConfig(path);
+    expect(cfg.mcp).toHaveLength(2);
+    expect(cfg.mcp[0]).toMatchObject({
+      name: "my-server",
+      type: "stdio",
+      command: "npx",
+    });
+    expect(cfg.mcp[1]).toMatchObject({
+      name: "remote",
+      type: "sse",
+      url: "http://localhost:8080/sse",
+    });
   });
 });
 

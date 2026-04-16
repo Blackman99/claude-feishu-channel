@@ -61,6 +61,10 @@ cli_path = "claude"
 permission_timeout_seconds = 300
 permission_warn_before_seconds = 60
 
+# Fraction of the context window at which Claude auto-compacts the
+# conversation. 0.0–1.0. Omit to use the Claude CLI default.
+# auto_compact_threshold = 0.8
+
 # ─── Render / Feishu cards ───────────────────────────────────────────
 [render]
 # Max UTF-8 bytes of inline content (tool input params, tool output
@@ -103,3 +107,18 @@ level = "info"
 # [projects]
 # my-app = "~/projects/my-app"
 # infra = "~/projects/infrastructure"
+
+# ---------------------------------------------------------------------------
+# MCP servers — add custom tool servers (optional)
+# ---------------------------------------------------------------------------
+# [[mcp]]
+# name = "my-tools"
+# type = "stdio"
+# command = "npx"
+# args = ["-y", "@company/my-mcp-server"]
+# # env = { API_KEY = "secret" }
+
+# [[mcp]]
+# name = "remote"
+# type = "sse"
+# url = "http://localhost:8080/sse"

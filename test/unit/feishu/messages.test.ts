@@ -6,6 +6,7 @@ import {
   formatStopAck,
   formatInterruptDropAck,
 } from "../../../src/feishu/messages.js";
+import type { IncomingMessage } from "../../../src/types.js";
 
 describe("formatResultTip", () => {
   it("formats duration + token usage", () => {
@@ -82,5 +83,19 @@ describe("formatInterruptDropAck", () => {
     expect(formatInterruptDropAck()).toBe(
       "⚠️ 你之前的消息在被 Claude 处理前已被后续指令打断丢弃",
     );
+  });
+});
+
+describe("IncomingMessage image support", () => {
+  it("supports imageDataUri on image messages", () => {
+    const msg: IncomingMessage = {
+      messageId: "om_x",
+      chatId: "oc_x",
+      senderOpenId: "ou_x",
+      text: "",
+      imageDataUri: "data:image/jpeg;base64,/9j/...",
+      receivedAt: Date.now(),
+    };
+    expect(msg.imageDataUri).toMatch(/^data:image\//);
   });
 });

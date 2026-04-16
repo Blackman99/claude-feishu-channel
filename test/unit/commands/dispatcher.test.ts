@@ -62,6 +62,7 @@ const BASE_CONFIG: AppConfig = {
   projects: {
     "my-app": "/home/user/my-app",
   },
+  mcp: [],
 };
 
 const CTX: CommandContext = {
@@ -187,6 +188,27 @@ describe("CommandDispatcher — simple commands", () => {
       expect(text).toContain("/tmp/cfc-test"); // defaultCwd
       expect(text).toContain("default");       // defaultPermissionMode
       expect(text).toContain("claude-opus-4-6"); // defaultModel
+    });
+  });
+
+  describe("/cost", () => {
+    it("replies with token totals", async () => {
+      const { feishu, sessionManager, dispatcher } = makeHarness();
+      sessionManager.getOrCreate("oc_1");
+      await dispatcher.dispatch({ name: "cost" }, CTX);
+      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+      expect(text).toContain("Token");
+      expect(text).toContain("0");
+    });
+  });
+
+  describe("/context", () => {
+    it("replies with context usage", async () => {
+      const { feishu, dispatcher } = makeHarness();
+      await dispatcher.dispatch({ name: "context" }, CTX);
+      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+      expect(text).toContain("上下文窗口");
+      expect(text).toContain("200,000");
     });
   });
 
@@ -339,6 +361,19 @@ describe("CommandDispatcher — /new", () => {
     expect(feishu.replyText).toHaveBeenCalledOnce();
     const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("新会话");
+  });
+});
+
+describe("CommandDispatcher — /compact", () => {
+  it("resets an idle session and replies", async () => {
+    const { feishu, sessionManager, dispatcher } = makeHarness();
+    const before = sessionManager.getOrCreate(CTX.chatId);
+    await dispatcher.dispatch({ name: "compact" }, CTX);
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const after = sessionManager.getOrCreate(CTX.chatId);
+    expect(after).not.toBe(before);
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("会话已重置");
   });
 });
 

@@ -1,3 +1,12 @@
+export interface McpServerConfig {
+  name: string;
+  type: "stdio" | "sse";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+}
+
 /**
  * A user message received from Feishu after the gateway has translated the
  * raw event into our internal representation.
@@ -11,6 +20,8 @@ export interface IncomingMessage {
   senderOpenId: string;
   /** Plain text content. Rich content is flattened to text in Phase 1. */
   text: string;
+  /** Attached image as a data URI when the source message is an image. */
+  imageDataUri?: string;
   /** Receive timestamp (ms). */
   receivedAt: number;
 }
@@ -48,6 +59,8 @@ export interface AppConfig {
     permissionTimeoutMs: number;
     /** How far BEFORE the timeout to post the "⏰ 60s" warning reminder. */
     permissionWarnBeforeMs: number;
+    /** 0.0–1.0 fill fraction at which auto-compact triggers. */
+    autoCompactThreshold?: number;
   };
   render: {
     /** Max bytes (UTF-8) of inline content in a card before truncation. */
@@ -67,4 +80,6 @@ export interface AppConfig {
   };
   /** Project aliases — map of alias → absolute cwd path. */
   projects: Record<string, string>;
+  /** User-configured MCP servers registered alongside built-in shims. */
+  mcp: McpServerConfig[];
 }

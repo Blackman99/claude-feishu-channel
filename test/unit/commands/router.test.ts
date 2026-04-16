@@ -215,6 +215,48 @@ describe("parseInput — Phase 6 commands", () => {
     });
   });
 
+  it("/cost → command cost", () => {
+    expect(parseInput("/cost")).toEqual({
+      kind: "command",
+      cmd: { name: "cost" },
+    });
+  });
+
+  it("/context → command context", () => {
+    expect(parseInput("/context")).toEqual({
+      kind: "command",
+      cmd: { name: "context" },
+    });
+  });
+
+  it("/compact → command compact", () => {
+    expect(parseInput("/compact")).toEqual({
+      kind: "command",
+      cmd: { name: "compact" },
+    });
+  });
+
+  it("/memory → command memory_show", () => {
+    expect(parseInput("/memory")).toEqual({
+      kind: "command",
+      cmd: { name: "memory_show" },
+    });
+  });
+
+  it("/memory add <text> → command memory_add", () => {
+    expect(parseInput("/memory add remember this")).toEqual({
+      kind: "command",
+      cmd: { name: "memory_add", text: "remember this" },
+    });
+  });
+
+  it("/memory add without text → unknown_command", () => {
+    expect(parseInput("/memory add")).toEqual({
+      kind: "unknown_command",
+      raw: "/memory add",
+    });
+  });
+
   it("/help → command help", () => {
     expect(parseInput("/help")).toEqual({
       kind: "command",

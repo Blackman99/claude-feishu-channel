@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
-import { stat } from "node:fs/promises";
+import { access, appendFile, readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Logger } from "pino";
 import type { ParsedCommand } from "./router.js";
 import type { ClaudeSessionManager } from "../claude/session-manager.js";
@@ -17,9 +19,26 @@ import {
 } from "../feishu/cards/cd-confirm-card.js";
 import { buildProjectsCard, buildSessionsCard } from "../feishu/cards.js";
 import { writeConfigKey } from "../config.js";
-import type { Locale } from "../util/i18n.js";
+import { t, type Locale } from "../util/i18n.js";
 
-type KeyType = "boolean" | "number" | "string" | "enum";
+type KeyType = "boolean" | "number" | "fraction" | "string" | "enum";
+
+const MODEL_CONTEXT_WINDOWS: Array<[prefix: string, tokens: number]> = [
+  ["claude-3-haiku", 200_000],
+  ["claude-3-5-haiku", 200_000],
+  ["claude-3-5-sonnet", 200_000],
+  ["claude-3-7-sonnet", 200_000],
+  ["claude-opus-4", 200_000],
+  ["claude-sonnet-4", 200_000],
+  ["claude-haiku-4", 200_000],
+];
+
+function contextWindowFor(model: string): number {
+  for (const [prefix, size] of MODEL_CONTEXT_WINDOWS) {
+    if (model.startsWith(prefix)) return size;
+  }
+  return 200_000;
+}
 
 interface SettableKeyDef {
   /** Path segments into AppConfig, e.g. ["render", "hideThinking"] */
@@ -57,30 +76,44 @@ const SETTABLE_KEYS: Record<string, SettableKeyDef> = {
     type: "number",
     multiplier: 1000,
   },
+  "claude.auto_compact_threshold": {
+    path: ["claude", "autoCompactThreshold"],
+    type: "fraction",
+  },
 };
 
 function parseConfigValue(
   raw: string,
   def: SettableKeyDef,
-): { ok: true; value: string | number | boolean } | { ok: false; reason: string } {
+): { ok: true; value: string | number | boolean } | {
+  ok: false;
+  reason: { kind: Exclude<KeyType, "enum"> } | { kind: "enum"; values: readonly string[] };
+} {
   switch (def.type) {
     case "boolean":
       if (raw === "true") return { ok: true, value: true };
       if (raw === "false") return { ok: true, value: false };
-      return { ok: false, reason: "布尔值，需要 true 或 false" };
+      return { ok: false, reason: { kind: "boolean" } };
     case "number": {
       const n = Number(raw);
       if (!Number.isInteger(n) || n <= 0) {
-        return { ok: false, reason: "正整数" };
+        return { ok: false, reason: { kind: "number" } };
+      }
+      return { ok: true, value: n };
+    }
+    case "fraction": {
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0 || n > 1) {
+        return { ok: false, reason: { kind: "fraction" } };
       }
       return { ok: true, value: n };
     }
     case "string":
-      if (!raw) return { ok: false, reason: "非空字符串" };
+      if (!raw) return { ok: false, reason: { kind: "string" } };
       return { ok: true, value: raw };
     case "enum":
       if (def.values!.includes(raw)) return { ok: true, value: raw };
-      return { ok: false, reason: `枚举值: ${def.values!.join(" | ")}` };
+      return { ok: false, reason: { kind: "enum", values: def.values! } };
   }
 }
 
@@ -146,10 +179,16 @@ export class CommandDispatcher {
         return this.handleHelp(ctx);
       case "status":
         return this.handleStatus(ctx);
+      case "cost":
+        return this.handleCost(ctx);
+      case "context":
+        return this.handleContext(ctx);
       case "config_show":
         return this.handleConfigShow(ctx);
       case "new":
         return this.handleNew(ctx);
+      case "compact":
+        return this.handleCompact(ctx);
       case "mode":
         return this.handleMode(cmd.mode, ctx);
       case "model":
@@ -158,6 +197,10 @@ export class CommandDispatcher {
         return this.handleCd(cmd.path, ctx);
       case "project":
         return this.handleProject(cmd.alias, ctx);
+      case "memory_show":
+        return this.handleMemoryShow(ctx);
+      case "memory_add":
+        return this.handleMemoryAdd(cmd.text, ctx);
       case "sessions":
         return this.handleSessions(ctx);
       case "projects":
@@ -177,37 +220,43 @@ export class CommandDispatcher {
   async dispatchUnknown(raw: string, ctx: CommandContext): Promise<void> {
     await this.feishu.replyText(
       ctx.parentMessageId,
-      `未知命令 ${raw}，发 /help 查看可用命令`,
+      t(ctx.locale).unknownCommand(raw),
     );
   }
 
   // --- Simple read-only command handlers ---
 
   private async handleHelp(ctx: CommandContext): Promise<void> {
+    const s = t(ctx.locale);
     const text = [
-      "可用命令：",
+      s.helpHeader,
       "",
-      "会话管理",
-      "  /new          — 开启新会话（清除上下文）",
-      "  /status       — 查看当前会话状态",
-      "  /stop         — 中断当前生成",
-      "  /sessions     — 列出所有已知会话",
-      "  /projects     — 查看所有已配置项目",
-      "  /resume <id>  — 恢复到指定会话",
+      s.helpSectionSession,
+      s.helpNew,
+      s.helpCompact,
+      s.helpStatus,
+      s.helpCost,
+      s.helpContext,
+      s.helpStop,
+      s.helpSessions,
+      s.helpProjects,
+      s.helpResume,
       "",
-      "工作目录",
-      "  /cd <路径>    — 切换工作目录",
-      "  /project <别名> — 切换到已配置项目",
+      s.helpSectionCwd,
+      s.helpCd,
+      s.helpProject,
       "",
-      "模型与权限",
-      "  /mode <模式>  — 设置权限模式（default / acceptEdits / plan / bypassPermissions）",
-      "  /model <名称> — 切换 Claude 模型",
+      s.helpSectionMode,
+      s.helpMode,
+      s.helpModel,
       "",
-      "配置与帮助",
-      "  /config show  — 显示当前配置",
-      "  /config set <key> <value> — 运行时修改配置",
-      "  /config set <key> <value> --persist — 修改并写入文件",
-      "  /help         — 显示此帮助",
+      s.helpSectionConfig,
+      s.helpConfigShow,
+      s.helpConfigSet,
+      s.helpConfigSetPersist,
+      s.helpMemory,
+      s.helpMemoryAdd,
+      s.helpHelp,
     ].join("\n");
 
     await this.feishu.replyText(ctx.parentMessageId, text);
@@ -217,27 +266,66 @@ export class CommandDispatcher {
     const session = this.sessionManager.getOrCreate(ctx.chatId);
     const status = session.getStatus();
     const projectAlias = this.sessionManager.getActiveProject(ctx.chatId);
+    const s = t(ctx.locale);
 
     const lines = [
-      `状态：${status.state}`,
-      ...(projectAlias ? [`项目：${projectAlias}`] : []),
-      `工作目录：${status.cwd}`,
-      `权限模式：${status.permissionMode}`,
-      `模型：${status.model}`,
-      `已完成轮次：${status.turnCount}`,
-      `输入 Token 合计：${status.totalInputTokens}`,
-      `输出 Token 合计：${status.totalOutputTokens}`,
-      `队列长度：${status.queueLength}`,
+      s.statusState(status.state),
+      ...(projectAlias ? [`📁 ${projectAlias}`] : []),
+      s.statusCwd(status.cwd),
+      s.statusPermMode(status.permissionMode),
+      s.statusModel(status.model),
+      s.statusTurns(status.turnCount),
+      s.statusInputTokens(status.totalInputTokens),
+      s.statusOutputTokens(status.totalOutputTokens),
+      s.statusQueueLen(status.queueLength),
     ];
 
     await this.feishu.replyText(ctx.parentMessageId, lines.join("\n"));
   }
 
+  private async handleCost(ctx: CommandContext): Promise<void> {
+    const session = this.sessionManager.getOrCreate(ctx.chatId);
+    const status = session.getStatus();
+    const s = t(ctx.locale);
+    const total = status.totalInputTokens + status.totalOutputTokens;
+    await this.feishu.replyText(
+      ctx.parentMessageId,
+      [
+        s.costHeader,
+        "",
+        s.costInput(status.totalInputTokens),
+        s.costOutput(status.totalOutputTokens),
+        s.costTotal(total),
+        "",
+        s.costNote,
+      ].join("\n"),
+    );
+  }
+
+  private async handleContext(ctx: CommandContext): Promise<void> {
+    const session = this.sessionManager.getOrCreate(ctx.chatId);
+    const status = session.getStatus();
+    const s = t(ctx.locale);
+    const windowSize = contextWindowFor(status.model);
+    const used = status.totalInputTokens;
+    const pct = ((used / windowSize) * 100).toFixed(1);
+    const lines = [
+      s.contextHeader,
+      "",
+      s.contextUsed(used),
+      s.contextWindow(windowSize),
+      s.contextPercent(pct),
+    ];
+    if (used / windowSize > 0.8) lines.push("", s.contextWarning);
+    await this.feishu.replyText(ctx.parentMessageId, lines.join("\n"));
+  }
+
   private async handleConfigShow(ctx: CommandContext): Promise<void> {
     const cfg = this.config;
+    const s = t(ctx.locale);
 
     const lines: string[] = [
-      "当前配置：",
+      s.configShowHeader,
       "",
       "[feishu]",
       `  appId: ${cfg.feishu.appId}`,
@@ -256,6 +344,7 @@ export class CommandDispatcher {
       `  cliPath: ${cfg.claude.cliPath}`,
       `  permissionTimeoutMs: ${cfg.claude.permissionTimeoutMs}`,
       `  permissionWarnBeforeMs: ${cfg.claude.permissionWarnBeforeMs}`,
+      `  autoCompactThreshold: ${cfg.claude.autoCompactThreshold ?? "(default)"}`,
       "",
       "[render]",
       `  inlineMaxBytes: ${cfg.render.inlineMaxBytes}`,
@@ -295,16 +384,31 @@ export class CommandDispatcher {
       const validKeys = Object.keys(SETTABLE_KEYS).join(", ");
       await this.feishu.replyText(
         ctx.parentMessageId,
-        `不支持的配置项: ${key}\n可设置的配置项: ${validKeys}`,
+        t(ctx.locale).configUnsupported(key, validKeys),
       );
       return;
     }
 
     const parsed = parseConfigValue(rawValue, def);
     if (!parsed.ok) {
+      const s = t(ctx.locale);
+      const reason = (() => {
+        switch (parsed.reason.kind) {
+          case "boolean":
+            return s.configBoolExpected;
+          case "number":
+            return s.configPosIntExpected;
+          case "fraction":
+            return "0.0–1.0";
+          case "string":
+            return s.configNonEmptyStringExpected;
+          case "enum":
+            return s.configEnumExpected(parsed.reason.values.join(" | "));
+        }
+      })();
       await this.feishu.replyText(
         ctx.parentMessageId,
-        `无效的值: ${rawValue}，${key} 需要 ${parsed.reason}`,
+        s.configInvalidValue(rawValue, key, reason),
       );
       return;
     }
@@ -321,14 +425,14 @@ export class CommandDispatcher {
     let persistMsg = "";
     if (persist) {
       if (!this.configPath) {
-        persistMsg = "（持久化跳过：configPath 未配置）";
+        persistMsg = t(ctx.locale).configPersistSkipped;
       } else {
         try {
           await writeConfigKey(this.configPath, key, parsed.value);
-          persistMsg = "（已持久化）";
+          persistMsg = t(ctx.locale).configPersisted;
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          persistMsg = `（写入 config.toml 失败: ${errMsg}）`;
+          persistMsg = t(ctx.locale).configPersistFailed(errMsg);
           this.logger.error({ err, key }, "writeConfigKey failed");
         }
       }
@@ -336,7 +440,7 @@ export class CommandDispatcher {
 
     await this.feishu.replyText(
       ctx.parentMessageId,
-      `配置已更新: ${key} = ${String(parsed.value)}${persistMsg ? " " + persistMsg : ""}`,
+      t(ctx.locale).configUpdated(key, String(parsed.value), persistMsg),
     );
   }
 
@@ -351,10 +455,19 @@ export class CommandDispatcher {
     this.permissionBroker.cancelAll("new session");
     this.questionBroker.cancelAll("new session");
     this.sessionManager.delete(ctx.chatId);
-    await this.feishu.replyText(
-      ctx.parentMessageId,
-      "新会话已开始，下条消息将开启新对话",
-    );
+    await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).newSessionStarted);
+  }
+
+  private async handleCompact(ctx: CommandContext): Promise<void> {
+    const session = this.sessionManager.getOrCreate(ctx.chatId);
+    if (session.getState() !== "idle") {
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).sessionBusy);
+      return;
+    }
+    this.permissionBroker.cancelAll("compact");
+    this.questionBroker.cancelAll("compact");
+    this.sessionManager.delete(ctx.chatId);
+    await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).compactStarted);
   }
 
   private async handleMode(
@@ -363,12 +476,12 @@ export class CommandDispatcher {
   ): Promise<void> {
     const session = this.sessionManager.getOrCreate(ctx.chatId);
     if (session.getState() !== "idle") {
-      await this.feishu.replyText(ctx.parentMessageId, "会话正在执行中，请先发送 /stop 或等待完成");
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).sessionBusy);
       return;
     }
     session.setPermissionModeOverride(mode as "default" | "acceptEdits" | "plan" | "bypassPermissions");
     this.sessionManager.persistNow();
-    await this.feishu.replyText(ctx.parentMessageId, `权限模式已切换为 ${mode}`);
+    await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).modeSwitched(mode));
   }
 
   private async handleModel(
@@ -377,28 +490,28 @@ export class CommandDispatcher {
   ): Promise<void> {
     const session = this.sessionManager.getOrCreate(ctx.chatId);
     if (session.getState() !== "idle") {
-      await this.feishu.replyText(ctx.parentMessageId, "会话正在执行中，请先发送 /stop 或等待完成");
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).sessionBusy);
       return;
     }
     session.setModelOverride(model);
     this.sessionManager.persistNow();
-    await this.feishu.replyText(ctx.parentMessageId, `模型已切换为 ${model}`);
+    await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).modelSwitched(model));
   }
 
   private async handleCd(path: string, ctx: CommandContext): Promise<void> {
     const session = this.sessionManager.getOrCreate(ctx.chatId);
     if (session.getState() !== "idle") {
-      await this.feishu.replyText(ctx.parentMessageId, "会话正在执行中，请先发送 /stop 或等待完成");
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).sessionBusy);
       return;
     }
     try {
       const s = await stat(path);
       if (!s.isDirectory()) {
-        await this.feishu.replyText(ctx.parentMessageId, `路径不是目录: ${path}`);
+        await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).cdNotDir(path));
         return;
       }
     } catch {
-      await this.feishu.replyText(ctx.parentMessageId, `路径不存在: ${path}`);
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).cdNotFound(path));
       return;
     }
     const requestId = crypto.randomUUID();
@@ -409,7 +522,7 @@ export class CommandDispatcher {
       cardMessageId = res.messageId;
     } catch (err) {
       this.logger.error({ err }, "Failed to send cd confirm card");
-      await this.feishu.replyText(ctx.parentMessageId, "发送确认卡片失败");
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).cdSendFailed);
       return;
     }
     const timer = this.clock.setTimeout(() => this.cdTimeout(requestId), 60_000);
@@ -429,13 +542,13 @@ export class CommandDispatcher {
     if (!resolved) {
       const available = Object.keys(this.config.projects);
       const list = available.length > 0 ? available.join(", ") : "(none configured)";
-      await this.feishu.replyText(ctx.parentMessageId, `未知项目别名: ${alias}，可用别名: ${list}`);
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).projectUnknown(alias, list));
       return;
     }
 
     const session = this.sessionManager.getOrCreate(ctx.chatId);
     if (session.getState() !== "idle") {
-      await this.feishu.replyText(ctx.parentMessageId, "会话正在执行中，请先发送 /stop 或等待完成");
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).sessionBusy);
       return;
     }
 
@@ -456,7 +569,7 @@ export class CommandDispatcher {
   private async handleProjects(ctx: CommandContext): Promise<void> {
     const configured = Object.entries(this.config.projects);
     if (configured.length === 0) {
-      await this.feishu.replyText(ctx.parentMessageId, "暂无已配置项目");
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).projectsNone);
       return;
     }
 
@@ -487,7 +600,7 @@ export class CommandDispatcher {
   private async handleSessions(ctx: CommandContext): Promise<void> {
     const all = this.sessionManager.getAllSessions();
     if (all.length === 0) {
-      await this.feishu.replyText(ctx.parentMessageId, "暂无会话记录");
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).sessionsNone);
       return;
     }
 
@@ -500,18 +613,18 @@ export class CommandDispatcher {
     if (session.getState() !== "idle") {
       await this.feishu.replyText(
         ctx.parentMessageId,
-        "会话正在执行中，请先发送 /stop 或等待完成",
+        t(ctx.locale).sessionBusy,
       );
       return;
     }
 
     const found = this.sessionManager.findSession(target);
     if (!found) {
-      await this.feishu.replyText(ctx.parentMessageId, `未找到会话 ${target}`);
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).resumeNotFound(target));
       return;
     }
     if (found.chatId === ctx.chatId) {
-      await this.feishu.replyText(ctx.parentMessageId, "已经在该会话中");
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).resumeAlreadyHere);
       return;
     }
 
@@ -523,8 +636,63 @@ export class CommandDispatcher {
       : found.record.claudeSessionId;
     await this.feishu.replyText(
       ctx.parentMessageId,
-      `已恢复会话 \`${shortId}\`, 工作目录: \`${found.record.cwd}\``,
+      t(ctx.locale).resumeSuccess(shortId, found.record.cwd),
     );
+  }
+
+  private async handleMemoryShow(ctx: CommandContext): Promise<void> {
+    const s = t(ctx.locale);
+    const session = this.sessionManager.getOrCreate(ctx.chatId);
+    const cwd = session.getStatus().cwd;
+    const globalPath = join(homedir(), ".claude", "CLAUDE.md");
+    const projectPath = join(cwd, "CLAUDE.md");
+
+    const readOrEmpty = async (filePath: string): Promise<string | null> => {
+      try {
+        await access(filePath);
+        return await readFile(filePath, "utf8");
+      } catch {
+        return null;
+      }
+    };
+
+    const [globalContent, projectContent] = await Promise.all([
+      readOrEmpty(globalPath),
+      readOrEmpty(projectPath),
+    ]);
+
+    if (globalContent === null && projectContent === null) {
+      await this.feishu.replyText(ctx.parentMessageId, s.memoryNone);
+      return;
+    }
+
+    const parts: string[] = [];
+    if (globalContent !== null) {
+      parts.push(s.memoryGlobalHeader, globalContent.trim() || s.memoryEmpty);
+    }
+    if (projectContent !== null) {
+      parts.push(
+        s.memoryProjectHeader(cwd),
+        projectContent.trim() || s.memoryEmpty,
+      );
+    }
+
+    await this.feishu.replyText(ctx.parentMessageId, parts.join("\n\n"));
+  }
+
+  private async handleMemoryAdd(text: string, ctx: CommandContext): Promise<void> {
+    const s = t(ctx.locale);
+    const session = this.sessionManager.getOrCreate(ctx.chatId);
+    const cwd = session.getStatus().cwd;
+    const projectPath = join(cwd, "CLAUDE.md");
+
+    try {
+      await appendFile(projectPath, `\n- ${text}\n`, "utf8");
+      await this.feishu.replyText(ctx.parentMessageId, s.memoryAdded(projectPath));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await this.feishu.replyText(ctx.parentMessageId, s.memoryAddFailed(msg));
+    }
   }
 
   async resolveCdConfirm(args: {

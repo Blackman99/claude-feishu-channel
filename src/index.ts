@@ -137,6 +137,7 @@ export async function main(configPathOverride?: string): Promise<void> {
 
   const sessionManager = new ClaudeSessionManager({
     config: config.claude,
+    mcpServers: config.mcp,
     queryFn,
     clock,
     permissionBroker,
@@ -327,13 +328,13 @@ export async function main(configPathOverride?: string): Promise<void> {
           // and flush at turn_end: N-1 blocks go into a collapsed
           // "intermediate replies" card; the last block becomes the
           // visible answer card.
-          await updateStatus("✅ 完成");
+          await updateStatus(t(locale).statusDone);
           turnState.textBlocks.push(event.text);
           return;
         case "thinking": {
           if (config.render.hideThinking) return;
           if (turnState.thinkingDisabled) return;
-          await updateStatus("💭 思考中...");
+          await updateStatus(t(locale).statusThinking);
           turnState.thinkingText =
             turnState.thinkingText.length === 0
               ? event.text
@@ -373,41 +374,34 @@ export async function main(configPathOverride?: string): Promise<void> {
                 "idConvert failed; thinking card will fall back to patchCard",
               );
             }
-          } else if (turnState.thinkingCardId !== null) {
-            // Subsequent blocks: push the full accumulated text into
-            // the streamable element. CardKit diffs against the
-            // previous content and renders the delta with a typing
-            // cursor. Sequence is a monotonic per-card counter; we
-            // increment BEFORE the call so the first streamed update
-            // uses sequence=1.
-            turnState.thinkingSequence += 1;
-            const streamed = prepareInline(
-              turnState.thinkingText,
-              config.render.inlineMaxBytes,
-            );
-            try {
-              await feishuClient.streamElementContent({
-                cardId: turnState.thinkingCardId,
-                elementId: THINKING_ELEMENT_ID,
-                content: streamed,
-                sequence: turnState.thinkingSequence,
-              });
-            } catch (err) {
-              logger.warn(
-                { err, chat_id: msg.chatId },
-                "thinking stream failed; disabling thinking card for this turn",
-              );
-              turnState.thinkingDisabled = true;
-            }
           } else {
-            // Fallback path: idConvert failed on the first block, so
-            // we can't stream — revert to full-card patch for the
-            // rest of the turn.
+            if (turnState.thinkingCardId !== null) {
+              turnState.thinkingSequence += 1;
+              const streamed = prepareInline(
+                turnState.thinkingText,
+                config.render.inlineMaxBytes,
+              );
+              try {
+                await feishuClient.streamElementContent({
+                  cardId: turnState.thinkingCardId,
+                  elementId: THINKING_ELEMENT_ID,
+                  content: streamed,
+                  sequence: turnState.thinkingSequence,
+                });
+                return;
+              } catch (err) {
+                logger.warn(
+                  { err, chat_id: msg.chatId },
+                  "thinking stream failed; falling back to patchCard for remainder of turn",
+                );
+                turnState.thinkingCardId = null;
+              }
+            }
             const card = buildThinkingCard(turnState.thinkingText, {
               inlineMaxBytes: config.render.inlineMaxBytes,
             });
             try {
-              await feishuClient.patchCard(turnState.thinkingMessageId, card);
+              await feishuClient.patchCard(turnState.thinkingMessageId!, card);
             } catch (err) {
               logger.warn(
                 { err, chat_id: msg.chatId },
@@ -465,12 +459,12 @@ export async function main(configPathOverride?: string): Promise<void> {
           if (!config.render.showTurnStats) return;
           await feishuClient.replyText(
             msg.messageId,
-            formatResultTip({
-              durationMs: event.durationMs,
-              inputTokens: event.inputTokens,
-              outputTokens: event.outputTokens,
-            }),
-          );
+              formatResultTip({
+                durationMs: event.durationMs,
+                inputTokens: event.inputTokens,
+                outputTokens: event.outputTokens,
+              }, locale),
+            );
           return;
         case "queued":
           // Out-of-band notice from the session: the user's input landed in
@@ -479,7 +473,7 @@ export async function main(configPathOverride?: string): Promise<void> {
           try {
             await feishuClient.replyText(
               msg.messageId,
-              formatQueuedTip(event.position),
+              formatQueuedTip(event.position, locale),
             );
           } catch (err) {
             logger.warn(
@@ -498,7 +492,7 @@ export async function main(configPathOverride?: string): Promise<void> {
             try {
               await feishuClient.replyText(
                 msg.messageId,
-                formatInterruptDropAck(),
+                formatInterruptDropAck(locale),
               );
             } catch (err) {
               logger.warn(
@@ -514,7 +508,7 @@ export async function main(configPathOverride?: string): Promise<void> {
           // promoted to "✅ 完成" on the status card, and isn't wrapped
           // in `buildAnswerCard` — stopping is not completing.
           try {
-            await feishuClient.replyText(msg.messageId, formatStopAck());
+            await feishuClient.replyText(msg.messageId, formatStopAck(locale));
           } catch (err) {
             logger.warn(
               { err, chat_id: msg.chatId },
@@ -768,7 +762,7 @@ export async function main(configPathOverride?: string): Promise<void> {
       try {
         await feishuClient.replyText(
           msg.messageId,
-          formatErrorText(errorText),
+          formatErrorText(errorText, locale),
         );
       } catch (sendErr) {
         logger.error({ err: sendErr }, "Failed to deliver error reply");
@@ -915,6 +909,7 @@ export async function main(configPathOverride?: string): Promise<void> {
     appSecret: config.feishu.appSecret,
     logger,
     lark,
+    feishuClient,
     access,
     onMessage,
     onCardAction,
@@ -983,4 +978,3 @@ export async function main(configPathOverride?: string): Promise<void> {
     );
   }
 }
-

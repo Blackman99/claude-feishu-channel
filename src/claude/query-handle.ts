@@ -1,4 +1,4 @@
-import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
+import type { McpServerConfig, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AppConfig } from "../types.js";
 import type { SDKMessageLike } from "./session.js";
 
@@ -14,13 +14,15 @@ export interface ClaudeQueryOptions {
    * session builds a fresh server per turn so the tool handler can
    * close over that turn's `senderOpenId` / `parentMessageId`.
    */
-  mcpServers?: readonly McpSdkServerConfigWithInstance[];
+  mcpServers?: Readonly<Record<string, McpServerConfig>>;
   /**
    * Tool names to strip from Claude's available tool set. Phase 5
    * passes `["AskUserQuestion"]` so Claude never sees the built-in
    * version — only the `mcp__feishu__ask_user` shim.
-   */
+  */
   disallowedTools?: readonly string[];
+  /** Fraction of context fill that triggers Claude auto-compaction. */
+  autoCompactThreshold?: number;
   /**
    * SDK session ID to resume. When set, the SDK continues an
    * existing conversation rather than starting a new one. Phase 7
@@ -90,7 +92,7 @@ export interface QueryHandle {
  * / `parentMessageId`, and hands it in when it opens the turn.
  */
 export type QueryFn = (params: {
-  prompt: string;
+  prompt: string | AsyncIterable<SDKUserMessage>;
   options: ClaudeQueryOptions;
   canUseTool: CanUseToolFn;
 }) => QueryHandle;

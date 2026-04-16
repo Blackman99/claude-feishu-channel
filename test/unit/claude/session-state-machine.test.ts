@@ -115,14 +115,15 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
 
   it("passes cwd / model / permissionMode / settingSources / mcpServers / disallowedTools to the injected queryFn", async () => {
     const recorded: Array<{
-      prompt: string;
+      prompt: string | AsyncIterable<unknown>;
       options: {
         cwd: string;
         model: string;
         permissionMode: string;
         settingSources: readonly string[];
-        mcpServers?: readonly unknown[];
+        mcpServers?: Readonly<Record<string, unknown>>;
         disallowedTools?: readonly string[];
+        autoCompactThreshold?: number;
       };
     }> = [];
     const fakes: FakeQueryHandle[] = [];
@@ -139,6 +140,9 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
             : {}),
           ...(params.options.disallowedTools
             ? { disallowedTools: params.options.disallowedTools }
+            : {}),
+          ...(params.options.autoCompactThreshold !== undefined
+            ? { autoCompactThreshold: params.options.autoCompactThreshold }
             : {}),
         },
       });
@@ -180,7 +184,7 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     // tool and inject exactly one in-process MCP server for the
     // `mcp__feishu__ask_user` shim.
     expect(recorded[0]!.options.disallowedTools).toEqual(["AskUserQuestion"]);
-    expect(recorded[0]!.options.mcpServers).toHaveLength(1);
+    expect(Object.keys(recorded[0]!.options.mcpServers ?? {})).toHaveLength(1);
   });
 
   it("rejects the per-input `done` promise when the turn ends with subtype=error", async () => {

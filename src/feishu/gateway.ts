@@ -8,6 +8,7 @@ import type { IncomingMessage } from "../types.js";
 import type { AccessControl } from "../access.js";
 import type { FeishuCardV2 } from "./card-types.js";
 import { LruDedup } from "../util/dedup.js";
+import { FeishuClient } from "./client.js";
 
 export type MessageHandler = (msg: IncomingMessage) => Promise<void>;
 
@@ -42,6 +43,7 @@ export interface FeishuGatewayOptions {
   appSecret: string;
   logger: Logger;
   lark: LarkClient;
+  feishuClient: FeishuClient;
   access: AccessControl;
   onMessage: MessageHandler;
   onCardAction: CardActionHandler;
@@ -68,6 +70,7 @@ export class FeishuGateway {
   private readonly dedup = new LruDedup(1000);
   private readonly logger: Logger;
   private readonly access: AccessControl;
+  private readonly feishuClient: FeishuClient;
   private readonly onMessage: MessageHandler;
   private readonly onCardAction: CardActionHandler;
 
@@ -75,6 +78,7 @@ export class FeishuGateway {
     this.lark = opts.lark;
     this.logger = opts.logger.child({ component: "feishu-gateway" });
     this.access = opts.access;
+    this.feishuClient = opts.feishuClient;
     this.onMessage = opts.onMessage;
     this.onCardAction = opts.onCardAction;
 
@@ -130,21 +134,37 @@ export class FeishuGateway {
       return; // Phase 1 only implements "ignore" — "reject" behavior is identical here
     }
 
-    // Phase 1: only handle text messages. Other types are dropped with a log.
-    if (event.message.message_type !== "text") {
-      log.info(
-        { message_type: event.message.message_type },
-        "Non-text message, dropping in Phase 1",
-      );
-      return;
-    }
-
     let text = "";
-    try {
-      const parsed = JSON.parse(event.message.content) as { text?: string };
-      text = parsed.text ?? "";
-    } catch (err) {
-      log.error({ err }, "Failed to parse message content");
+    let imageDataUri: string | undefined;
+    const msgType = event.message.message_type;
+    if (msgType === "text") {
+      try {
+        const parsed = JSON.parse(event.message.content) as { text?: string };
+        text = parsed.text ?? "";
+      } catch (err) {
+        log.error({ err }, "Failed to parse text message content");
+        return;
+      }
+    } else if (msgType === "image") {
+      try {
+        const parsed = JSON.parse(event.message.content) as { image_key?: string };
+        const imageKey = parsed.image_key;
+        if (!imageKey) {
+          log.warn({ content: event.message.content }, "Image message has no image_key");
+          return;
+        }
+        const imageBytes = await this.feishuClient.downloadImage(
+          event.message.message_id,
+          imageKey,
+        );
+        imageDataUri = `data:image/jpeg;base64,${imageBytes.toString("base64")}`;
+        text = "[Image]";
+      } catch (err) {
+        log.warn({ err }, "Failed to download image — dropping message");
+        return;
+      }
+    } else {
+      log.info({ message_type: msgType }, "Unsupported message type, dropping");
       return;
     }
 
@@ -153,6 +173,7 @@ export class FeishuGateway {
       chatId: event.message.chat_id,
       senderOpenId: event.sender.sender_id.open_id,
       text,
+      ...(imageDataUri ? { imageDataUri } : {}),
       // Feishu create_time is a stringified Unix milliseconds timestamp
       // (confirmed via open.feishu.cn docs: "消息发送时间（毫秒）"). No
       // conversion needed — IncomingMessage.receivedAt is also in ms.

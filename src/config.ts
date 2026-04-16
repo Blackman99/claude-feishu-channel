@@ -33,6 +33,7 @@ const ClaudeSchema = z.object({
   cli_path: z.string().min(1).default("claude"),
   permission_timeout_seconds: z.number().int().positive().default(300),
   permission_warn_before_seconds: z.number().int().positive().default(60),
+  auto_compact_threshold: z.number().min(0).max(1).optional(),
 });
 
 const RenderSchema = z
@@ -68,6 +69,29 @@ const LoggingSchema = z
   .default({ level: "info" });
 
 const ProjectsSchema = z.record(z.string(), z.string()).default({});
+const McpServerSchema = z.object({
+  name: z.string().min(1),
+  type: z.enum(["stdio", "sse"]),
+  command: z.string().min(1).optional(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  url: z.string().min(1).optional(),
+}).superRefine((value, ctx) => {
+  if (value.type === "stdio" && !value.command) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["command"],
+      message: "required for stdio MCP servers",
+    });
+  }
+  if (value.type === "sse" && !value.url) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["url"],
+      message: "required for sse MCP servers",
+    });
+  }
+});
 
 const ConfigSchema = z.object({
   feishu: FeishuSchema,
@@ -77,6 +101,7 @@ const ConfigSchema = z.object({
   persistence: PersistenceSchema,
   logging: LoggingSchema,
   projects: ProjectsSchema,
+  mcp: z.array(McpServerSchema).default([]),
 });
 
 function expandHome(path: string): string {
@@ -170,6 +195,9 @@ export async function loadConfig(path: string): Promise<AppConfig> {
       cliPath: data.claude.cli_path,
       permissionTimeoutMs: data.claude.permission_timeout_seconds * 1000,
       permissionWarnBeforeMs: data.claude.permission_warn_before_seconds * 1000,
+      ...(data.claude.auto_compact_threshold !== undefined
+        ? { autoCompactThreshold: data.claude.auto_compact_threshold }
+        : {}),
     },
     render: {
       inlineMaxBytes: data.render.inline_max_bytes,
@@ -187,5 +215,13 @@ export async function loadConfig(path: string): Promise<AppConfig> {
     projects: Object.fromEntries(
       Object.entries(data.projects ?? {}).map(([k, v]) => [k, expandHome(v)]),
     ),
+    mcp: data.mcp.map((server) => ({
+      name: server.name,
+      type: server.type,
+      ...(server.command !== undefined ? { command: server.command } : {}),
+      ...(server.args !== undefined ? { args: server.args } : {}),
+      ...(server.env !== undefined ? { env: server.env } : {}),
+      ...(server.url !== undefined ? { url: server.url } : {}),
+    })),
   };
 }

@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import type { Client as LarkClient } from "@larksuiteoapi/node-sdk";
 import type { FeishuCardV2 } from "./card-types.js";
 
@@ -222,5 +223,44 @@ export class FeishuClient {
         `Feishu cardkit streamElementContent failed: code=${response.code} msg=${response.msg ?? ""} (card_id=${cardId}, element_id=${elementId}, sequence=${sequence})`,
       );
     }
+  }
+
+  async downloadImage(messageId: string, imageKey: string): Promise<Buffer> {
+    const response = await this.lark.im.v1.messageResource.get({
+      path: { message_id: messageId, file_key: imageKey },
+      params: { type: "image" },
+    });
+    const data = (
+      typeof response === "object" &&
+      response !== null &&
+      "data" in response
+        ? (response as { data: unknown }).data
+        : response
+    ) as unknown;
+    if (Buffer.isBuffer(data)) return data;
+    if (data instanceof Uint8Array) return Buffer.from(data);
+    if (data instanceof Readable) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of data) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks);
+    }
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      "getReadableStream" in data &&
+      typeof (data as { getReadableStream: () => Readable }).getReadableStream === "function"
+    ) {
+      const stream = (data as { getReadableStream: () => Readable }).getReadableStream();
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks);
+    }
+    throw new Error(
+      `downloadImage: unexpected response type ${(data as { constructor?: { name?: string } } | null)?.constructor?.name ?? typeof data}`,
+    );
   }
 }

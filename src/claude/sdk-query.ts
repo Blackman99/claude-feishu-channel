@@ -33,16 +33,6 @@ export function createSdkQueryFn(opts: SdkQueryFnOptions): QueryFn {
     const abort = new AbortController();
     let aborted = false;
 
-    // Build the per-turn `mcpServers` record the SDK expects:
-    // `Record<serverName, McpServerConfig>`. Each entry's server name
-    // becomes the `mcp__<name>__...` prefix Claude sees on tool
-    // names, so we use the `name` the factory set.
-    const mcpServers = params.options.mcpServers?.length
-      ? Object.fromEntries(
-          params.options.mcpServers.map((s) => [s.name, s] as const),
-        )
-      : undefined;
-
     const q = query({
       prompt: params.prompt,
       options: {
@@ -55,9 +45,12 @@ export function createSdkQueryFn(opts: SdkQueryFnOptions): QueryFn {
         abortController: abort,
         env: { ...process.env },
         ...(params.options.resume ? { resume: params.options.resume } : {}),
-        ...(mcpServers ? { mcpServers } : {}),
+        ...(params.options.mcpServers ? { mcpServers: params.options.mcpServers } : {}),
         ...(params.options.disallowedTools
           ? { disallowedTools: [...params.options.disallowedTools] }
+          : {}),
+        ...(params.options.autoCompactThreshold !== undefined
+          ? { autoCompactThreshold: params.options.autoCompactThreshold }
           : {}),
       },
     });

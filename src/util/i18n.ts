@@ -19,7 +19,7 @@ export function detectLocale(text: string): Locale {
 const STRINGS = {
   zh: {
     // ── messages.ts ──────────────────────────────────────────────
-    statsLine: (seconds: string, input: number, output: number) =>
+    statsLine: (seconds: string, input: string, output: string) =>
       `✅ 本轮耗时 ${seconds}s · 输入 ${input} / 输出 ${output} tokens`,
     errorLine: (message: string) => `❌ 错误: ${message}`,
     queued: (position: number) =>
@@ -90,7 +90,10 @@ const STRINGS = {
     helpHeader: "可用命令：",
     helpSectionSession: "会话管理",
     helpNew: "  /new          — 开启新会话（清除上下文）",
+    helpCompact: "  /compact      — 重置当前会话（上下文过大时使用）",
     helpStatus: "  /status       — 查看当前会话状态",
+    helpCost: "  /cost         — 查看本会话 token 用量",
+    helpContext: "  /context      — 查看上下文窗口占用情况",
     helpStop: "  /stop         — 中断当前生成",
     helpSessions: "  /sessions     — 列出所有已知会话",
     helpResume: "  /resume <id>  — 恢复到指定会话",
@@ -106,6 +109,8 @@ const STRINGS = {
     helpConfigSet: "  /config set <key> <value> — 运行时修改配置",
     helpConfigSetPersist:
       "  /config set <key> <value> --persist — 修改并写入文件",
+    helpMemory: "  /memory       — 查看 CLAUDE.md 记忆内容",
+    helpMemoryAdd: "  /memory add <文本> — 追加一条记忆到项目 CLAUDE.md",
     helpHelp: "  /help         — 显示此帮助",
     statusState: (v: string) => `状态：${v}`,
     statusCwd: (v: string) => `工作目录：${v}`,
@@ -129,9 +134,21 @@ const STRINGS = {
     configPosIntExpected: "正整数",
     configNonEmptyStringExpected: "非空字符串",
     configEnumExpected: (values: string) => `枚举值: ${values}`,
+    costHeader: "Token 使用统计",
+    costInput: (n: number) => `输入 Token：${n.toLocaleString()}`,
+    costOutput: (n: number) => `输出 Token：${n.toLocaleString()}`,
+    costTotal: (n: number) => `合计：${n.toLocaleString()}`,
+    costNote: "定价参考：https://www.anthropic.com/pricing",
+    contextHeader: "上下文窗口使用情况",
+    contextUsed: (tokens: number) => `已用：${tokens.toLocaleString()} tokens`,
+    contextWindow: (tokens: number) => `窗口：${tokens.toLocaleString()} tokens`,
+    contextPercent: (pct: string) => `占用：${pct}%`,
+    contextWarning: "⚠️ 上下文已超过 80%，建议发 /new 开新会话",
     sessionBusy:
       "会话正在执行中，请先发送 /stop 或等待完成",
     newSessionStarted: "新会话已开始，下条消息将开启新对话",
+    compactStarted:
+      "🗜️ 会话已重置。auto-compact 已配置时将在上下文满时自动触发；也可通过 /config set claude.auto_compact_threshold 0.8 开启。",
     modeSwitched: (mode: string) => `权限模式已切换为 ${mode}`,
     modelSwitched: (model: string) => `模型已切换为 ${model}`,
     cdNotDir: (path: string) => `路径不是目录: ${path}`,
@@ -157,6 +174,12 @@ const STRINGS = {
     sessionsActive: "🟢 活跃",
     sessionsStale: "⚪ 未活跃",
     sessionsLastActive: (timeAgo: string) => `最近活跃：${timeAgo}`,
+    memoryGlobalHeader: "🧠 全局记忆 (~/.claude/CLAUDE.md)",
+    memoryProjectHeader: (cwd: string) => `📁 项目记忆 (${cwd}/CLAUDE.md)`,
+    memoryEmpty: "_(空)_",
+    memoryNone: "暂无记忆文件",
+    memoryAdded: (path: string) => `✅ 已追加到 ${path}`,
+    memoryAddFailed: (err: string) => `❌ 写入失败: ${err}`,
     resumeNotFound: (id: string) => `未找到会话 ${id}`,
     resumeAlreadyHere: "已经在该会话中",
     resumeSuccess: (shortId: string, cwd: string) =>
@@ -165,7 +188,7 @@ const STRINGS = {
 
   en: {
     // ── messages.ts ──────────────────────────────────────────────
-    statsLine: (seconds: string, input: number, output: number) =>
+    statsLine: (seconds: string, input: string, output: string) =>
       `✅ Done in ${seconds}s · input ${input} / output ${output} tokens`,
     errorLine: (message: string) => `❌ Error: ${message}`,
     queued: (position: number) =>
@@ -237,7 +260,10 @@ const STRINGS = {
     helpHeader: "Available commands:",
     helpSectionSession: "Session management",
     helpNew: "  /new          — Start a new session (clear context)",
+    helpCompact: "  /compact      — Reset the current session (use when context is large)",
     helpStatus: "  /status       — Show current session status",
+    helpCost: "  /cost         — Show token usage for this session",
+    helpContext: "  /context      — Show context window usage",
     helpStop: "  /stop         — Interrupt current generation",
     helpSessions: "  /sessions     — List all known sessions",
     helpResume: "  /resume <id>  — Restore a previous session",
@@ -254,6 +280,8 @@ const STRINGS = {
     helpConfigSet: "  /config set <key> <value> — Change config at runtime",
     helpConfigSetPersist:
       "  /config set <key> <value> --persist — Change and write to file",
+    helpMemory: "  /memory       — Show CLAUDE.md memory contents",
+    helpMemoryAdd: "  /memory add <text> — Append an entry to project CLAUDE.md",
     helpHelp: "  /help         — Show this help",
     statusState: (v: string) => `State: ${v}`,
     statusCwd: (v: string) => `Working dir: ${v}`,
@@ -278,9 +306,22 @@ const STRINGS = {
     configPosIntExpected: "a positive integer",
     configNonEmptyStringExpected: "a non-empty string",
     configEnumExpected: (values: string) => `one of: ${values}`,
+    costHeader: "Token Usage",
+    costInput: (n: number) => `Input tokens: ${n.toLocaleString()}`,
+    costOutput: (n: number) => `Output tokens: ${n.toLocaleString()}`,
+    costTotal: (n: number) => `Total: ${n.toLocaleString()}`,
+    costNote: "Pricing: https://www.anthropic.com/pricing",
+    contextHeader: "Context Window Usage",
+    contextUsed: (tokens: number) => `Used: ${tokens.toLocaleString()} tokens`,
+    contextWindow: (tokens: number) => `Window: ${tokens.toLocaleString()} tokens`,
+    contextPercent: (pct: string) => `Usage: ${pct}%`,
+    contextWarning:
+      "⚠️ Context is over 80% full — consider /new to start fresh",
     sessionBusy:
       "A turn is in progress — send /stop or wait for it to finish",
     newSessionStarted: "New session started — next message begins a fresh conversation",
+    compactStarted:
+      "🗜️ Session reset. When auto-compact is configured it triggers automatically near the context limit; enable via /config set claude.auto_compact_threshold 0.8.",
     modeSwitched: (mode: string) => `Permission mode set to ${mode}`,
     modelSwitched: (model: string) => `Model switched to ${model}`,
     cdNotDir: (path: string) => `Not a directory: ${path}`,
@@ -306,6 +347,12 @@ const STRINGS = {
     sessionsActive: "🟢 Active",
     sessionsStale: "⚪ Stale",
     sessionsLastActive: (timeAgo: string) => `Last active: ${timeAgo}`,
+    memoryGlobalHeader: "🧠 Global memory (~/.claude/CLAUDE.md)",
+    memoryProjectHeader: (cwd: string) => `📁 Project memory (${cwd}/CLAUDE.md)`,
+    memoryEmpty: "_(empty)_",
+    memoryNone: "No memory files found",
+    memoryAdded: (path: string) => `✅ Appended to ${path}`,
+    memoryAddFailed: (err: string) => `❌ Write failed: ${err}`,
     resumeNotFound: (id: string) => `Session not found: ${id}`,
     resumeAlreadyHere: "Already in this session",
     resumeSuccess: (shortId: string, cwd: string) =>

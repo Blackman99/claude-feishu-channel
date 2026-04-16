@@ -1,14 +1,19 @@
+import { t, type Locale } from "../util/i18n.js";
+
 export interface ResultTipStats {
   durationMs: number;
   inputTokens: number;
   outputTokens: number;
 }
 
-export function formatResultTip(stats: ResultTipStats): string {
+export function formatResultTip(
+  stats: ResultTipStats,
+  locale: Locale = "zh",
+): string {
   const seconds = (stats.durationMs / 1000).toFixed(1);
   const input = formatTokenCount(stats.inputTokens);
   const output = formatTokenCount(stats.outputTokens);
-  return `✅ 本轮耗时 ${seconds}s · 输入 ${input} / 输出 ${output} tokens`;
+  return t(locale).statsLine(seconds, input, output);
 }
 
 function formatTokenCount(n: number): string {
@@ -16,8 +21,8 @@ function formatTokenCount(n: number): string {
   return `${(n / 1000).toFixed(1)}k`;
 }
 
-export function formatErrorText(message: string): string {
-  return `❌ 错误: ${message}`;
+export function formatErrorText(message: string, locale: Locale = "zh"): string {
+  return t(locale).errorLine(message);
 }
 
 /**
@@ -27,11 +32,11 @@ export function formatErrorText(message: string): string {
  *
  * Position is 1-indexed (the first queued message is #1, not #0).
  */
-export function formatQueuedTip(position: number): string {
+export function formatQueuedTip(position: number, locale: Locale = "zh"): string {
   if (position < 1 || !Number.isFinite(position)) {
     throw new Error(`formatQueuedTip: position must be >= 1, got ${position}`);
   }
-  return `📥 已加入队列 #${position}（当前有一个轮次在运行，发 \`/stop\` 可取消）`;
+  return t(locale).queued(position);
 }
 
 /**
@@ -39,8 +44,8 @@ export function formatQueuedTip(position: number): string {
  * or was received while idle (both paths end up in the same state,
  * so the user gets the same confirmation either way).
  */
-export function formatStopAck(): string {
-  return "🛑 已停止";
+export function formatStopAck(locale: Locale = "zh"): string {
+  return t(locale).stopped;
 }
 
 /**
@@ -49,6 +54,6 @@ export function formatStopAck(): string {
  * message context is theirs — they know which message this was
  * replying to, so we don't repeat it.
  */
-export function formatInterruptDropAck(): string {
-  return "⚠️ 你之前的消息在被 Claude 处理前已被后续指令打断丢弃";
+export function formatInterruptDropAck(locale: Locale = "zh"): string {
+  return t(locale).dropped;
 }
