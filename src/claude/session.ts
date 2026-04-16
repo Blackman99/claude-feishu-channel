@@ -80,6 +80,19 @@ interface ContextAssessment {
   estimatedBytes: number;
 }
 
+type RetainedTaskStatus = "pending" | "in_progress" | "completed";
+
+interface RetainedTaskState {
+  title: string;
+  status: RetainedTaskStatus;
+}
+
+interface RetainedContinuationState {
+  tasks: RetainedTaskState[];
+  completionSignals: string[];
+  latestObjective: string;
+}
+
 export interface SessionStatus {
   provider: AgentProvider;
   state: SessionState;
@@ -199,6 +212,11 @@ export class ClaudeSession {
   private totalInputTokens = 0;
   private totalOutputTokens = 0;
   private claudeSessionId: string | undefined;
+  private retainedContinuation: RetainedContinuationState = {
+    tasks: [],
+    completionSignals: [],
+    latestObjective: "",
+  };
   private readonly onSessionIdCaptured?: () => void;
   private readonly onTurnComplete?: () => void;
   private createdAt: string;
@@ -670,20 +688,56 @@ export class ClaudeSession {
     return `${text}\n[image attachment preserved for the next turn]`;
   }
 
-  private buildContinuationSummary(next: QueuedInput): string {
-    const status = this.getStatus();
+  private pruneCompletedTasks(tasks: RetainedTaskState[]): RetainedTaskState[] {
+    return tasks.filter((task) => task.status !== "completed");
+  }
+
+  private isExplicitCompletionSignal(text: string): boolean {
+    if (/\balmost done\b/i.test(text)) return false;
+    return /\b(completed?|done)\b/i.test(text) || /已完成/.test(text);
+  }
+
+  private pruneExplicitCompletionSignals(signals: string[]): string[] {
+    return signals.filter((signal) => !this.isExplicitCompletionSignal(signal));
+  }
+
+  private refreshRetainedContinuation(nextObjective: string): void {
+    this.retainedContinuation = {
+      tasks: this.pruneCompletedTasks(this.retainedContinuation.tasks),
+      completionSignals: this.pruneExplicitCompletionSignals(
+        this.retainedContinuation.completionSignals,
+      ),
+      latestObjective: nextObjective,
+    };
+  }
+
+  private buildRetainedContinuationSummary(): string {
+    const activeTasks = this.retainedContinuation.tasks.map(
+      (task) => `- ${task.title} [${task.status}]`,
+    );
+
     return [
       "Continuation summary for a fresh session:",
       "",
-      "Keep only unfinished work and explicit user constraints from the prior session.",
-      "Drop already completed steps, stale progress chatter, and superseded discussion.",
-      "",
+      "Completed items removed from continuation context.",
+      ...(this.retainedContinuation.latestObjective
+        ? [`Current objective: ${this.retainedContinuation.latestObjective}`]
+        : []),
+      ...activeTasks,
+      ...this.retainedContinuation.completionSignals,
+    ].join("\n");
+  }
+
+  private buildContinuationSummary(next: QueuedInput): string {
+    const status = this.getStatus();
+    this.refreshRetainedContinuation(this.immediateRequestSummary(next));
+    return [
+      this.buildRetainedContinuationSummary(),
       `Provider: ${status.provider}`,
       `Model: ${status.model}`,
       `Working directory: ${status.cwd}`,
       `Permission mode: ${status.permissionMode}`,
       `Prior token totals: in=${status.totalInputTokens}, out=${status.totalOutputTokens}`,
-      `Current objective: ${this.immediateRequestSummary(next)}`,
     ].join("\n");
   }
 
@@ -908,6 +962,26 @@ export class ClaudeSession {
       seq: -1,
       locale: "en",
     });
+  }
+
+  /** @internal */
+  _testSetRetainedTaskState(tasks: RetainedTaskState[]): void {
+    this.retainedContinuation.tasks = tasks.map((task) => ({ ...task }));
+  }
+
+  /** @internal */
+  _testRecordCompletionSignal(text: string): void {
+    this.retainedContinuation.completionSignals.push(text);
+  }
+
+  /** @internal */
+  _testRefreshRetainedContinuation(nextObjective: string): void {
+    this.refreshRetainedContinuation(nextObjective);
+  }
+
+  /** @internal */
+  _testBuildRetainedContinuationSummary(): string {
+    return this.buildRetainedContinuationSummary();
   }
 
   private buildPrompt(

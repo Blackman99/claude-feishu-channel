@@ -288,6 +288,46 @@ describe("ClaudeSession context assessment", () => {
     expect(summary).toContain("codex");
   });
 
+  it("removes explicitly completed structured tasks from retained continuation state", () => {
+    const h = createHarness({
+      totalInputTokens: 165_000,
+      totalOutputTokens: 5_000,
+    });
+
+    h.session._testSetRetainedTaskState([
+      { title: "Task 1", status: "completed" },
+      { title: "Task 2", status: "in_progress" },
+      { title: "Task 3", status: "pending" },
+    ]);
+
+    h.session._testRefreshRetainedContinuation("Task 2 in progress");
+
+    const summary = h.session._testBuildRetainedContinuationSummary();
+    expect(summary).not.toContain("Task 1");
+    expect(summary).toContain("Task 2");
+    expect(summary).toContain("Task 3");
+  });
+
+  it("uses explicit completion text as a fallback pruning signal", () => {
+    const h = createHarness();
+
+    h.session._testRecordCompletionSignal("Task 4 已完成");
+    h.session._testRefreshRetainedContinuation("Task 5 pending");
+
+    const summary = h.session._testBuildRetainedContinuationSummary();
+    expect(summary).not.toContain("Task 4");
+  });
+
+  it("does not delete context for ambiguous progress wording", () => {
+    const h = createHarness();
+
+    h.session._testRecordCompletionSignal("Task 6 almost done");
+    h.session._testRefreshRetainedContinuation("Task 6 still active");
+
+    const summary = h.session._testBuildRetainedContinuationSummary();
+    expect(summary).toContain("Task 6");
+  });
+
   it("preserves image prompts when summarized reset starts a fresh session", async () => {
     const h = createHarness({
       providerSessionId: "ses_old",
