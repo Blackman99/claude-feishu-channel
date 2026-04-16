@@ -5,11 +5,11 @@ export default defineConfig({
   description: 'Bridge Claude Code or Codex to Feishu group chat',
   base: '/agent-feishu-channel/',
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/agent-feishu-channel/logo.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/agent-feishu-channel/favicon.svg' }],
   ],
 
   themeConfig: {
-    logo: '/logo.svg',
+    logo: { light: '/logo-light.svg', dark: '/logo.svg' },
 
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
