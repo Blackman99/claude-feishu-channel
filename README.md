@@ -91,7 +91,7 @@ Options:
 | `/resume <id>` | Resume a previous session |
 | `/cd <path>` | Change working directory (with confirm card) |
 | `/project <alias>` | Switch to a configured project alias |
-| `/provider <claude|codex>` | Switch the current session provider |
+| `/provider <claude\|codex>` | Switch the current session provider |
 | `/mode <mode>` | Set permission mode: `default`, `acceptEdits`, `plan`, `bypassPermissions` |
 | `/model <name>` | Switch the current provider model |
 | `/config show` | Display current configuration |
