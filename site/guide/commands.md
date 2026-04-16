@@ -1,6 +1,6 @@
 # Commands
 
-Claude Feishu Channel supports slash commands and special input prefixes to control sessions, change settings, and manage the Claude agent.
+Claude Feishu Channel supports slash commands and special input prefixes to control sessions, change settings, and manage the active agent provider.
 
 ## Command Reference
 
@@ -9,13 +9,15 @@ Claude Feishu Channel supports slash commands and special input prefixes to cont
 | `/new` | Start a new session (clear context) |
 | `/stop` | Interrupt current generation |
 | `/status` | Show session state, model, token usage |
+| `/context` | Show context window usage and mitigation status |
 | `/sessions` | List all known sessions |
 | `/projects` | List all configured project aliases |
 | `/resume <id>` | Resume a previous session |
 | `/cd <path>` | Change working directory (with confirm card) |
 | `/project <alias>` | Switch to a configured project alias |
+| `/provider <claude|codex>` | Switch the current session provider |
 | `/mode <mode>` | Set permission mode |
-| `/model <name>` | Switch Claude model |
+| `/model <name>` | Switch the current provider model |
 | `/config show` | Display current configuration |
 | `/config set <key> <value>` | Change a config value at runtime |
 | `/config set <key> <value> --persist` | Change and write back to `config.toml` |
@@ -29,22 +31,28 @@ Claude Feishu Channel supports slash commands and special input prefixes to cont
 | Plain text | Queue as next turn (or start immediately if idle) |
 
 ::: tip
-Messages sent while Claude is generating are automatically queued and processed in order once the current turn completes.
+Messages sent while the agent is generating are automatically queued and processed in order once the current turn completes.
 :::
 
 ## Session Management
 
 ### `/new`
 
-Starts a fresh Claude session, clearing all prior context. Use this when you want to begin a completely new conversation.
+Starts a fresh provider session, clearing prior conversation context for the current chat.
 
 ### `/stop`
 
-Interrupts the current generation. If Claude is mid-response, this will halt it. You can also use the `!` prefix to interrupt and immediately submit new input.
+Interrupts the current generation. If the current provider is mid-response, this will halt it. You can also use the `!` prefix to interrupt and immediately submit new input.
 
 ### `/status`
 
-Displays the current session state, the active model, and token usage statistics.
+Displays the current session state, active provider, active model, and token usage statistics.
+
+### `/context`
+
+Displays current context-window usage. When usage is high, the response also explains the mitigation order:
+
+`warn -> compact -> summarized new session -> hard reset fallback`
 
 ### `/sessions`
 
@@ -56,7 +64,7 @@ Lists all project aliases defined in the `[projects]` section of `config.toml`, 
 
 ### `/resume <id>`
 
-Resumes a previously created session by its ID. This restores the full conversation context from that session.
+Resumes a previously created session by its ID. This restores the full conversation context from that session and preserves the provider that session was using.
 
 ## Working Directory
 
@@ -76,6 +84,10 @@ infra = "~/projects/infrastructure"
 
 ## Model and Permissions
 
+### `/provider <claude|codex>`
+
+Switches the current chat to a different provider. This starts a fresh provider-native thread for the chat, but leaves the chat-scoped session record in place.
+
 ### `/mode <mode>`
 
 Sets the permission mode for the current session. Available modes:
@@ -88,12 +100,12 @@ Sets the permission mode for the current session. Available modes:
 | `bypassPermissions` | Auto-approve everything; permission broker disabled |
 
 ::: warning
-`bypassPermissions` gives Claude unrestricted shell and file access. Use with caution.
+`bypassPermissions` gives the current provider unrestricted shell and file access. Use with caution.
 :::
 
 ### `/model <name>`
 
-Switches the Claude model. Accepts any model the local `claude` CLI supports, such as `claude-opus-4-6`, `claude-sonnet-4-6`, or aliases like `opus` / `sonnet`.
+Switches the model for the current provider. For Claude this can be values like `claude-opus-4-6`; for Codex this can be values like `gpt-5-codex`.
 
 ## Configuration
 

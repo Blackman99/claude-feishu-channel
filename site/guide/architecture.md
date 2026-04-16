@@ -1,6 +1,6 @@
 # Architecture
 
-Claude Feishu Channel is built around a WebSocket connection to Feishu and a per-chat session model that drives the Claude Code CLI.
+Claude Feishu Channel is built around a WebSocket connection to Feishu and a per-chat session model that drives either Claude or Codex behind a shared Feishu orchestration layer.
 
 ## System Overview
 
@@ -17,7 +17,7 @@ FeishuGateway (event decryption, dedup, access control)
       |                    +-- plain text --> ClaudeSession.submit
       |                                        |
       |                                        v
-      |                                  SDK query (claude-agent-sdk)
+      |                              provider queryFn (Claude or Codex)
       |                                        |
       |                                        +-- tool_use --> PermissionBroker --> Feishu card
       |                                        +-- thinking --> Feishu card (streaming)
@@ -41,7 +41,7 @@ Incoming messages are routed through `parseInput`:
 
 ### ClaudeSession
 
-A per-chat state machine that manages the conversation with Claude Code. Each Feishu chat has at most one active session.
+A per-chat state machine that manages the conversation with the selected provider. Each Feishu chat has at most one active session record, with a sticky provider choice once selected.
 
 **State machine:**
 
@@ -53,9 +53,16 @@ idle --> generating --> idle
 ```
 
 - **idle** — waiting for user input. New messages are submitted immediately.
-- **generating** — Claude is processing. Incoming messages are queued and will be submitted once the current turn completes.
+- **generating** — the provider is processing. Incoming messages are queued and will be submitted once the current turn completes.
 
-The session drives the SDK query loop: it submits user text to the Claude CLI, then handles the stream of events (text chunks, tool use requests, thinking blocks) as they arrive.
+The session drives the provider runtime: it submits user text to the active provider adapter, then handles the stream of normalized events (text chunks, tool use requests, thinking blocks) as they arrive.
+
+The session also owns staged context mitigation before backend hard failures:
+
+1. warn when context usage is high
+2. compact the current provider thread if possible
+3. start a summarized fresh session that preserves unfinished work and key constraints
+4. keep the old backend-driven reset-and-retry path as the last fallback
 
 ### ClaudeSessionManager
 
@@ -64,17 +71,29 @@ Maps `chat_id` to `ClaudeSession` instances. Handles:
 - Creating new sessions on first contact from a chat.
 - Persisting session state to disk (`state.json`) for crash recovery.
 - Restoring sessions on process restart.
+- Preserving provider selection and provider-native resume IDs.
 - Pruning expired sessions based on `session_ttl_days`.
+
+### Provider Runtime
+
+The provider layer now sits between the session state machine and the SDK-specific transports:
+
+- **Claude** uses `@anthropic-ai/claude-agent-sdk`
+- **Codex** uses `@openai/codex-sdk`
+
+Both adapters normalize their run handles into the shared session/query contract so Feishu rendering, approvals, queueing, and persistence do not need provider-specific branches everywhere.
 
 ### FeishuPermissionBroker
 
 Manages the permission approval flow for tool calls:
 
-1. When Claude wants to use a tool (file write, shell command, etc.), the broker posts an interactive **permission card** to the Feishu group.
+1. When the active provider wants to use a tool (file write, shell command, etc.), the broker posts an interactive **permission card** to the Feishu group.
 2. The card shows the tool name and parameters, with Approve / Deny buttons.
 3. Only the user who sent the triggering message can click.
 4. If no response is received within `permission_timeout_seconds`, the request is auto-denied.
 5. A warning reminder is posted `permission_warn_before_seconds` before the deadline.
+
+Codex currently degrades mid-turn `acceptEdits` escalation to a no-op, but the surrounding Feishu approval flow and session model remain shared.
 
 ### CommandDispatcher
 
@@ -90,10 +109,10 @@ A typical message flows through the system like this:
 4. For plain text: **ClaudeSession.submit** is called.
    - If the session is **idle**, a new SDK query starts immediately.
    - If the session is **generating**, the message is queued.
-5. **Claude processes** the input. As events stream back:
+5. The selected provider processes the input. As events stream back:
    - **Text** chunks are assembled and rendered into a Feishu answer card (streaming updates).
    - **Thinking** blocks are sent as separate card messages (unless `hide_thinking` is enabled).
    - **Tool use** requests trigger the **PermissionBroker**, which posts an approval card.
 6. The user **approves or denies** the tool call via the Feishu card.
-7. The tool result is fed back to Claude, which continues generating.
+7. The tool result is fed back to the provider, which continues generating.
 8. When the turn completes, the session returns to **idle** and processes any queued messages.

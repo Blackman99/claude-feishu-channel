@@ -25,6 +25,7 @@
 - **Session persistence** — survives process restarts, auto-resumes conversations
 - **Queue & interrupt** — messages queue during generation; `!` prefix interrupts
 - **Interactive cards** — streaming status, tool activity, thinking blocks, permissions
+- **Staged context mitigation** — warn, compact, summarized fresh session, then hard 20MB fallback
 - **Runtime config** — `/config set` to tune behavior without restart
 
 ## Quick Start
@@ -82,6 +83,7 @@ Options:
 | `/new` | Start a new session (clear context) |
 | `/stop` | Interrupt current generation |
 | `/status` | Show session state, model, token usage |
+| `/context` | Show context window usage and mitigation status |
 | `/sessions` | List all known sessions |
 | `/projects` | List all configured project aliases |
 | `/resume <id>` | Resume a previous session |
@@ -164,6 +166,17 @@ FeishuGateway (event decryption, dedup, access control)
 - **`FeishuPermissionBroker`** — posts permission cards, tracks pending approvals, handles timeouts
 - **`CommandDispatcher`** — handles slash commands (`/new`, `/cd`, `/config set`, etc.)
 
+## Context Handling
+
+The bot now applies staged mitigation before it hits Claude's 20MB hard request limit:
+
+1. `warn` — notify that the session is getting large
+2. `compact` — clear the provider thread and continue the turn in-place when risk is high
+3. `summarized fresh session` — start a new provider thread with a continuation summary that preserves unfinished work and key constraints
+4. `hard reset fallback` — keep the old backend-driven `Request too large / max 20MB` reset-and-retry path as the last fallback
+
+Use `/context` to inspect current window usage and see the mitigation order reflected in user-facing output.
+
 ## Development
 
 ```bash
@@ -195,7 +208,6 @@ pnpm build
 
 ## Current Codex Limits
 
-- The Codex adapter is wired through `@openai/codex-sdk`, but this repo does not currently vendor or lock a tested SDK build in `pnpm-lock.yaml`.
 - Mid-turn `acceptEdits` escalation is still a provider-specific downgrade on Codex: `setPermissionMode()` is a safe no-op in the current adapter.
 
 ## License

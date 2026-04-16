@@ -33,16 +33,30 @@ cp config.example.toml ~/.claude-feishu-channel/config.toml
 The bot has full shell and file access to your machine. Always configure `allowed_open_ids` to restrict access.
 :::
 
+### `[agent]` — Shared Agent Defaults
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `default_provider` | `"claude"` | Default provider for new chats: `claude` or `codex` |
+| `default_cwd` | `"~/my-projects"` | Working directory for new sessions |
+| `default_permission_mode` | `"default"` | Permission mode: `default`, `acceptEdits`, `plan`, `bypassPermissions` |
+| `permission_timeout_seconds` | `300` | Seconds before a permission card auto-denies |
+| `permission_warn_before_seconds` | `60` | Seconds before timeout to post a reminder |
+| `auto_compact_threshold` | provider default | Provider-native compact hint threshold, when supported |
+
 ### `[claude]` — Claude Runtime Defaults
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `default_cwd` | `"~/my-projects"` | Working directory for new sessions |
-| `default_permission_mode` | `"default"` | Permission mode: `default`, `acceptEdits`, `plan`, `bypassPermissions` |
 | `default_model` | `"claude-opus-4-6"` | Model ID passed to the CLI's `--model` flag |
 | `cli_path` | `"claude"` | Path to the `claude` binary; resolves via `$PATH` by default |
-| `permission_timeout_seconds` | `300` | Seconds before a permission card auto-denies |
-| `permission_warn_before_seconds` | `60` | Seconds before timeout to post a reminder |
+
+### `[codex]` — Codex Runtime Defaults
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `default_model` | `"gpt-5-codex"` | Model ID passed to the Codex SDK |
+| `cli_path` | `"codex"` | Path to the `codex` binary; resolves via `$PATH` by default |
 
 ### `[render]` — Card Rendering Options
 
@@ -86,11 +100,13 @@ The following keys can be changed at runtime via `/config set` without restartin
 | `render.show_turn_stats` | Toggle turn statistics |
 | `render.inline_max_bytes` | Change inline content truncation limit |
 | `logging.level` | Change log verbosity |
-| `claude.default_model` | Switch the default model |
-| `claude.default_cwd` | Change the default working directory |
-| `claude.default_permission_mode` | Change the default permission mode |
-| `claude.permission_timeout_seconds` | Adjust permission timeout |
-| `claude.permission_warn_before_seconds` | Adjust the timeout warning threshold |
+| `agent.default_provider` | Change the default provider for new chats |
+| `agent.default_cwd` | Change the shared default working directory |
+| `agent.default_permission_mode` | Change the shared default permission mode |
+| `agent.permission_timeout_seconds` | Adjust permission timeout |
+| `agent.permission_warn_before_seconds` | Adjust the timeout warning threshold |
+| `claude.default_model` | Switch the default Claude model |
+| `codex.default_model` | Switch the default Codex model |
 
 ### The `--persist` Flag
 
@@ -111,3 +127,9 @@ By default, `/config set` only changes the value in memory for the current proce
 ::: tip
 Environment variables take precedence over config file values where applicable.
 :::
+
+## Provider Notes
+
+- Existing chats persist their chosen provider and resume with the same provider after restart.
+- Switching provider in chat with `/provider <claude|codex>` starts a fresh provider-native thread for that chat.
+- Codex currently treats mid-turn `acceptEdits` escalation as a no-op; all other shared session/config behavior stays aligned where possible.
