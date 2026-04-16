@@ -104,10 +104,10 @@ function runInput(text: string) {
   };
 }
 
-function runImageInput(text: string, imageDataUri: string) {
+function runImageInput(text: string, imageDataUris: readonly string[]) {
   return {
     ...runInput(text),
-    imageDataUri,
+    imageDataUris,
   };
 }
 
@@ -224,7 +224,7 @@ describe("ClaudeSession context assessment", () => {
     const imageDataUri = `data:image/png;base64,${"a".repeat(12_500_000)}`;
 
     const outcome = await h.session.submit(
-      runImageInput("describe image", imageDataUri),
+      runImageInput("describe image", [imageDataUri]),
       h.emit,
     );
     if (outcome.kind !== "started") throw new Error("unreachable");
@@ -337,7 +337,7 @@ describe("ClaudeSession context assessment", () => {
     const imageDataUri = `data:image/png;base64,${"a".repeat(19_000_000)}`;
 
     const outcome = await h.session.submit(
-      runImageInput("describe image", imageDataUri),
+      runImageInput("describe image", [imageDataUri]),
       h.emit,
     );
     if (outcome.kind === "rejected") throw new Error(outcome.reason);

@@ -88,8 +88,9 @@ export interface IncomingMessage {
   senderOpenId: string;
   /** Plain text content. Rich content is flattened to text in Phase 1. */
   text: string;
-  /** Attached image as a data URI when the source message is an image. */
-  imageDataUri?: string;
+  /** Attached images as data URIs. Undefined for text-only messages;
+   *  non-empty array when the source message carried one or more images. */
+  imageDataUris?: readonly string[];
   /** Receive timestamp (ms). */
   receivedAt: number;
 }

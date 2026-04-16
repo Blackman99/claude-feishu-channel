@@ -87,15 +87,15 @@ describe("formatInterruptDropAck", () => {
 });
 
 describe("IncomingMessage image support", () => {
-  it("supports imageDataUri on image messages", () => {
+  it("supports imageDataUris on image-bearing messages", () => {
     const msg: IncomingMessage = {
       messageId: "om_x",
       chatId: "oc_x",
       senderOpenId: "ou_x",
       text: "",
-      imageDataUri: "data:image/jpeg;base64,/9j/...",
+      imageDataUris: ["data:image/png;base64,iVBOR..."],
       receivedAt: Date.now(),
     };
-    expect(msg.imageDataUri).toMatch(/^data:image\//);
+    expect(msg.imageDataUris?.[0]).toMatch(/^data:image\//);
   });
 });

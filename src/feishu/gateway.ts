@@ -9,6 +9,8 @@ import type { AccessControl } from "../access.js";
 import type { FeishuCardV2 } from "./card-types.js";
 import { LruDedup } from "../util/dedup.js";
 import { FeishuClient } from "./client.js";
+import type { ReceiveV1Event } from "./types.js";
+import { translateReceiveEvent } from "./message-translator.js";
 
 export type MessageHandler = (msg: IncomingMessage) => Promise<void>;
 
@@ -47,21 +49,6 @@ export interface FeishuGatewayOptions {
   access: AccessControl;
   onMessage: MessageHandler;
   onCardAction: CardActionHandler;
-}
-
-interface ReceiveV1Event {
-  sender: {
-    sender_id: {
-      open_id: string;
-    };
-  };
-  message: {
-    message_id: string;
-    chat_id: string;
-    message_type: string;
-    content: string; // JSON-encoded
-    create_time: string;
-  };
 }
 
 export class FeishuGateway {
@@ -131,54 +118,11 @@ export class FeishuGateway {
         { open_id: event.sender.sender_id.open_id, action: decision.action },
         "Unauthorized sender",
       );
-      return; // Phase 1 only implements "ignore" — "reject" behavior is identical here
-    }
-
-    let text = "";
-    let imageDataUri: string | undefined;
-    const msgType = event.message.message_type;
-    if (msgType === "text") {
-      try {
-        const parsed = JSON.parse(event.message.content) as { text?: string };
-        text = parsed.text ?? "";
-      } catch (err) {
-        log.error({ err }, "Failed to parse text message content");
-        return;
-      }
-    } else if (msgType === "image") {
-      try {
-        const parsed = JSON.parse(event.message.content) as { image_key?: string };
-        const imageKey = parsed.image_key;
-        if (!imageKey) {
-          log.warn({ content: event.message.content }, "Image message has no image_key");
-          return;
-        }
-        const imageBytes = await this.feishuClient.downloadImage(
-          event.message.message_id,
-          imageKey,
-        );
-        imageDataUri = `data:image/jpeg;base64,${imageBytes.toString("base64")}`;
-        text = "[Image]";
-      } catch (err) {
-        log.warn({ err }, "Failed to download image — dropping message");
-        return;
-      }
-    } else {
-      log.info({ message_type: msgType }, "Unsupported message type, dropping");
       return;
     }
 
-    const incoming: IncomingMessage = {
-      messageId: event.message.message_id,
-      chatId: event.message.chat_id,
-      senderOpenId: event.sender.sender_id.open_id,
-      text,
-      ...(imageDataUri ? { imageDataUri } : {}),
-      // Feishu create_time is a stringified Unix milliseconds timestamp
-      // (confirmed via open.feishu.cn docs: "消息发送时间（毫秒）"). No
-      // conversion needed — IncomingMessage.receivedAt is also in ms.
-      receivedAt: Number(event.message.create_time),
-    };
+    const incoming = await translateReceiveEvent(event, this.feishuClient, log);
+    if (incoming === null) return;
 
     try {
       await this.onMessage(incoming);

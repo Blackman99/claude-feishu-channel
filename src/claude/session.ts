@@ -14,6 +14,7 @@ import {
   extractToolResultText,
   type ToolResultBlock,
 } from "../feishu/tool-result.js";
+import type { SupportedImageMime } from "../feishu/image-mime.js";
 
 /**
  * Error rejected on a QueuedInput's `done` promise when its turn was
@@ -139,7 +140,7 @@ interface QueuedInput {
   readonly text: string;
   readonly senderOpenId: string;
   readonly parentMessageId: string;
-  readonly imageDataUri?: string;
+  readonly imageDataUris?: readonly string[];
   readonly emit: EmitFn;
   readonly done: Deferred<void>;
   /** Monotonic id for logging — not exposed to the outside. */
@@ -156,10 +157,30 @@ interface QueuedInput {
 export type SubmitInput = CommandRouterResult & {
   senderOpenId: string;
   parentMessageId: string;
-  imageDataUri?: string;
+  imageDataUris?: readonly string[];
   /** Display language detected from the user's message text. */
   locale: import("../util/i18n.js").Locale;
 };
+
+/**
+ * Narrow a candidate MIME string from a data URI into the
+ * Claude-supported set. Falls back to `image/jpeg` when the candidate
+ * is missing or outside the accepted list; callers that want to
+ * diagnose the fallback should log at the call site.
+ */
+function narrowSupportedImageMime(
+  candidate: string | undefined,
+): SupportedImageMime {
+  switch (candidate) {
+    case "image/png":
+    case "image/gif":
+    case "image/webp":
+    case "image/jpeg":
+      return candidate;
+    default:
+      return "image/jpeg";
+  }
+}
 
 /**
  * Phase 4 ClaudeSession — explicit state machine with an input queue
@@ -270,7 +291,7 @@ export class ClaudeSession {
       text: input.text,
       senderOpenId: input.senderOpenId,
       parentMessageId: input.parentMessageId,
-      ...(input.imageDataUri ? { imageDataUri: input.imageDataUri } : {}),
+      ...(input.imageDataUris ? { imageDataUris: input.imageDataUris } : {}),
       emit,
       done: createDeferred<void>(),
       seq: this.nextSeq++,
@@ -666,26 +687,41 @@ export class ClaudeSession {
     return { level: "normal", tokenUsage, tokenWindow, estimatedBytes };
   }
 
-  private promptPreview(input: QueuedInput): string {
-    if (!input.imageDataUri) return input.text;
+  /**
+   * Resolve the user-facing text for an input. When an attachment-only
+   * message arrives (text is empty or the placeholder `[Image]`), this
+   * substitutes a singular/plural prompt that describes the attached
+   * images. Otherwise returns the original text unchanged.
+   */
+  private effectiveUserText(input: QueuedInput): string {
+    if (!input.imageDataUris || input.imageDataUris.length === 0) {
+      return input.text;
+    }
+    const isAttachmentOnly =
+      input.text === "[Image]" || input.text.trim().length === 0;
+    if (!isAttachmentOnly) return input.text;
+    return input.imageDataUris.length > 1
+      ? "What is in these images?"
+      : "What is in this image?";
+  }
 
-    const text =
-      input.text === "[Image]" || input.text.trim().length === 0
-        ? "What is in this image?"
-        : input.text;
-    return `${text}\n${input.imageDataUri}`;
+  private promptPreview(input: QueuedInput): string {
+    if (!input.imageDataUris || input.imageDataUris.length === 0) return input.text;
+    const text = this.effectiveUserText(input);
+    return [text, ...input.imageDataUris].join("\n");
   }
 
   private immediateRequestSummary(input: QueuedInput): string {
-    if (!input.imageDataUri) {
+    if (!input.imageDataUris || input.imageDataUris.length === 0) {
       return input.text.slice(0, 4_000);
     }
 
-    const text =
-      input.text === "[Image]" || input.text.trim().length === 0
-        ? "What is in this image?"
-        : input.text;
-    return `${text}\n[image attachment preserved for the next turn]`;
+    const text = this.effectiveUserText(input);
+    const count = input.imageDataUris.length;
+    const note = count === 1
+      ? "[image attachment preserved for the next turn]"
+      : `[${count} image attachments preserved for the next turn]`;
+    return `${text}\n${note}`;
   }
 
   private pruneCompletedTasks(tasks: RetainedTaskState[]): RetainedTaskState[] {
@@ -987,39 +1023,35 @@ export class ClaudeSession {
   private buildPrompt(
     input: QueuedInput,
   ): string | AsyncIterable<SDKUserMessage> {
-    if (!input.imageDataUri) {
+    if (!input.imageDataUris || input.imageDataUris.length === 0) {
       return input.text;
     }
 
-    const match = input.imageDataUri.match(/^data:(image\/[^;]+);base64,(.+)$/);
-    const mediaType = (() => {
-      switch (match?.[1]) {
-        case "image/png":
-        case "image/gif":
-        case "image/webp":
-          return match[1];
-        default:
-          return "image/jpeg";
+    const imageBlocks = input.imageDataUris.map((uri, index) => {
+      const match = uri.match(/^data:(image\/[^;]+);base64,(.+)$/);
+      if (!match) {
+        this.logger.warn(
+          { index, uriPrefix: uri.slice(0, 32) },
+          "Malformed image data URI; forwarding as-is with jpeg fallback",
+        );
       }
-    })();
-    const data = match?.[2] ?? input.imageDataUri;
-    const text =
-      input.text === "[Image]" || input.text.trim().length === 0
-        ? "What is in this image?"
-        : input.text;
+      const mediaType = narrowSupportedImageMime(match?.[1]);
+      const data = match?.[2] ?? uri;
+      return {
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: mediaType,
+          data,
+        },
+      };
+    });
+
+    const text = this.effectiveUserText(input);
+
     const message: SDKUserMessage["message"] = {
       role: "user",
-      content: [
-        {
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: mediaType,
-            data,
-          },
-        },
-        { type: "text", text },
-      ],
+      content: [...imageBlocks, { type: "text", text }],
     };
 
     return {
