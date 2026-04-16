@@ -6,7 +6,6 @@ import type {
 import { formatToolParams } from "./tool-formatters.js";
 import { sanitizeForFeishuMarkdown, truncateForInline } from "./truncate.js";
 import { t, type Locale } from "../util/i18n.js";
-import type { SessionRecord } from "../persistence/state-store.js";
 
 /**
  * Sanitize then truncate. The order matters: sanitization shortens
@@ -470,10 +469,20 @@ export function buildProjectsCard(
 
 // ── Sessions card ──────────────────────────────────────────────────
 
+type SessionCardRecord = {
+  cwd: string;
+  createdAt: string;
+  lastActiveAt: string;
+  model?: string;
+  provider?: "claude" | "codex";
+  providerSessionId?: string;
+  claudeSessionId?: string;
+};
+
 export interface SessionEntry {
   chatId: string;
   projectAlias?: string;
-  record: SessionRecord;
+  record: SessionCardRecord;
   active: boolean;
 }
 

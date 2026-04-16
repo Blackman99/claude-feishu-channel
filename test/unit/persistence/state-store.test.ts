@@ -40,7 +40,8 @@ describe("StateStore", () => {
       lastCleanShutdown: false,
       sessions: {
         chat_a: {
-          claudeSessionId: "sid-1",
+          provider: "claude",
+          providerSessionId: "sid-1",
           cwd: "/tmp/foo",
           createdAt: "2026-04-10T10:00:00Z",
           lastActiveAt: "2026-04-10T10:30:00Z",
@@ -52,10 +53,12 @@ describe("StateStore", () => {
     const store2 = new StateStore(statePath);
     const state = await store2.load();
     expect(state.lastCleanShutdown).toBe(false);
-    expect(state.sessions.chat_a?.claudeSessionId).toBe("sid-1");
+    expect(state.sessions.chat_a?.provider).toBe("claude");
+    expect(state.sessions.chat_a?.providerSessionId).toBe("sid-1");
+    expect("claudeSessionId" in state.sessions.chat_a!).toBe(false);
   });
 
-  it("load() migrates v1 state to v2 by adding activeProjects", async () => {
+  it("load() migrates v1 state and normalizes legacy claudeSessionId records", async () => {
     // Write a raw v1 JSON file directly (simulating an old state file on disk).
     const { writeFileSync } = await import("node:fs");
     writeFileSync(
@@ -78,7 +81,46 @@ describe("StateStore", () => {
     const state = await store.load();
     expect(state.version).toBe(2);
     expect(state.activeProjects).toEqual({});
-    expect(state.sessions.chat_a?.claudeSessionId).toBe("sid-legacy");
+    expect(state.sessions.chat_a?.provider).toBe("claude");
+    expect(state.sessions.chat_a?.providerSessionId).toBe("sid-legacy");
+    expect("claudeSessionId" in state.sessions.chat_a!).toBe(false);
+  });
+
+  it("load() skips malformed legacy records with empty claudeSessionId", async () => {
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        version: 2,
+        lastCleanShutdown: true,
+        sessions: {
+          valid_chat: {
+            claudeSessionId: "sid-valid",
+            cwd: "/tmp/valid",
+            createdAt: "2026-04-10T10:00:00Z",
+            lastActiveAt: "2026-04-10T10:30:00Z",
+          },
+          invalid_chat: {
+            claudeSessionId: "",
+            cwd: "/tmp/invalid",
+            createdAt: "2026-04-10T10:00:00Z",
+            lastActiveAt: "2026-04-10T10:30:00Z",
+          },
+        },
+        activeProjects: {},
+      }),
+      "utf8",
+    );
+
+    const state = await new StateStore(statePath).load();
+    expect(Object.keys(state.sessions)).toEqual(["valid_chat"]);
+    expect(state.sessions.valid_chat).toEqual({
+      provider: "claude",
+      providerSessionId: "sid-valid",
+      cwd: "/tmp/valid",
+      createdAt: "2026-04-10T10:00:00Z",
+      lastActiveAt: "2026-04-10T10:30:00Z",
+    });
   });
 
   it("save() writes atomically via a .tmp rename", async () => {

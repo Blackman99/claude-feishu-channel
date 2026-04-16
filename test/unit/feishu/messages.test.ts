@@ -81,7 +81,7 @@ describe("formatStopAck", () => {
 describe("formatInterruptDropAck", () => {
   it("renders a neutral 'your message was dropped' ack", () => {
     expect(formatInterruptDropAck()).toBe(
-      "⚠️ 你之前的消息在被 Claude 处理前已被后续指令打断丢弃",
+      "⚠️ 你之前的消息在被当前 agent 处理前已被后续指令打断丢弃",
     );
   });
 });

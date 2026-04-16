@@ -26,7 +26,7 @@ const STRINGS = {
       `📥 已加入队列 #${position}（当前有一个轮次在运行，发 \`/stop\` 可取消）`,
     stopped: "🛑 已停止",
     dropped:
-      "⚠️ 你之前的消息在被 Claude 处理前已被后续指令打断丢弃",
+      "⚠️ 你之前的消息在被当前 agent 处理前已被后续指令打断丢弃",
 
     // ── cards.ts ─────────────────────────────────────────────────
     statusProcessing: "⏳ 正在处理...",
@@ -41,7 +41,7 @@ const STRINGS = {
     // ── permission-card.ts ───────────────────────────────────────
     permCardHeader: (tool: string) => `🔐 权限请求 · ${tool}`,
     permCardPrompt: (tool: string) =>
-      `Claude 要调用工具 **${tool}**：`,
+      `当前 agent 要调用工具 **${tool}**：`,
     permBtnAllow: "✅ 允许",
     permBtnDeny: "❌ 拒绝",
     permBtnAllowTurn: "✅ 本轮 acceptEdits",
@@ -77,6 +77,12 @@ const STRINGS = {
     cdTimedOut: "⏰ 切换工作目录已超时",
 
     // ── session.ts (context reset) ────────────────────────────────
+    contextWarningRuntime:
+      "⚠️ 当前会话上下文已接近上限，系统会优先尝试压缩后继续。",
+    contextCompacting:
+      "🗜️ 当前会话上下文过大，系统正在先尝试压缩并继续本轮请求。",
+    contextSummarizedReset:
+      "⚠️ 当前会话上下文已过大，系统已提炼未完成内容并切到新会话后继续本轮请求。",
     contextReset:
       "⚠️ 对话上下文过大（超过 20MB 限制），已自动开启新会话重试您的消息。之前的对话历史已清除。",
 
@@ -102,8 +108,9 @@ const STRINGS = {
     helpProject: "  /project <别名> — 切换到已配置项目",
     helpProjects: "  /projects       — 查看所有已配置项目",
     helpSectionMode: "模型与权限",
+    helpProvider: "  /provider <claude|codex> — 切换当前会话提供方",
     helpMode: "  /mode <模式>  — 设置权限模式（default / acceptEdits / plan / bypassPermissions）",
-    helpModel: "  /model <名称> — 切换 Claude 模型",
+    helpModel: "  /model <名称> — 切换当前 provider 的模型",
     helpSectionConfig: "配置与帮助",
     helpConfigShow: "  /config show  — 显示当前配置",
     helpConfigSet: "  /config set <key> <value> — 运行时修改配置",
@@ -113,6 +120,7 @@ const STRINGS = {
     helpMemoryAdd: "  /memory add <文本> — 追加一条记忆到项目 CLAUDE.md",
     helpHelp: "  /help         — 显示此帮助",
     statusState: (v: string) => `状态：${v}`,
+    statusProvider: (v: string) => `提供方：${v}`,
     statusCwd: (v: string) => `工作目录：${v}`,
     statusPermMode: (v: string) => `权限模式：${v}`,
     statusModel: (v: string) => `模型：${v}`,
@@ -143,12 +151,14 @@ const STRINGS = {
     contextUsed: (tokens: number) => `已用：${tokens.toLocaleString()} tokens`,
     contextWindow: (tokens: number) => `窗口：${tokens.toLocaleString()} tokens`,
     contextPercent: (pct: string) => `占用：${pct}%`,
-    contextWarning: "⚠️ 上下文已超过 80%，建议发 /new 开新会话",
+    contextWarning: "⚠️ 上下文已超过 80%，系统会开始分级控制以避免撞上 20MB 限制。",
+    contextStages: "系统处理顺序：预警 -> 压缩 -> 提炼后新会话 -> 最后兜底重置",
     sessionBusy:
       "会话正在执行中，请先发送 /stop 或等待完成",
     newSessionStarted: "新会话已开始，下条消息将开启新对话",
     compactStarted:
       "🗜️ 会话已重置。auto-compact 已配置时将在上下文满时自动触发；也可通过 /config set claude.auto_compact_threshold 0.8 开启。",
+    providerSwitched: (provider: string) => `提供方已切换为 ${provider}，当前会话上下文已重置`,
     modeSwitched: (mode: string) => `权限模式已切换为 ${mode}`,
     modelSwitched: (model: string) => `模型已切换为 ${model}`,
     cdNotDir: (path: string) => `路径不是目录: ${path}`,
@@ -195,7 +205,7 @@ const STRINGS = {
       `📥 Queued as #${position} (a turn is running — send \`/stop\` to cancel)`,
     stopped: "🛑 Stopped",
     dropped:
-      "⚠️ Your previous message was dropped before Claude could process it",
+      "⚠️ Your previous message was dropped before the current agent could process it",
 
     // ── cards.ts ─────────────────────────────────────────────────
     statusProcessing: "⏳ Processing...",
@@ -210,7 +220,7 @@ const STRINGS = {
     // ── permission-card.ts ───────────────────────────────────────
     permCardHeader: (tool: string) => `🔐 Permission Request · ${tool}`,
     permCardPrompt: (tool: string) =>
-      `Claude wants to call **${tool}**:`,
+      `The current agent wants to call **${tool}**:`,
     permBtnAllow: "✅ Allow",
     permBtnDeny: "❌ Deny",
     permBtnAllowTurn: "✅ Accept (this turn)",
@@ -247,6 +257,12 @@ const STRINGS = {
     cdTimedOut: "⏰ Directory change timed out",
 
     // ── session.ts (context reset) ────────────────────────────────
+    contextWarningRuntime:
+      "⚠️ Context is nearing the limit. The session will try compacting first and continue.",
+    contextCompacting:
+      "🗜️ Context is large enough that the session is compacting before continuing this turn.",
+    contextSummarizedReset:
+      "⚠️ Context is too large to continue safely. The session condensed unfinished state and continued in a fresh thread.",
     contextReset:
       "⚠️ Conversation context too large (exceeded 20MB limit). Automatically started a new session to retry your message. Previous conversation history has been cleared.",
 
@@ -272,9 +288,10 @@ const STRINGS = {
     helpProject: "  /project <alias> — Switch to a configured project",
     helpProjects: "  /projects       — List all configured projects",
     helpSectionMode: "Model & permissions",
+    helpProvider: "  /provider <claude|codex> — Switch the current session provider",
     helpMode:
       "  /mode <mode>  — Set permission mode (default / acceptEdits / plan / bypassPermissions)",
-    helpModel: "  /model <name> — Switch Claude model",
+    helpModel: "  /model <name> — Switch the current provider model",
     helpSectionConfig: "Config & help",
     helpConfigShow: "  /config show  — Show current config",
     helpConfigSet: "  /config set <key> <value> — Change config at runtime",
@@ -284,6 +301,7 @@ const STRINGS = {
     helpMemoryAdd: "  /memory add <text> — Append an entry to project CLAUDE.md",
     helpHelp: "  /help         — Show this help",
     statusState: (v: string) => `State: ${v}`,
+    statusProvider: (v: string) => `Provider: ${v}`,
     statusCwd: (v: string) => `Working dir: ${v}`,
     statusPermMode: (v: string) => `Permission mode: ${v}`,
     statusModel: (v: string) => `Model: ${v}`,
@@ -316,12 +334,16 @@ const STRINGS = {
     contextWindow: (tokens: number) => `Window: ${tokens.toLocaleString()} tokens`,
     contextPercent: (pct: string) => `Usage: ${pct}%`,
     contextWarning:
-      "⚠️ Context is over 80% full — consider /new to start fresh",
+      "⚠️ Context is over 80% full. The session will start staged mitigation before it hits the 20MB limit.",
+    contextStages:
+      "Mitigation order: warn -> compact -> summarized new session -> hard reset fallback",
     sessionBusy:
       "A turn is in progress — send /stop or wait for it to finish",
     newSessionStarted: "New session started — next message begins a fresh conversation",
     compactStarted:
       "🗜️ Session reset. When auto-compact is configured it triggers automatically near the context limit; enable via /config set claude.auto_compact_threshold 0.8.",
+    providerSwitched: (provider: string) =>
+      `Provider switched to ${provider}; the current session context has been reset.`,
     modeSwitched: (mode: string) => `Permission mode set to ${mode}`,
     modelSwitched: (model: string) => `Model switched to ${model}`,
     cdNotDir: (path: string) => `Not a directory: ${path}`,

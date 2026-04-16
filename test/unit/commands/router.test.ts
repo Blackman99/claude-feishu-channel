@@ -208,6 +208,31 @@ describe("parseInput — Phase 6 commands", () => {
     });
   });
 
+  it("/provider codex → command provider", () => {
+    expect(parseInput("/provider codex")).toEqual({
+      kind: "command",
+      cmd: { name: "provider", provider: "codex" },
+    });
+  });
+
+  it("/provider claude → command provider", () => {
+    expect(parseInput("/provider claude")).toEqual({
+      kind: "command",
+      cmd: { name: "provider", provider: "claude" },
+    });
+  });
+
+  it("/provider without valid argument → unknown_command", () => {
+    expect(parseInput("/provider")).toEqual({
+      kind: "unknown_command",
+      raw: "/provider",
+    });
+    expect(parseInput("/provider gemini")).toEqual({
+      kind: "unknown_command",
+      raw: "/provider gemini",
+    });
+  });
+
   it("/status → command status", () => {
     expect(parseInput("/status")).toEqual({
       kind: "command",

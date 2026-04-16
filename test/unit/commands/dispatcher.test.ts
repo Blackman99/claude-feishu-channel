@@ -38,6 +38,13 @@ const BASE_CONFIG: AppConfig = {
     allowedOpenIds: ["ou_alice"],
     unauthorizedBehavior: "ignore",
   },
+  agent: {
+    defaultProvider: "claude",
+    defaultCwd: "/tmp/cfc-test",
+    defaultPermissionMode: "default",
+    permissionTimeoutMs: 300_000,
+    permissionWarnBeforeMs: 60_000,
+  },
   claude: {
     defaultCwd: "/tmp/cfc-test",
     defaultPermissionMode: "default",
@@ -45,6 +52,10 @@ const BASE_CONFIG: AppConfig = {
     cliPath: "claude",
     permissionTimeoutMs: 300_000,
     permissionWarnBeforeMs: 60_000,
+  },
+  codex: {
+    defaultModel: "gpt-5-codex",
+    cliPath: "codex",
   },
   render: {
     inlineMaxBytes: 8192,
@@ -174,7 +185,7 @@ describe("CommandDispatcher — simple commands", () => {
   });
 
   describe("/status", () => {
-    it("replies with idle state, cwd, mode, and model", async () => {
+    it("replies with idle state, provider, cwd, mode, and model", async () => {
       const { feishu, sessionManager, dispatcher } = makeHarness();
 
       // Create the session first
@@ -185,9 +196,50 @@ describe("CommandDispatcher — simple commands", () => {
       expect(feishu.replyText).toHaveBeenCalledOnce();
       const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
       expect(text).toContain("idle");
+      expect(text).toContain("claude");
       expect(text).toContain("/tmp/cfc-test"); // defaultCwd
       expect(text).toContain("default");       // defaultPermissionMode
       expect(text).toContain("claude-opus-4-6"); // defaultModel
+    });
+
+    it("uses the effective provider after /provider switch", async () => {
+      const { feishu, sessionManager, dispatcher } = makeHarness();
+
+      await dispatcher.dispatch({ name: "provider", provider: "codex" }, CTX);
+      expect(sessionManager.getEffectiveProvider(CTX.chatId)).toBe("codex");
+
+      (feishu.replyText as ReturnType<typeof vi.fn>).mockClear();
+      await dispatcher.dispatch({ name: "status" }, CTX);
+
+      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+      expect(text).toContain("codex");
+      expect(text).toContain("gpt-5-codex");
+    });
+
+    it("reports the restored provider from a stale codex session", async () => {
+      const { feishu, sessionManager, dispatcher } = makeHarness();
+
+      sessionManager.setStaleRecord("oc_restore_status", {
+        provider: "codex",
+        providerSessionId: "ses_restore_status",
+        cwd: "/projects/codex-status",
+        createdAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString(),
+        permissionMode: "default",
+        model: "gpt-5-codex",
+      });
+
+      await dispatcher.dispatch(
+        { name: "resume", target: "oc_restore_status" },
+        CTX,
+      );
+
+      (feishu.replyText as ReturnType<typeof vi.fn>).mockClear();
+      await dispatcher.dispatch({ name: "status" }, CTX);
+
+      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+      expect(text).toContain("codex");
+      expect(text).toContain("gpt-5-codex");
     });
   });
 
@@ -210,10 +262,24 @@ describe("CommandDispatcher — simple commands", () => {
       expect(text).toContain("上下文窗口");
       expect(text).toContain("200,000");
     });
+
+    it("explains staged mitigation in /context output when usage is high", async () => {
+      const { feishu, dispatcher, sessionManager } = makeHarness();
+      const session = sessionManager.getOrCreate(CTX.chatId) as any;
+      session.totalInputTokens = 165_000;
+
+      await dispatcher.dispatch({ name: "context" }, CTX);
+
+      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+      expect(text).toContain("预警");
+      expect(text).toContain("压缩");
+      expect(text).toContain("提炼后新会话");
+      expect(text).toContain("兜底重置");
+    });
   });
 
   describe("/config show", () => {
-    it("shows appId but masks appSecret with ***", async () => {
+    it("shows appId, [agent], [claude], and [codex], but masks appSecret with ***", async () => {
       const { feishu, dispatcher } = makeHarness();
 
       await dispatcher.dispatch({ name: "config_show" }, CTX);
@@ -221,6 +287,9 @@ describe("CommandDispatcher — simple commands", () => {
       expect(feishu.replyText).toHaveBeenCalledOnce();
       const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
       expect(text).toContain("cli_test");
+      expect(text).toContain("[agent]");
+      expect(text).toContain("[claude]");
+      expect(text).toContain("[codex]");
       expect(text).not.toContain("secret_test_value");
       expect(text).toContain("***");
     });
@@ -325,6 +394,55 @@ describe("CommandDispatcher — /model", () => {
     expect(text).toContain("执行中");
     // Model should NOT have been changed
     expect(session.getStatus().model).not.toBe("claude-haiku-3-5");
+  });
+
+  it("does not switch provider implicitly", async () => {
+    const { sessionManager, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch({ name: "provider", provider: "codex" }, CTX);
+    await dispatcher.dispatch({ name: "model", model: "gpt-5-codex-mini" }, CTX);
+
+    expect(sessionManager.getEffectiveProvider(CTX.chatId)).toBe("codex");
+  });
+});
+
+describe("CommandDispatcher — /provider", () => {
+  it("sets provider override on idle session, resets the session, and replies", async () => {
+    const { feishu, sessionManager, dispatcher } = makeHarness();
+
+    const before = sessionManager.getOrCreate(CTX.chatId);
+    expect(sessionManager.getEffectiveProvider(CTX.chatId)).toBe("claude");
+
+    await dispatcher.dispatch({ name: "provider", provider: "codex" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("codex");
+    expect(sessionManager.getEffectiveProvider(CTX.chatId)).toBe("codex");
+
+    const after = sessionManager.getOrCreate(CTX.chatId);
+    expect(after).not.toBe(before);
+    expect(after.getStatus().model).toBe("gpt-5-codex");
+  });
+
+  it("rejects when session is not idle", async () => {
+    const { feishu, sessionManager, dispatcher } = makeBlockingHarness();
+
+    const session = sessionManager.getOrCreate(CTX.chatId);
+    const noopEmit = async () => {};
+    session.submit(
+      { kind: "run", text: "hello", senderOpenId: "ou_alice", parentMessageId: "om_p0", locale: "zh" },
+      noopEmit,
+    );
+    await flushMicrotasks();
+    expect(session.getState()).toBe("generating");
+
+    await dispatcher.dispatch({ name: "provider", provider: "codex" }, CTX);
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("执行中");
+    expect(sessionManager.getEffectiveProvider(CTX.chatId)).toBe("claude");
   });
 });
 
@@ -713,6 +831,30 @@ describe("CommandDispatcher — /resume", () => {
     expect(feishu.replyText).toHaveBeenCalledOnce();
     const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("已恢复会话");
+  });
+
+  it("preserves provider across resume flows", async () => {
+    const { feishu, sessionManager, dispatcher } = makeHarness();
+
+    sessionManager.setStaleRecord("oc_resume_codex", {
+      provider: "codex",
+      providerSessionId: "ses_resume_codex",
+      cwd: "/projects/codex-resume",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+      permissionMode: "default",
+      model: "gpt-5-codex",
+    });
+
+    await dispatcher.dispatch({ name: "resume", target: "oc_resume_codex" }, CTX);
+
+    expect(sessionManager.getEffectiveProvider(CTX.chatId)).toBe("codex");
+    expect(sessionManager.getOrCreate(CTX.chatId).getStatus().provider).toBe("codex");
+
+    (feishu.replyText as ReturnType<typeof vi.fn>).mockClear();
+    await dispatcher.dispatch({ name: "status" }, CTX);
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("codex");
   });
 });
 

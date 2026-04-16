@@ -1,11 +1,8 @@
 import type { McpServerConfig, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AppConfig } from "../types.js";
+import type { ProviderRunHandle, ProviderRunOptions } from "../agent/provider.js";
 import type { SDKMessageLike } from "./session.js";
 
-export interface ClaudeQueryOptions {
-  cwd: string;
-  model: string;
-  permissionMode: AppConfig["claude"]["defaultPermissionMode"];
+export interface ClaudeQueryOptions extends ProviderRunOptions {
   settingSources: readonly ("project" | "user" | "local")[];
   /**
    * In-process MCP servers to register for this turn. Phase 5 uses a
@@ -21,15 +18,6 @@ export interface ClaudeQueryOptions {
    * version — only the `mcp__feishu__ask_user` shim.
   */
   disallowedTools?: readonly string[];
-  /** Fraction of context fill that triggers Claude auto-compaction. */
-  autoCompactThreshold?: number;
-  /**
-   * SDK session ID to resume. When set, the SDK continues an
-   * existing conversation rather than starting a new one. Phase 7
-   * sets this from the captured `session_id` so turns after a
-   * restart resume the same Claude conversation.
-   */
-  resume?: string;
 }
 
 /**
@@ -78,11 +66,7 @@ export type CanUseToolFn = (
  * uses are auto-allowed without re-prompting. Idempotent; calling
  * with the current mode is a no-op.
  */
-export interface QueryHandle {
-  readonly messages: AsyncIterable<SDKMessageLike>;
-  interrupt(): Promise<void>;
-  setPermissionMode(mode: ClaudeQueryOptions["permissionMode"]): void;
-}
+export interface QueryHandle extends ProviderRunHandle<SDKMessageLike> {}
 
 /**
  * Structural signature of the function that creates a per-turn

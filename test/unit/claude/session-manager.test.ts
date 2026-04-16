@@ -19,7 +19,9 @@ const SILENT_LOGGER = createLogger({ level: "error", pretty: false });
 const BASE_CLAUDE_CONFIG = {
   defaultCwd: "/tmp/cfc-test",
   defaultPermissionMode: "default" as const,
+  defaultProvider: "claude" as const,
   defaultModel: "claude-opus-4-6",
+  codexDefaultModel: "gpt-5-codex",
   cliPath: "claude",
   permissionTimeoutMs: 300_000,
   permissionWarnBeforeMs: 60_000,
@@ -148,6 +150,114 @@ describe("ClaudeSessionManager", () => {
     const session = mgr.getOrCreate("oc_1");
     expect(session.getStatus().cwd).toBe("/tmp/cfc-test");
   });
+
+  it("getEffectiveProvider falls back to global default provider", () => {
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+    });
+
+    expect(mgr.getEffectiveProvider("oc_1")).toBe("claude");
+  });
+
+  it("setProviderOverride changes the effective provider and seeds the provider default model", () => {
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+    });
+
+    mgr.setProviderOverride("oc_1", "codex");
+
+    expect(mgr.getEffectiveProvider("oc_1")).toBe("codex");
+    expect(mgr.getOrCreate("oc_1").getStatus().model).toBe("gpt-5-codex");
+  });
+
+  it("active codex-selected session reports codex as its shared status provider", () => {
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+    });
+
+    mgr.setProviderOverride("oc_codex", "codex");
+
+    expect(mgr.getOrCreate("oc_codex").getStatus().provider).toBe("codex");
+  });
+
+  it("uses the selected provider queryFn when the global default provider is codex", async () => {
+    const seenProviders: string[] = [];
+    const claudeQueryFn: QueryFn = () => ({
+      messages: {
+        async *[Symbol.asyncIterator](): AsyncGenerator<SDKMessageLike, void> {
+          seenProviders.push("claude");
+          yield { type: "result", subtype: "success", result: "" };
+        },
+      },
+      interrupt: async () => {},
+      setPermissionMode: () => {},
+    });
+    const codexQueryFn: QueryFn = () => ({
+      messages: {
+        async *[Symbol.asyncIterator](): AsyncGenerator<SDKMessageLike, void> {
+          seenProviders.push("codex");
+          yield { type: "result", subtype: "success", result: "" };
+        },
+      },
+      interrupt: async () => {},
+      setPermissionMode: () => {},
+    });
+
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: claudeQueryFn,
+      providerQueryFns: {
+        claude: claudeQueryFn,
+        codex: codexQueryFn,
+      },
+      providerConfigs: {
+        claude: BASE_CLAUDE_CONFIG,
+        codex: {
+          defaultModel: "gpt-5-codex",
+          cliPath: "codex",
+        },
+      },
+      defaultProvider: "codex",
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+    });
+
+    const renderer = new SpyRenderer();
+    const outcome = await mgr.getOrCreate("oc_global_codex").submit(
+      {
+        kind: "run",
+        text: "use codex",
+        senderOpenId: "ou_user",
+        parentMessageId: "om_parent",
+        locale: "en",
+      },
+      renderer.emit,
+    );
+    expect(outcome.kind).not.toBe("rejected");
+    if (outcome.kind === "rejected") {
+      throw new Error(outcome.reason);
+    }
+    await outcome.done;
+
+    expect(seenProviders).toEqual(["codex"]);
+  });
 });
 
 // --- Persistence tests ---
@@ -156,7 +266,8 @@ describe("ClaudeSessionManager — Persistence startup", () => {
   it("startupLoad populates staleRecords from state.sessions", async () => {
     const store = new FakeStateStore();
     const record: SessionRecord = {
-      claudeSessionId: "ses_abc",
+      provider: "claude",
+      providerSessionId: "ses_abc",
       cwd: "/projects/foo",
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
@@ -183,7 +294,7 @@ describe("ClaudeSessionManager — Persistence startup", () => {
     expect(all).toHaveLength(1);
     expect(all[0]!.chatId).toBe("oc_chat1");
     expect(all[0]!.active).toBe(false);
-    expect(all[0]!.record.claudeSessionId).toBe("ses_abc");
+    expect(all[0]!.record.providerSessionId).toBe("ses_abc");
   });
 
   it("startupLoad prunes sessions older than TTL", async () => {
@@ -191,7 +302,8 @@ describe("ClaudeSessionManager — Persistence startup", () => {
 
     // One recent, one expired (35 days ago)
     const recent: SessionRecord = {
-      claudeSessionId: "ses_recent",
+      provider: "claude",
+      providerSessionId: "ses_recent",
       cwd: "/projects/foo",
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
@@ -199,7 +311,8 @@ describe("ClaudeSessionManager — Persistence startup", () => {
       model: "claude-opus-4-6",
     };
     const expired: SessionRecord = {
-      claudeSessionId: "ses_expired",
+      provider: "claude",
+      providerSessionId: "ses_expired",
       cwd: "/projects/bar",
       createdAt: new Date(Date.now() - 35 * 86400_000).toISOString(),
       lastActiveAt: new Date(Date.now() - 35 * 86400_000).toISOString(),
@@ -230,7 +343,8 @@ describe("ClaudeSessionManager — Persistence startup", () => {
   it("getOrCreate uses stale record cwd/mode/model/sessionId", async () => {
     const store = new FakeStateStore();
     const record: SessionRecord = {
-      claudeSessionId: "ses_stale",
+      provider: "claude",
+      providerSessionId: "ses_stale",
       cwd: "/projects/stale-cwd",
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
@@ -253,16 +367,75 @@ describe("ClaudeSessionManager — Persistence startup", () => {
 
     const session = mgr.getOrCreate("oc_stale");
     const status = session.getStatus();
+    expect(status.provider).toBe("claude");
     expect(status.cwd).toBe("/projects/stale-cwd");
     expect(status.permissionMode).toBe("acceptEdits");
     expect(status.model).toBe("claude-sonnet-4-20250514");
-    expect(status.claudeSessionId).toBe("ses_stale");
+    expect(status.providerSessionId).toBe("ses_stale");
+  });
+
+  it("stale persisted provider wins over an explicit provider override", async () => {
+    const store = new FakeStateStore();
+    store.state.sessions["oc_stale_provider"] = {
+      provider: "claude",
+      providerSessionId: "ses_stale_provider",
+      cwd: "/projects/stale-provider",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+      permissionMode: "default",
+      model: "claude-opus-4-6",
+    };
+
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+      stateStore: store as unknown as StateStore,
+    });
+
+    await mgr.startupLoad();
+    mgr.setProviderOverride("oc_stale_provider", "codex");
+
+    expect(mgr.getEffectiveProvider("oc_stale_provider")).toBe("claude");
+  });
+
+  it("restored stale session retains its provider after stale record consumption", async () => {
+    const store = new FakeStateStore();
+    store.state.sessions["oc_restore_codex"] = {
+      provider: "codex",
+      providerSessionId: "ses_restore_codex",
+      cwd: "/projects/codex",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+      permissionMode: "default",
+      model: "gpt-5-codex",
+    };
+
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+      stateStore: store as unknown as StateStore,
+    });
+
+    await mgr.startupLoad();
+    const session = mgr.getOrCreate("oc_restore_codex");
+
+    expect(session.getStatus().provider).toBe("codex");
+    expect(mgr.getEffectiveProvider("oc_restore_codex")).toBe("codex");
   });
 
   it("cwdOverride takes priority over stale record cwd", async () => {
     const store = new FakeStateStore();
     const record: SessionRecord = {
-      claudeSessionId: "ses_ov",
+      provider: "claude",
+      providerSessionId: "ses_ov",
       cwd: "/projects/stale-cwd",
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
@@ -347,9 +520,66 @@ describe("ClaudeSessionManager — Save triggers", () => {
     // saveNow should have been called at least once after session_id captured
     expect(store.saveCount).toBeGreaterThan(saveCountBefore);
     // The saved state should contain the session with the session_id
-    expect(store.lastSaved?.sessions["oc_sid"]?.claudeSessionId).toBe(
+    expect(store.lastSaved?.sessions["oc_sid"]?.providerSessionId).toBe(
       "ses_new123",
     );
+  });
+
+  it("persists override-only sessions before a providerSessionId is captured", async () => {
+    const store = new FakeStateStore();
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+      stateStore: store as unknown as StateStore,
+    });
+
+    const session = mgr.getOrCreate("oc_override_only");
+    session.setProvider("codex");
+    session.setModelOverride("gpt-5-codex-mini");
+    session.setPermissionModeOverride("plan");
+
+    const saveCountBefore = store.saveCount;
+    mgr.persistNow();
+    await flushMicrotasks();
+
+    expect(store.saveCount).toBeGreaterThan(saveCountBefore);
+    expect(store.lastSaved?.sessions["oc_override_only"]).toEqual({
+      provider: "codex",
+      cwd: "/tmp/cfc-test",
+      createdAt: expect.any(String),
+      lastActiveAt: expect.any(String),
+      permissionMode: "plan",
+      model: "gpt-5-codex-mini",
+    });
+  });
+
+  it("persists codex as the selected provider for an active session", async () => {
+    const store = new FakeStateStore();
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+      stateStore: store as unknown as StateStore,
+    });
+
+    mgr.setProviderOverride("oc_codex_persist", "codex");
+    const session = mgr.getOrCreate("oc_codex_persist");
+    session.setProviderSessionId("ses_codex_persist");
+
+    const saveCountBefore = store.saveCount;
+    mgr.persistNow();
+    await flushMicrotasks();
+
+    expect(store.saveCount).toBeGreaterThan(saveCountBefore);
+    expect(store.lastSaved?.sessions["oc_codex_persist"]?.provider).toBe("codex");
+    expect(store.lastSaved?.sessions["oc_codex_persist"]?.providerSessionId).toBe("ses_codex_persist");
   });
 
   it("delete triggers immediate save", async () => {
@@ -464,7 +694,7 @@ describe("ClaudeSessionManager — Save triggers", () => {
 });
 
 describe("ClaudeSessionManager — Query methods", () => {
-  it("findSession by claudeSessionId in active sessions", async () => {
+  it("findSession by providerSessionId in active sessions", async () => {
     const store = new FakeStateStore();
     const fakes: FakeQueryHandle[] = [];
     const queryFn: QueryFn = (params) => {
@@ -518,10 +748,10 @@ describe("ClaudeSessionManager — Query methods", () => {
     const found = mgr.findSession("ses_findme");
     expect(found).toBeDefined();
     expect(found!.chatId).toBe("oc_find");
-    expect(found!.record.claudeSessionId).toBe("ses_findme");
+    expect(found!.record.providerSessionId).toBe("ses_findme");
   });
 
-  it("findSession by chatId in active sessions", () => {
+  it("findSession by chatId skips active sessions that have no providerSessionId yet", () => {
     const mgr = new ClaudeSessionManager({
       config: BASE_CLAUDE_CONFIG,
       queryFn: NOOP_QUERY,
@@ -533,14 +763,14 @@ describe("ClaudeSessionManager — Query methods", () => {
 
     mgr.getOrCreate("oc_bychat");
     const found = mgr.findSession("oc_bychat");
-    expect(found).toBeDefined();
-    expect(found!.chatId).toBe("oc_bychat");
+    expect(found).toBeUndefined();
   });
 
   it("findSession by chatId in staleRecords", async () => {
     const store = new FakeStateStore();
     const record: SessionRecord = {
-      claudeSessionId: "ses_stale2",
+      provider: "claude",
+      providerSessionId: "ses_stale2",
       cwd: "/projects/stale",
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
@@ -564,7 +794,7 @@ describe("ClaudeSessionManager — Query methods", () => {
     const found = mgr.findSession("oc_stale2");
     expect(found).toBeDefined();
     expect(found!.chatId).toBe("oc_stale2");
-    expect(found!.record.claudeSessionId).toBe("ses_stale2");
+    expect(found!.record.providerSessionId).toBe("ses_stale2");
   });
 
   it("findSession returns undefined for unknown target", () => {
@@ -582,8 +812,17 @@ describe("ClaudeSessionManager — Query methods", () => {
 
   it("getAllSessions merges active + stale", async () => {
     const store = new FakeStateStore();
+    const fakes: FakeQueryHandle[] = [];
+    const queryFn: QueryFn = (params) => {
+      const fake = new FakeQueryHandle();
+      fake.canUseTool = params.canUseTool;
+      fake.options = params.options;
+      fakes.push(fake);
+      return fake as unknown as ReturnType<QueryFn>;
+    };
     const record: SessionRecord = {
-      claudeSessionId: "ses_stale_all",
+      provider: "claude",
+      providerSessionId: "ses_stale_all",
       cwd: "/projects/stale",
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
@@ -594,7 +833,7 @@ describe("ClaudeSessionManager — Query methods", () => {
 
     const mgr = new ClaudeSessionManager({
       config: BASE_CLAUDE_CONFIG,
-      queryFn: NOOP_QUERY,
+      queryFn,
       clock: new FakeClock(),
       permissionBroker: new FakePermissionBroker(),
       questionBroker: new FakeQuestionBroker(),
@@ -604,8 +843,31 @@ describe("ClaudeSessionManager — Query methods", () => {
 
     await mgr.startupLoad();
 
-    // Create an active session (different chatId from stale)
-    mgr.getOrCreate("oc_active_all");
+    // Create an active session with a captured provider session ID.
+    const session = mgr.getOrCreate("oc_active_all");
+    const spy = new SpyRenderer();
+    session.submit(
+      {
+        kind: "run",
+        text: "hello",
+        senderOpenId: "ou_s",
+        parentMessageId: "om_p",
+        locale: "zh",
+      },
+      spy.emit,
+    );
+    await flushMicrotasks();
+    fakes[0]!.emitMessage({
+      type: "system",
+      subtype: "init",
+      session_id: "ses_active_all",
+    });
+    fakes[0]!.finishWithSuccess({
+      durationMs: 100,
+      inputTokens: 10,
+      outputTokens: 20,
+    });
+    await flushMicrotasks();
 
     const all = mgr.getAllSessions();
     expect(all).toHaveLength(2);
@@ -614,6 +876,7 @@ describe("ClaudeSessionManager — Query methods", () => {
     const stale = all.find((s) => s.chatId === "oc_stale_all");
     expect(active).toBeDefined();
     expect(active!.active).toBe(true);
+    expect(active!.record.providerSessionId).toBe("ses_active_all");
     expect(stale).toBeDefined();
     expect(stale!.active).toBe(false);
   });
@@ -626,7 +889,8 @@ describe("ClaudeSessionManager — Crash recovery", () => {
 
     // Session active 5 minutes ago — within the 1-hour window
     const record: SessionRecord = {
-      claudeSessionId: "ses_crash1",
+      provider: "claude",
+      providerSessionId: "ses_crash1",
       cwd: "/projects/crash",
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date(Date.now() - 5 * 60_000).toISOString(),
@@ -659,7 +923,8 @@ describe("ClaudeSessionManager — Crash recovery", () => {
     const fakeFeishu = new FakeFeishuClient();
 
     const record: SessionRecord = {
-      claudeSessionId: "ses_clean",
+      provider: "claude",
+      providerSessionId: "ses_clean",
       cwd: "/projects/clean",
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date(Date.now() - 5 * 60_000).toISOString(),
@@ -691,7 +956,8 @@ describe("ClaudeSessionManager — Crash recovery", () => {
 
     // Session active 2 hours ago — outside the 1-hour window
     const record: SessionRecord = {
-      claudeSessionId: "ses_old",
+      provider: "claude",
+      providerSessionId: "ses_old",
       cwd: "/projects/old",
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
@@ -726,7 +992,8 @@ describe("ClaudeSessionManager — Crash recovery", () => {
     };
 
     const record: SessionRecord = {
-      claudeSessionId: "ses_fail",
+      provider: "claude",
+      providerSessionId: "ses_fail",
       cwd: "/projects/fail",
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date(Date.now() - 5 * 60_000).toISOString(),

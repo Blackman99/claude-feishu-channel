@@ -44,7 +44,7 @@ export function createSdkQueryFn(opts: SdkQueryFnOptions): QueryFn {
         pathToClaudeCodeExecutable: opts.cliPath,
         abortController: abort,
         env: { ...process.env },
-        ...(params.options.resume ? { resume: params.options.resume } : {}),
+        ...(params.options.resumeId ? { resume: params.options.resumeId } : {}),
         ...(params.options.mcpServers ? { mcpServers: params.options.mcpServers } : {}),
         ...(params.options.disallowedTools
           ? { disallowedTools: [...params.options.disallowedTools] }

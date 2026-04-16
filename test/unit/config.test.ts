@@ -34,10 +34,16 @@ describe("loadConfig", () => {
     const path = writeConfig(`
 ${MINIMAL_CONFIG}
 
-[claude]
+[agent]
 default_cwd = "/tmp/cfc-test"
+
+[claude]
+default_model = "claude-opus-4-6"
+cli_path = "claude"
 `);
     const cfg = await loadConfig(path);
+    const agent = cfg.agent!;
+    const codex = cfg.codex!;
     expect(cfg.feishu.appId).toBe("cli_test");
     expect(cfg.feishu.appSecret).toBe("secret");
     expect(cfg.feishu.encryptKey).toBe("");
@@ -45,27 +51,123 @@ default_cwd = "/tmp/cfc-test"
     expect(cfg.access.allowedOpenIds).toEqual(["ou_test"]);
     expect(cfg.access.unauthorizedBehavior).toBe("ignore");
     expect(cfg.logging.level).toBe("info");
-    expect(cfg.claude.defaultCwd).toBe("/tmp/cfc-test");
+    expect(agent.defaultProvider).toBe("claude");
+    expect(agent.defaultCwd).toBe("/tmp/cfc-test");
+    expect(agent.defaultPermissionMode).toBe("default");
+    expect(agent.permissionTimeoutMs).toBe(300_000);
+    expect(agent.permissionWarnBeforeMs).toBe(60_000);
+    expect(cfg.claude.defaultModel).toBe("claude-opus-4-6");
+    expect(cfg.claude.cliPath).toBe("claude");
+    expect(codex.defaultModel).toBe("gpt-5-codex");
+    expect(codex.cliPath).toBe("codex");
   });
 
   it("expands ~ in persistence paths", async () => {
     const path = writeConfig(`
 ${MINIMAL_CONFIG}
 
+[agent]
+default_cwd = "/tmp/cfc-test"
+
 [persistence]
 state_file = "~/.claude-feishu-channel/state.json"
 log_dir = "~/.claude-feishu-channel/logs"
 
 [claude]
-default_cwd = "/tmp/cfc-test"
+default_model = "claude-opus-4-6"
 `);
     const cfg = await loadConfig(path);
+    const agent = cfg.agent!;
+    const codex = cfg.codex!;
     expect(cfg.persistence.stateFile).toBe(
       join(homedir(), ".claude-feishu-channel/state.json"),
     );
     expect(cfg.persistence.logDir).toBe(
       join(homedir(), ".claude-feishu-channel/logs"),
     );
+  });
+
+  it("loads new-style [agent] and [codex] settings", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[agent]
+default_provider = "codex"
+default_cwd = "~/workspace"
+default_permission_mode = "acceptEdits"
+permission_timeout_seconds = 120
+permission_warn_before_seconds = 30
+auto_compact_threshold = 0.7
+
+[claude]
+default_model = "claude-sonnet-4-6"
+cli_path = "/usr/local/bin/claude"
+
+[codex]
+default_model = "gpt-5-codex-mini"
+cli_path = "/opt/homebrew/bin/codex"
+`);
+    const cfg = await loadConfig(path);
+    const agent = cfg.agent!;
+    const codex = cfg.codex!;
+    expect(agent.defaultProvider).toBe("codex");
+    expect(agent.defaultCwd).toBe(join(homedir(), "workspace"));
+    expect(agent.defaultPermissionMode).toBe("acceptEdits");
+    expect(agent.permissionTimeoutMs).toBe(120_000);
+    expect(agent.permissionWarnBeforeMs).toBe(30_000);
+    expect(agent.autoCompactThreshold).toBe(0.7);
+    expect(cfg.claude.defaultModel).toBe("claude-sonnet-4-6");
+    expect(cfg.claude.cliPath).toBe("/usr/local/bin/claude");
+    expect(codex.defaultModel).toBe("gpt-5-codex-mini");
+    expect(codex.cliPath).toBe("/opt/homebrew/bin/codex");
+  });
+
+  it("rejects conflicting legacy Claude-era fields when [agent] is present", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[agent]
+default_cwd = "/tmp/new-cwd"
+default_permission_mode = "default"
+permission_timeout_seconds = 300
+permission_warn_before_seconds = 60
+
+[claude]
+default_cwd = "/tmp/legacy-cwd"
+default_permission_mode = "plan"
+permission_timeout_seconds = 120
+permission_warn_before_seconds = 30
+default_model = "claude-sonnet-4-6"
+`);
+    await expect(loadConfig(path)).rejects.toThrow(/claude\.default_cwd/);
+  });
+
+  it("falls back to legacy [claude] settings when [agent] is omitted", async () => {
+    const path = writeConfig(`
+${MINIMAL_CONFIG}
+
+[claude]
+default_cwd = "/tmp/legacy"
+default_permission_mode = "plan"
+permission_timeout_seconds = 180
+permission_warn_before_seconds = 45
+auto_compact_threshold = 0.8
+default_model = "claude-sonnet-4-6"
+cli_path = "/usr/local/bin/claude"
+`);
+    const cfg = await loadConfig(path);
+    const agent = cfg.agent!;
+    const codex = cfg.codex!;
+    expect(agent.defaultProvider).toBe("claude");
+    expect(agent.defaultCwd).toBe("/tmp/legacy");
+    expect(agent.defaultPermissionMode).toBe("plan");
+    expect(agent.permissionTimeoutMs).toBe(180_000);
+    expect(agent.permissionWarnBeforeMs).toBe(45_000);
+    expect(agent.autoCompactThreshold).toBe(0.8);
+    expect(cfg.claude.defaultModel).toBe("claude-sonnet-4-6");
+    expect(cfg.claude.cliPath).toBe("/usr/local/bin/claude");
+    expect(codex.defaultModel).toBe("gpt-5-codex");
+    expect(codex.cliPath).toBe("codex");
   });
 
   it("throws ConfigError on missing file", async () => {
@@ -147,10 +249,11 @@ default_cwd = "/tmp/cfc-test-cwd"
   it("loads [claude] with explicit defaults", async () => {
     const path = writeConfig(CLAUDE_CONFIG);
     const cfg = await loadConfig(path);
-    expect(cfg.claude.defaultCwd).toBe("/tmp/cfc-test-cwd");
-    expect(cfg.claude.defaultPermissionMode).toBe("default");
+    const agent = cfg.agent!;
     expect(cfg.claude.defaultModel).toBe("claude-opus-4-6");
     expect(cfg.claude.cliPath).toBe("claude");
+    expect(agent.defaultCwd).toBe("/tmp/cfc-test-cwd");
+    expect(agent.defaultPermissionMode).toBe("default");
   });
 
   it("accepts a custom cli_path", async () => {
@@ -174,7 +277,7 @@ default_cwd = "/tmp/x"
 auto_compact_threshold = 0.7
 `);
     const cfg = await loadConfig(path);
-    expect(cfg.claude.autoCompactThreshold).toBe(0.7);
+    expect(cfg.agent!.autoCompactThreshold).toBe(0.7);
   });
 
   it("expands ~ in default_cwd", async () => {
@@ -185,7 +288,7 @@ ${MINIMAL_CONFIG}
 default_cwd = "~/some-project"
 `);
     const cfg = await loadConfig(path);
-    expect(cfg.claude.defaultCwd).toBe(join(homedir(), "some-project"));
+    expect(cfg.agent!.defaultCwd).toBe(join(homedir(), "some-project"));
   });
 
   it("accepts custom permission_mode and model", async () => {
@@ -198,7 +301,7 @@ default_permission_mode = "acceptEdits"
 default_model = "claude-sonnet-4-6"
 `);
     const cfg = await loadConfig(path);
-    expect(cfg.claude.defaultPermissionMode).toBe("acceptEdits");
+    expect(cfg.agent!.defaultPermissionMode).toBe("acceptEdits");
     expect(cfg.claude.defaultModel).toBe("claude-sonnet-4-6");
   });
 
@@ -237,20 +340,20 @@ ${MINIMAL_CONFIG}
 default_cwd = "/tmp/cfc-test"
 `);
       const cfg = await loadConfig(path);
-      expect(cfg.claude.permissionTimeoutMs).toBe(300_000);
-      expect(cfg.claude.permissionWarnBeforeMs).toBe(60_000);
+      expect(cfg.agent!.permissionTimeoutMs).toBe(300_000);
+      expect(cfg.agent!.permissionWarnBeforeMs).toBe(60_000);
     });
 
     it("multiplies permission_timeout_seconds by 1000", async () => {
       const path = writeConfig(`
 ${MINIMAL_CONFIG}
 
-[claude]
+      [claude]
 default_cwd = "/tmp/cfc-test"
 permission_timeout_seconds = 120
 `);
       const cfg = await loadConfig(path);
-      expect(cfg.claude.permissionTimeoutMs).toBe(120_000);
+      expect(cfg.agent!.permissionTimeoutMs).toBe(120_000);
     });
 
     it("rejects permission_timeout_seconds = 0", async () => {

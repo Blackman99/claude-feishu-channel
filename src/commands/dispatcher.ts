@@ -189,6 +189,8 @@ export class CommandDispatcher {
         return this.handleNew(ctx);
       case "compact":
         return this.handleCompact(ctx);
+      case "provider":
+        return this.handleProvider(cmd.provider, ctx);
       case "mode":
         return this.handleMode(cmd.mode, ctx);
       case "model":
@@ -247,6 +249,7 @@ export class CommandDispatcher {
       s.helpProject,
       "",
       s.helpSectionMode,
+      s.helpProvider,
       s.helpMode,
       s.helpModel,
       "",
@@ -265,11 +268,13 @@ export class CommandDispatcher {
   private async handleStatus(ctx: CommandContext): Promise<void> {
     const session = this.sessionManager.getOrCreate(ctx.chatId);
     const status = session.getStatus();
+    const provider = this.sessionManager.getEffectiveProvider(ctx.chatId);
     const projectAlias = this.sessionManager.getActiveProject(ctx.chatId);
     const s = t(ctx.locale);
 
     const lines = [
       s.statusState(status.state),
+      s.statusProvider(provider),
       ...(projectAlias ? [`📁 ${projectAlias}`] : []),
       s.statusCwd(status.cwd),
       s.statusPermMode(status.permissionMode),
@@ -316,7 +321,9 @@ export class CommandDispatcher {
       s.contextWindow(windowSize),
       s.contextPercent(pct),
     ];
-    if (used / windowSize > 0.8) lines.push("", s.contextWarning);
+    if (used / windowSize > 0.8) {
+      lines.push("", s.contextWarning, s.contextStages);
+    }
     await this.feishu.replyText(ctx.parentMessageId, lines.join("\n"));
   }
 
@@ -337,6 +344,14 @@ export class CommandDispatcher {
       `  allowedOpenIds: ${cfg.access.allowedOpenIds.join(", ") || "(none)"}`,
       `  unauthorizedBehavior: ${cfg.access.unauthorizedBehavior}`,
       "",
+      "[agent]",
+      `  defaultProvider: ${cfg.agent.defaultProvider}`,
+      `  defaultCwd: ${cfg.agent.defaultCwd}`,
+      `  defaultPermissionMode: ${cfg.agent.defaultPermissionMode}`,
+      `  permissionTimeoutMs: ${cfg.agent.permissionTimeoutMs}`,
+      `  permissionWarnBeforeMs: ${cfg.agent.permissionWarnBeforeMs}`,
+      `  autoCompactThreshold: ${cfg.agent.autoCompactThreshold ?? "(default)"}`,
+      "",
       "[claude]",
       `  defaultCwd: ${cfg.claude.defaultCwd}`,
       `  defaultPermissionMode: ${cfg.claude.defaultPermissionMode}`,
@@ -345,6 +360,10 @@ export class CommandDispatcher {
       `  permissionTimeoutMs: ${cfg.claude.permissionTimeoutMs}`,
       `  permissionWarnBeforeMs: ${cfg.claude.permissionWarnBeforeMs}`,
       `  autoCompactThreshold: ${cfg.claude.autoCompactThreshold ?? "(default)"}`,
+      "",
+      "[codex]",
+      `  defaultModel: ${cfg.codex.defaultModel}`,
+      `  cliPath: ${cfg.codex.cliPath}`,
       "",
       "[render]",
       `  inlineMaxBytes: ${cfg.render.inlineMaxBytes}`,
@@ -484,6 +503,23 @@ export class CommandDispatcher {
     await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).modeSwitched(mode));
   }
 
+  private async handleProvider(
+    provider: "claude" | "codex",
+    ctx: CommandContext,
+  ): Promise<void> {
+    const session = this.sessionManager.getOrCreate(ctx.chatId);
+    if (session.getState() !== "idle") {
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).sessionBusy);
+      return;
+    }
+    this.sessionManager.setProviderOverride(ctx.chatId, provider);
+    this.sessionManager.delete(ctx.chatId);
+    await this.feishu.replyText(
+      ctx.parentMessageId,
+      t(ctx.locale).providerSwitched(provider),
+    );
+  }
+
   private async handleModel(
     model: string,
     ctx: CommandContext,
@@ -618,7 +654,29 @@ export class CommandDispatcher {
       return;
     }
 
-    const found = this.sessionManager.findSession(target);
+    if (
+      target === ctx.chatId
+      && this.sessionManager.getAllSessions().some((entry) =>
+        entry.chatId === ctx.chatId && entry.active
+      )
+    ) {
+      await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).resumeAlreadyHere);
+      return;
+    }
+
+    let found = this.sessionManager.findSession(target);
+    if (!found) {
+      const entry = this.sessionManager.getAllSessions().find((item) => item.chatId === target);
+      if (entry) {
+        found = {
+          chatId: entry.chatId,
+          record: {
+            ...entry.record,
+            providerSessionId: entry.record.providerSessionId ?? entry.chatId,
+          },
+        };
+      }
+    }
     if (!found) {
       await this.feishu.replyText(ctx.parentMessageId, t(ctx.locale).resumeNotFound(target));
       return;
@@ -631,9 +689,10 @@ export class CommandDispatcher {
     this.sessionManager.delete(ctx.chatId);
     this.sessionManager.setStaleRecord(ctx.chatId, found.record);
 
-    const shortId = found.record.claudeSessionId.length > 12
-      ? found.record.claudeSessionId.slice(0, 12) + "…"
-      : found.record.claudeSessionId;
+    const providerSessionId = found.record.providerSessionId ?? found.chatId;
+    const shortId = providerSessionId.length > 12
+      ? providerSessionId.slice(0, 12) + "…"
+      : providerSessionId;
     await this.feishu.replyText(
       ctx.parentMessageId,
       t(ctx.locale).resumeSuccess(shortId, found.record.cwd),

@@ -10,6 +10,8 @@ import { FeishuGateway } from "./feishu/gateway.js";
 import { checkClaudeCli } from "./claude/preflight.js";
 import { createSdkQueryFn } from "./claude/sdk-query.js";
 import { ClaudeSessionManager } from "./claude/session-manager.js";
+import { checkCodexCli } from "./codex/preflight.js";
+import { checkCodexSdkInstalled, createCodexQueryFn } from "./codex/sdk-run.js";
 import { InterruptedError } from "./claude/session.js";
 import { FeishuPermissionBroker } from "./claude/feishu-permission-broker.js";
 import { FeishuQuestionBroker } from "./claude/feishu-question-broker.js";
@@ -73,14 +75,36 @@ export async function main(configPathOverride?: string): Promise<void> {
 
   logger.info({ configPath }, "Config loaded");
 
-  const preflight = await checkClaudeCli(config.claude.cliPath);
-  if (!preflight.ok) {
-    console.error(`[preflight] ${preflight.reason}`);
-    process.exit(1);
+  const defaultProvider = config.agent.defaultProvider;
+  let preflight;
+  if (defaultProvider === "codex") {
+    preflight = await checkCodexCli(config.codex.cliPath);
+    if (!preflight.ok) {
+      console.error(`[preflight] ${preflight.reason}`);
+      process.exit(1);
+    }
+    try {
+      await checkCodexSdkInstalled();
+    } catch (err) {
+      console.error(
+        `[preflight] ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
+  } else {
+    preflight = await checkClaudeCli(config.claude.cliPath);
+    if (!preflight.ok) {
+      console.error(`[preflight] ${preflight.reason}`);
+      process.exit(1);
+    }
   }
   logger.info(
-    { cliPath: config.claude.cliPath, version: preflight.version },
-    "Claude CLI preflight ok",
+    {
+      provider: defaultProvider,
+      cliPath: defaultProvider === "codex" ? config.codex.cliPath : config.claude.cliPath,
+      version: preflight.version,
+    },
+    `${defaultProvider === "codex" ? "Codex" : "Claude"} CLI preflight ok`,
   );
 
   const stateStore = new StateStore(config.persistence.stateFile);
@@ -103,11 +127,16 @@ export async function main(configPathOverride?: string): Promise<void> {
   });
   const feishuClient = new FeishuClient(lark);
 
-  // Phase 5 (SDK transport): in-process @anthropic-ai/claude-agent-sdk via createSdkQueryFn. The session's canUseTool closure routes through FeishuPermissionBroker for tool approval.
-  const queryFn = createSdkQueryFn({
-    cliPath: config.claude.cliPath,
-    logger,
-  });
+  const providerQueryFns = {
+    claude: createSdkQueryFn({
+      cliPath: config.claude.cliPath,
+      logger,
+    }),
+    codex: createCodexQueryFn({
+      cliPath: config.codex.cliPath,
+      logger,
+    }),
+  } as const;
 
   const clock = new RealClock();
 
@@ -138,7 +167,13 @@ export async function main(configPathOverride?: string): Promise<void> {
   const sessionManager = new ClaudeSessionManager({
     config: config.claude,
     mcpServers: config.mcp,
-    queryFn,
+    queryFn: providerQueryFns.claude,
+    providerQueryFns,
+    defaultProvider,
+    providerConfigs: {
+      claude: config.claude,
+      codex: config.codex,
+    },
     clock,
     permissionBroker,
     questionBroker,
@@ -513,6 +548,45 @@ export async function main(configPathOverride?: string): Promise<void> {
             logger.warn(
               { err, chat_id: msg.chatId },
               "stop ack send failed",
+            );
+          }
+          return;
+        case "context_warning":
+          try {
+            await feishuClient.replyText(
+              msg.messageId,
+              t(locale).contextWarningRuntime,
+            );
+          } catch (err) {
+            logger.warn(
+              { err, chat_id: msg.chatId },
+              "context_warning notice send failed",
+            );
+          }
+          return;
+        case "context_compacting":
+          try {
+            await feishuClient.replyText(
+              msg.messageId,
+              t(locale).contextCompacting,
+            );
+          } catch (err) {
+            logger.warn(
+              { err, chat_id: msg.chatId },
+              "context_compacting notice send failed",
+            );
+          }
+          return;
+        case "context_summarized_reset":
+          try {
+            await feishuClient.replyText(
+              msg.messageId,
+              t(locale).contextSummarizedReset,
+            );
+          } catch (err) {
+            logger.warn(
+              { err, chat_id: msg.chatId },
+              "context_summarized_reset notice send failed",
             );
           }
           return;

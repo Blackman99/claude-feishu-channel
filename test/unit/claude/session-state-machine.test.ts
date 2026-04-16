@@ -1127,6 +1127,8 @@ describe("Session runtime overrides + stats", () => {
   it("getStatus() returns correct initial values", () => {
     const h = makeHarness();
     const status = h.session.getStatus();
+    expect(status.provider).toBe("claude");
+    expect(status.providerSessionId).toBeUndefined();
     expect(status.state).toBe("idle");
     expect(status.turnCount).toBe(0);
     expect(status.totalInputTokens).toBe(0);
@@ -1162,7 +1164,7 @@ describe("Session runtime overrides + stats", () => {
   });
 });
 
-describe("ClaudeSession — session_id capture and resume", () => {
+describe("ClaudeSession — providerSessionId capture and resume", () => {
   it("captures session_id from the first SDK message that carries it", async () => {
     const h = makeHarness();
     const spy = new SpyRenderer();
@@ -1180,7 +1182,7 @@ describe("ClaudeSession — session_id capture and resume", () => {
       message: { content: [{ type: "text", text: "hello" }] },
     });
     await flushMicrotasks();
-    expect(h.session.getStatus().claudeSessionId).toBeUndefined();
+    expect(h.session.getStatus().providerSessionId).toBeUndefined();
 
     // Message with session_id — should capture
     fake.emitMessage({
@@ -1191,7 +1193,7 @@ describe("ClaudeSession — session_id capture and resume", () => {
     fake.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
     await outcome.done;
 
-    expect(h.session.getStatus().claudeSessionId).toBe("ses_abc123");
+    expect(h.session.getStatus().providerSessionId).toBe("ses_abc123");
   });
 
   it("does not overwrite session_id once captured", async () => {
@@ -1218,7 +1220,7 @@ describe("ClaudeSession — session_id capture and resume", () => {
     fake.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
     await outcome.done;
 
-    expect(h.session.getStatus().claudeSessionId).toBe("ses_first");
+    expect(h.session.getStatus().providerSessionId).toBe("ses_first");
   });
 
   it("fires onSessionIdCaptured callback once on first capture", async () => {
@@ -1249,7 +1251,7 @@ describe("ClaudeSession — session_id capture and resume", () => {
     expect(captureCount).toBe(1);
   });
 
-  it("passes resume option to queryFn when claudeSessionId is set", async () => {
+  it("passes resumeId to queryFn when providerSessionId is set", async () => {
     const h = makeHarness();
     const spy = new SpyRenderer();
 
@@ -1276,13 +1278,13 @@ describe("ClaudeSession — session_id capture and resume", () => {
     if (second.kind !== "started") throw new Error("unreachable");
     await flushMicrotasks();
 
-    expect(h.fakes[1]!.options.resume).toBe("ses_resume");
+    expect(h.fakes[1]!.options.resumeId).toBe("ses_resume");
 
     h.fakes[1]!.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
     await second.done;
   });
 
-  it("does not pass resume when claudeSessionId is not yet captured", async () => {
+  it("does not pass resumeId when providerSessionId is not yet captured", async () => {
     const h = makeHarness();
     const spy = new SpyRenderer();
     const outcome = await h.session.submit(
@@ -1292,7 +1294,7 @@ describe("ClaudeSession — session_id capture and resume", () => {
     if (outcome.kind !== "started") throw new Error("unreachable");
     await flushMicrotasks();
 
-    expect(h.fakes[0]!.options.resume).toBeUndefined();
+    expect(h.fakes[0]!.options.resumeId).toBeUndefined();
 
     h.fakes[0]!.finishWithSuccess({ durationMs: 1, inputTokens: 1, outputTokens: 1 });
     await outcome.done;

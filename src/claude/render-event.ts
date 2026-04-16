@@ -27,4 +27,7 @@ export type RenderEvent =
   // Emitted when a "Request too large" error triggers an automatic
   // session reset + retry. The consumer should notify the user that
   // prior context was dropped and the message is being retried.
+  | { type: "context_warning"; level: "warn" }
+  | { type: "context_compacting" }
+  | { type: "context_summarized_reset" }
   | { type: "context_reset" };

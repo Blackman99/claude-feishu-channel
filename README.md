@@ -5,9 +5,9 @@
 <h1 align="center">claude-feishu-channel</h1>
 
 <p align="center">
-  Claude CLI, natively in Feishu / Lark.
+  Claude and Codex, natively in Feishu / Lark.
   <br />
-  The full Claude Code agent experience — right inside your Feishu group chat.
+  A full coding-agent workflow — right inside your Feishu group chat.
 </p>
 
 <p align="center">
@@ -19,7 +19,8 @@
 
 ## Features
 
-- **Full Claude Code agent** — file editing, shell commands, search, planning
+- **Dual providers** — switch between Claude and Codex per config or per session
+- **Full coding agent** — file editing, shell commands, search, planning
 - **Permission brokering** — tool calls post interactive approval cards in Feishu
 - **Session persistence** — survives process restarts, auto-resumes conversations
 - **Queue & interrupt** — messages queue during generation; `!` prefix interrupts
@@ -70,7 +71,8 @@ Options:
 ## Prerequisites
 
 - **Node.js** >= 20
-- **Claude CLI** — `claude` binary in `$PATH` (or set `claude.cli_path` in config)
+- **Claude CLI** — `claude` binary in `$PATH` when using the Claude provider
+- **Codex CLI + SDK** — `codex` binary in `$PATH` plus `@openai/codex-sdk` when using the Codex provider
 - **Feishu bot app** — created at [open.feishu.cn](https://open.feishu.cn/app)
 
 ## Commands
@@ -85,8 +87,9 @@ Options:
 | `/resume <id>` | Resume a previous session |
 | `/cd <path>` | Change working directory (with confirm card) |
 | `/project <alias>` | Switch to a configured project alias |
+| `/provider <claude|codex>` | Switch the current session provider |
 | `/mode <mode>` | Set permission mode: `default`, `acceptEdits`, `plan`, `bypassPermissions` |
-| `/model <name>` | Switch Claude model |
+| `/model <name>` | Switch the current provider model |
 | `/config show` | Display current configuration |
 | `/config set <key> <value>` | Change a config value at runtime |
 | `/config set <key> <value> --persist` | Change and write back to config.toml |
@@ -109,7 +112,9 @@ See [`config.example.toml`](config.example.toml) for all options with comments.
 |---------|------|-------------|
 | `[feishu]` | `app_id`, `app_secret`, `encrypt_key`, `verification_token` | Feishu bot credentials |
 | `[access]` | `allowed_open_ids`, `unauthorized_behavior` | Who can talk to the bot |
-| `[claude]` | `default_cwd`, `default_permission_mode`, `default_model`, `cli_path`, `permission_timeout_seconds`, `permission_warn_before_seconds` | Claude agent defaults |
+| `[agent]` | `default_provider`, `default_cwd`, `default_permission_mode`, `permission_timeout_seconds`, `permission_warn_before_seconds`, `auto_compact_threshold` | Shared agent defaults |
+| `[claude]` | `default_model`, `cli_path` | Claude provider defaults |
+| `[codex]` | `default_model`, `cli_path` | Codex provider defaults |
 | `[render]` | `inline_max_bytes`, `hide_thinking`, `show_turn_stats` | Card rendering options |
 | `[persistence]` | `state_file`, `log_dir`, `session_ttl_days` | State and log paths |
 | `[logging]` | `level` | Log level: `trace`, `debug`, `info`, `warn`, `error` |
@@ -120,9 +125,10 @@ See [`config.example.toml`](config.example.toml) for all options with comments.
 These keys can be changed via `/config set` without restart:
 
 `render.hide_thinking`, `render.show_turn_stats`, `render.inline_max_bytes`,
-`logging.level`, `claude.default_model`, `claude.default_cwd`,
-`claude.default_permission_mode`, `claude.permission_timeout_seconds`,
-`claude.permission_warn_before_seconds`
+`logging.level`, `agent.default_provider`, `agent.default_cwd`,
+`agent.default_permission_mode`, `agent.permission_timeout_seconds`,
+`agent.permission_warn_before_seconds`, `claude.default_model`,
+`codex.default_model`
 
 ## Architecture
 
@@ -139,7 +145,7 @@ FeishuGateway (event decryption, dedup, access control)
       │                    └─ plain text ──▶ ClaudeSession.submit
       │                                        │
       │                                        ▼
-      │                                  SDK query (claude-agent-sdk)
+      │                           provider queryFn (Claude or Codex)
       │                                        │
       │                                        ├─ tool_use ──▶ PermissionBroker ──▶ Feishu card
       │                                        ├─ thinking ──▶ Feishu card (streaming)
@@ -153,8 +159,8 @@ FeishuGateway (event decryption, dedup, access control)
 **Key components:**
 
 - **`FeishuGateway`** — receives WebSocket events, verifies signatures, deduplicates, enforces access control
-- **`ClaudeSession`** — state machine (idle → generating → idle) with message queue, drives the SDK query loop
-- **`ClaudeSessionManager`** — `chat_id → ClaudeSession` map with persistence and crash recovery
+- **`ClaudeSession`** — shared session state machine (idle → generating → idle) with message queue, drives the selected provider runtime
+- **`ClaudeSessionManager`** — `chat_id → ClaudeSession` map with persistence, provider selection, and crash recovery
 - **`FeishuPermissionBroker`** — posts permission cards, tracks pending approvals, handles timeouts
 - **`CommandDispatcher`** — handles slash commands (`/new`, `/cd`, `/config set`, etc.)
 
@@ -186,6 +192,11 @@ pnpm build
 | `CLAUDE_FEISHU_CONFIG` | Override config file path (default: `~/.claude-feishu-channel/config.toml`) |
 | `ANTHROPIC_BASE_URL` | Custom API endpoint for Claude SDK |
 | `ANTHROPIC_AUTH_TOKEN` | Auth token for custom endpoint |
+
+## Current Codex Limits
+
+- The Codex adapter is wired through `@openai/codex-sdk`, but this repo does not currently vendor or lock a tested SDK build in `pnpm-lock.yaml`.
+- Mid-turn `acceptEdits` escalation is still a provider-specific downgrade on Codex: `setPermissionMode()` is a safe no-op in the current adapter.
 
 ## License
 

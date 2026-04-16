@@ -5,22 +5,9 @@ export type PreflightResult =
   | { ok: true; version: string }
   | { ok: false; reason: string };
 
-/**
- * Verify that the local `claude` CLI is installed, executable, and
- * responds to `--version`. We intentionally do NOT probe authentication
- * state here — the CLI handles OAuth / keychain / env-var credentials
- * itself, and will emit a clear error on the first turn if it cannot
- * authenticate. Phase 3's bridge only needs to know the binary is
- * reachable before binding the Feishu gateway.
- *
- * @param cliPath  Either an absolute path, or a bare name resolved via $PATH.
- */
-export async function checkClaudeCli(
+export async function checkCodexCli(
   cliPath: string,
 ): Promise<PreflightResult> {
-  // If the caller passed an absolute path, verify it exists and is
-  // executable up front — that gives a much clearer error than letting
-  // `spawn` fall through to ENOENT.
   if (cliPath.startsWith("/")) {
     try {
       await access(cliPath, fsConstants.X_OK);
@@ -28,16 +15,12 @@ export async function checkClaudeCli(
       return {
         ok: false,
         reason:
-          `claude CLI not found or not executable at ${cliPath}. ` +
-          `Install Claude Code (https://docs.claude.com/en/docs/claude-code) ` +
-          `or fix [claude].cli_path in your config.toml.`,
+          `codex CLI not found or not executable at ${cliPath}. ` +
+          `Install Codex or fix [codex].cli_path in your config.toml.`,
       };
     }
   }
 
-  // Probe with a short-timeout `--version` run. We don't require any
-  // specific version string — just a clean exit 0 means the binary is
-  // launchable on this system.
   return new Promise<PreflightResult>((resolve) => {
     const child = spawn(cliPath, ["--version"], {
       stdio: ["ignore", "pipe", "pipe"],
@@ -56,7 +39,7 @@ export async function checkClaudeCli(
       child.kill("SIGTERM");
       resolve({
         ok: false,
-        reason: `claude CLI (${cliPath}) did not respond to --version within 5s.`,
+        reason: `codex CLI (${cliPath}) did not respond to --version within 5s.`,
       });
     }, 5000);
     timer.unref();
@@ -67,14 +50,14 @@ export async function checkClaudeCli(
         resolve({
           ok: false,
           reason:
-            `claude CLI not found on PATH (tried "${cliPath}"). ` +
-            `Install Claude Code or set [claude].cli_path in config.toml.`,
+            `codex CLI not found on PATH (tried "${cliPath}"). ` +
+            `Install Codex or set [codex].cli_path in config.toml.`,
         });
         return;
       }
       resolve({
         ok: false,
-        reason: `Failed to spawn claude CLI (${cliPath}): ${err.message}`,
+        reason: `Failed to spawn codex CLI (${cliPath}): ${err.message}`,
       });
     });
 
@@ -88,7 +71,7 @@ export async function checkClaudeCli(
       resolve({
         ok: false,
         reason:
-          `claude CLI (${cliPath}) exited with code ${code ?? "null"} ` +
+          `codex CLI (${cliPath}) exited with code ${code ?? "null"} ` +
           `on --version${tail ? `:\n${tail}` : ""}`,
       });
     });

@@ -5,6 +5,7 @@ export type PermissionMode =
   | "bypassPermissions";
 
 export type ParsedCommand =
+  | { name: "provider"; provider: "claude" | "codex" }
   | { name: "new" }
   | { name: "cost" }
   | { name: "context" }
@@ -62,6 +63,7 @@ const KNOWN_COMMANDS = new Set([
   "cd",
   "memory",
   "project",
+  "provider",
   "mode",
   "model",
   "status",
@@ -166,6 +168,11 @@ function parseCommand(
       return null;
     case "project":
       return rest ? { name: "project", alias: rest } : null;
+    case "provider":
+      if (rest === "claude" || rest === "codex") {
+        return { name: "provider", provider: rest };
+      }
+      return null;
     case "mode":
       if (VALID_MODES.has(rest)) {
         return { name: "mode", mode: rest as PermissionMode };

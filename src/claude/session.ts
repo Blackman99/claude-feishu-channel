@@ -3,7 +3,7 @@ import { Mutex } from "../util/mutex.js";
 import { createDeferred, type Deferred } from "../util/deferred.js";
 import type { Clock } from "../util/clock.js";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AppConfig, McpServerConfig } from "../types.js";
+import type { AgentProvider, AppConfig, McpServerConfig } from "../types.js";
 import type { RenderEvent } from "./render-event.js";
 import type { CanUseToolFn, QueryFn, QueryHandle } from "./query-handle.js";
 import type { PermissionBroker } from "./permission-broker.js";
@@ -71,7 +71,17 @@ export type RenderEventEmitter = EmitFn;
 
 export type SessionState = "idle" | "generating" | "awaiting_permission";
 
+type ContextRiskLevel = "normal" | "warn" | "compact" | "summarize_reset";
+
+interface ContextAssessment {
+  level: ContextRiskLevel;
+  tokenUsage: number;
+  tokenWindow: number;
+  estimatedBytes: number;
+}
+
 export interface SessionStatus {
+  provider: AgentProvider;
   state: SessionState;
   permissionMode: string;
   model: string;
@@ -80,7 +90,7 @@ export interface SessionStatus {
   totalInputTokens: number;
   totalOutputTokens: number;
   queueLength: number;
-  claudeSessionId?: string;
+  providerSessionId?: string;
   createdAt: string;
   lastActiveAt: string;
 }
@@ -184,6 +194,7 @@ export class ClaudeSession {
 
   private permissionModeOverride?: "default" | "acceptEdits" | "plan" | "bypassPermissions";
   private modelOverride?: string;
+  private provider: AgentProvider = "claude";
   private turnCount = 0;
   private totalInputTokens = 0;
   private totalOutputTokens = 0;
@@ -484,8 +495,38 @@ export class ClaudeSession {
         ...this.userMcpServerRecord(),
       };
       const prompt = this.buildPrompt(next);
+      const promptText = this.promptPreview(next);
+      const assessment = this.assessContextRisk(promptText);
+      let effectivePrompt = prompt;
+
+      if (assessment.level === "warn") {
+        await next.emit({ type: "context_warning", level: "warn" });
+      }
+
+      if (assessment.level === "compact" && this.claudeSessionId !== undefined) {
+        this.logger.warn(
+          { seq: next.seq, old_session_id: this.claudeSessionId, assessment },
+          "Context approaching limit — compacting before provider call",
+        );
+        this.claudeSessionId = undefined;
+        await next.emit({ type: "context_compacting" });
+      }
+
+      if (assessment.level === "summarize_reset") {
+        this.logger.warn(
+          { seq: next.seq, old_session_id: this.claudeSessionId, assessment },
+          "Context requires summarized fresh session",
+        );
+        this.claudeSessionId = undefined;
+        await next.emit({ type: "context_summarized_reset" });
+        effectivePrompt = this.prependContinuationSummary(
+          prompt,
+          this.buildContinuationSummary(next),
+        );
+      }
+
       const handle = this.queryFn({
-        prompt,
+        prompt: effectivePrompt,
         options: {
           cwd: this.config.defaultCwd,
           model: this.modelOverride ?? this.config.defaultModel,
@@ -497,7 +538,7 @@ export class ClaudeSession {
             ? { autoCompactThreshold: this.config.autoCompactThreshold }
             : {}),
           ...(this.claudeSessionId !== undefined
-            ? { resume: this.claudeSessionId }
+            ? { resumeId: this.claudeSessionId }
             : {}),
         },
         canUseTool: this.buildCanUseToolClosure(next),
@@ -577,6 +618,101 @@ export class ClaudeSession {
     }
   }
 
+  private estimatePromptBytes(prompt: string): number {
+    const promptBytes = Buffer.byteLength(prompt, "utf8");
+    const historicalBytes = (this.totalInputTokens + this.totalOutputTokens) * 4;
+    return promptBytes + historicalBytes;
+  }
+
+  private contextWindowFor(model: string): number {
+    void model;
+    return 200_000;
+  }
+
+  private assessContextRisk(prompt: string): ContextAssessment {
+    const tokenUsage = this.totalInputTokens + this.totalOutputTokens;
+    const tokenWindow = this.contextWindowFor(
+      this.modelOverride ?? this.config.defaultModel,
+    );
+    const estimatedBytes = this.estimatePromptBytes(prompt);
+
+    if (estimatedBytes >= 18_000_000) {
+      return { level: "summarize_reset", tokenUsage, tokenWindow, estimatedBytes };
+    }
+    if (tokenUsage / tokenWindow >= 0.9) {
+      return { level: "compact", tokenUsage, tokenWindow, estimatedBytes };
+    }
+    if (tokenUsage / tokenWindow >= 0.8 || estimatedBytes >= 12_000_000) {
+      return { level: "warn", tokenUsage, tokenWindow, estimatedBytes };
+    }
+    return { level: "normal", tokenUsage, tokenWindow, estimatedBytes };
+  }
+
+  private promptPreview(input: QueuedInput): string {
+    if (!input.imageDataUri) return input.text;
+
+    const text =
+      input.text === "[Image]" || input.text.trim().length === 0
+        ? "What is in this image?"
+        : input.text;
+    return `${text}\n${input.imageDataUri}`;
+  }
+
+  private immediateRequestSummary(input: QueuedInput): string {
+    if (!input.imageDataUri) {
+      return input.text.slice(0, 4_000);
+    }
+
+    const text =
+      input.text === "[Image]" || input.text.trim().length === 0
+        ? "What is in this image?"
+        : input.text;
+    return `${text}\n[image attachment preserved for the next turn]`;
+  }
+
+  private buildContinuationSummary(next: QueuedInput): string {
+    const status = this.getStatus();
+    return [
+      "Continuation summary for a fresh session:",
+      "",
+      "Keep only unfinished work and explicit user constraints from the prior session.",
+      "Drop already completed steps, stale progress chatter, and superseded discussion.",
+      "",
+      `Provider: ${status.provider}`,
+      `Model: ${status.model}`,
+      `Working directory: ${status.cwd}`,
+      `Permission mode: ${status.permissionMode}`,
+      `Prior token totals: in=${status.totalInputTokens}, out=${status.totalOutputTokens}`,
+      `Current objective: ${this.immediateRequestSummary(next)}`,
+    ].join("\n");
+  }
+
+  private prependContinuationSummary(
+    prompt: string | AsyncIterable<SDKUserMessage>,
+    summary: string,
+  ): string | AsyncIterable<SDKUserMessage> {
+    if (typeof prompt === "string") {
+      return `${summary}\n\nUser request:\n${prompt}`;
+    }
+
+    return {
+      async *[Symbol.asyncIterator](): AsyncGenerator<SDKUserMessage> {
+        yield {
+          type: "user",
+          message: {
+            role: "user",
+            content: [{ type: "text", text: summary }],
+          },
+          parent_tool_use_id: null,
+        };
+
+        for await (const message of prompt) {
+          yield message;
+        }
+      },
+    };
+  }
+
   private async runTurn(
     input: QueuedInput,
     handle: QueryHandle,
@@ -589,7 +725,7 @@ export class ClaudeSession {
 
     for await (const msg of handle.messages) {
       if (msg.session_id && !this.claudeSessionId) {
-        this.claudeSessionId = msg.session_id;
+        this.setProviderSessionId(msg.session_id);
         this.onSessionIdCaptured?.();
       }
       if (msg.type === "assistant" && msg.message?.content) {
@@ -693,13 +829,17 @@ export class ClaudeSession {
     this.modelOverride = model;
   }
 
+  setProvider(provider: AgentProvider): void {
+    this.provider = provider;
+  }
+
   /** Returns true if the session has any explicit configuration overrides worth persisting. */
   hasExplicitOverrides(): boolean {
     return this.modelOverride !== undefined || this.permissionModeOverride !== undefined;
   }
 
-  /** Set the Claude session ID for resume. Used by SessionManager during lazy restore. */
-  setClaudeSessionId(id: string): void {
+  /** Set the provider session ID for resume. Used by SessionManager during lazy restore. */
+  setProviderSessionId(id: string): void {
     this.claudeSessionId = id;
   }
 
@@ -711,6 +851,7 @@ export class ClaudeSession {
 
   getStatus(): SessionStatus {
     return {
+      provider: this.provider,
       state: this.state,
       permissionMode: this.sessionAcceptEditsSticky
         ? "acceptEdits"
@@ -722,7 +863,7 @@ export class ClaudeSession {
       totalOutputTokens: this.totalOutputTokens,
       queueLength: this.inputQueue.length,
       ...(this.claudeSessionId !== undefined
-        ? { claudeSessionId: this.claudeSessionId }
+        ? { providerSessionId: this.claudeSessionId }
         : {}),
       createdAt: this.createdAt,
       lastActiveAt: this.lastActiveAt,
@@ -749,6 +890,24 @@ export class ClaudeSession {
   /** @internal */
   _testGetSessionAcceptEditsSticky(): boolean {
     return this.sessionAcceptEditsSticky;
+  }
+
+  /** @internal */
+  _testAssessContextRisk(prompt: string): ContextAssessment {
+    return this.assessContextRisk(prompt);
+  }
+
+  /** @internal */
+  _testBuildContinuationSummary(nextInput: string): string {
+    return this.buildContinuationSummary({
+      text: nextInput,
+      senderOpenId: "ou_test",
+      parentMessageId: "om_test",
+      emit: async () => {},
+      done: createDeferred<void>(),
+      seq: -1,
+      locale: "en",
+    });
   }
 
   private buildPrompt(

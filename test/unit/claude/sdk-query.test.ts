@@ -118,6 +118,24 @@ describe("createSdkQueryFn", () => {
     expect(s.options["abortController"]).toBeInstanceOf(AbortController);
   });
 
+  it("bridges ProviderRunOptions.resumeId to the SDK resume option", () => {
+    const fn = createSdkQueryFn({ cliPath: "claude", logger: SILENT });
+    fn({
+      prompt: "hello",
+      options: {
+        cwd: "/tmp",
+        model: "claude-opus-4-6",
+        permissionMode: "default",
+        settingSources: ["project"],
+        resumeId: "ses_resume_bridge",
+      },
+      canUseTool: noopCanUseTool,
+    });
+
+    expect(__testAccess.sessions).toHaveLength(1);
+    expect(__testAccess.sessions[0]!.options["resume"]).toBe("ses_resume_bridge");
+  });
+
   it("yields messages from the SDK iterator", async () => {
     const fn = createSdkQueryFn({ cliPath: "claude", logger: SILENT });
     const handle = fn({

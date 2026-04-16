@@ -27,11 +27,14 @@ allowed_open_ids = [
 # "reject" = reply with an error (noisy; reveals bot exists)
 unauthorized_behavior = "ignore"
 
-# ─── Claude runtime ──────────────────────────────────────────────────
-[claude]
-# Absolute path where Claude Code sessions should run (use ~ to expand
-# to your home directory). This is the cwd every new session starts in
-# until changed via /cd or /project.
+# ─── Agent defaults ──────────────────────────────────────────────────
+[agent]
+# Which provider new sessions should use by default.
+default_provider = "claude"
+
+# Absolute path where new sessions should run (use ~ to expand to your
+# home directory). This is the cwd every new session starts in until
+# changed via /cd or /project.
 default_cwd = "~/my-projects"
 
 # Permission mode for new sessions. Options:
@@ -45,6 +48,18 @@ default_cwd = "~/my-projects"
 #                        (Phase 4 legacy; prints a warn on startup)
 default_permission_mode = "default"
 
+# Time in seconds the permission card waits for a click before
+# auto-denying. Card posts a warning reminder (permission_warn_before_seconds)
+# before the hard deadline.
+permission_timeout_seconds = 300
+permission_warn_before_seconds = 60
+
+# Fraction of the context window at which the active provider auto-compacts
+# the conversation. 0.0–1.0. Omit to use the provider default.
+# auto_compact_threshold = 0.8
+
+# ─── Claude provider ─────────────────────────────────────────────────
+[claude]
 # Model id passed to the CLI's --model flag. Any model the local
 # `claude` CLI accepts (e.g. "claude-opus-4-6", "claude-sonnet-4-6",
 # or aliases like "opus" / "sonnet").
@@ -55,15 +70,10 @@ default_model = "claude-opus-4-6"
 # Run `which claude` to find yours.
 cli_path = "claude"
 
-# Time in seconds the permission card waits for a click before
-# auto-denying. Card posts a warning reminder (permission_warn_before_seconds)
-# before the hard deadline.
-permission_timeout_seconds = 300
-permission_warn_before_seconds = 60
-
-# Fraction of the context window at which Claude auto-compacts the
-# conversation. 0.0–1.0. Omit to use the Claude CLI default.
-# auto_compact_threshold = 0.8
+# ─── Codex provider ─────────────────────────────────────────────────
+[codex]
+default_model = "gpt-5-codex"
+cli_path = "codex"
 
 # ─── Render / Feishu cards ───────────────────────────────────────────
 [render]
@@ -72,8 +82,8 @@ permission_warn_before_seconds = 60
 # "... (N more bytes omitted)".
 inline_max_bytes = 2048
 
-# If true, skip Claude's extended-thinking blocks entirely instead of
-# sending them as 💭 messages.
+# If true, skip extended-thinking blocks entirely instead of sending
+# them as 💭 messages.
 hide_thinking = false
 
 # If true, send a small "✅ 12.3s · 1.2k in / 3.4k out" tip after each
@@ -97,9 +107,10 @@ level = "info"
 # ─── Runtime-settable keys ───────────────────────────────────────────
 # The following keys can be changed at runtime via /config set:
 #   render.hide_thinking, render.show_turn_stats, render.inline_max_bytes,
-#   logging.level, claude.default_model, claude.default_cwd,
-#   claude.default_permission_mode, claude.permission_timeout_seconds,
-#   claude.permission_warn_before_seconds
+#   logging.level, agent.default_provider, agent.default_cwd,
+#   agent.default_permission_mode, agent.permission_timeout_seconds,
+#   agent.permission_warn_before_seconds, claude.default_model,
+#   codex.default_model
 # Use /config set <key> <value> --persist to write changes back to this file.
 
 # ─── Project aliases ─────────────────────────────────────────────────

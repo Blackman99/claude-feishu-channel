@@ -1,9 +1,9 @@
 import type { Logger } from "pino";
-import { ClaudeSession, type QueryFn } from "./session.js";
+import { ClaudeSession, type QueryFn, type SessionStatus } from "./session.js";
 import type { Clock, TimeoutHandle } from "../util/clock.js";
 import type { PermissionBroker } from "./permission-broker.js";
 import type { QuestionBroker } from "./question-broker.js";
-import type { AppConfig } from "../types.js";
+import type { AgentProvider, AppConfig } from "../types.js";
 import type {
   StateStore,
   SessionRecord,
@@ -15,6 +15,9 @@ export interface ClaudeSessionManagerOptions {
   config: AppConfig["claude"];
   mcpServers?: AppConfig["mcp"];
   queryFn: QueryFn;
+  providerQueryFns?: Partial<Record<AgentProvider, QueryFn>>;
+  providerConfigs?: Pick<AppConfig, "claude" | "codex">;
+  defaultProvider?: AgentProvider;
   clock: Clock;
   permissionBroker: PermissionBroker;
   questionBroker: QuestionBroker;
@@ -53,6 +56,7 @@ export class ClaudeSessionManager {
    */
   private readonly sessions = new Map<string, ClaudeSession>();
   private readonly cwdOverrides = new Map<string, string>();
+  private readonly providerOverrides = new Map<string, AgentProvider>();
   private readonly staleRecords = new Map<string, SessionRecord>();
   /** chatId → currently-active project alias (absent = default project). */
   private readonly activeProjects = new Map<string, string>();
@@ -141,13 +145,16 @@ export class ClaudeSessionManager {
 
     const stale = this.staleRecords.get(key);
     const cwdOverride = this.cwdOverrides.get(key);
+    const effectiveProvider = this.getEffectiveProvider(chatId);
+    const queryFn =
+      this.opts.providerQueryFns?.[effectiveProvider] ?? this.opts.queryFn;
 
     let cwd: string;
     let permissionMode:
       | AppConfig["claude"]["defaultPermissionMode"]
       | undefined;
     let model: string | undefined;
-    let claudeSessionId: string | undefined;
+    let providerSessionId: string | undefined;
 
     if (stale) {
       cwd = cwdOverride ?? stale.cwd;
@@ -155,7 +162,7 @@ export class ClaudeSessionManager {
         | AppConfig["claude"]["defaultPermissionMode"]
         | undefined;
       model = stale.model;
-      claudeSessionId = stale.claudeSessionId;
+      providerSessionId = stale.providerSessionId;
       this.staleRecords.delete(key);
     } else {
       cwd = cwdOverride ?? this.opts.config.defaultCwd;
@@ -163,9 +170,13 @@ export class ClaudeSessionManager {
 
     session = new ClaudeSession({
       chatId,
-      config: { ...this.opts.config, defaultCwd: cwd },
+      config: {
+        ...this.opts.config,
+        defaultCwd: cwd,
+        defaultModel: this.getDefaultModelForProvider(effectiveProvider),
+      },
       mcpServers: this.opts.mcpServers ?? [],
-      queryFn: this.opts.queryFn,
+      queryFn,
       clock: this.opts.clock,
       permissionBroker: this.opts.permissionBroker,
       questionBroker: this.opts.questionBroker,
@@ -174,14 +185,18 @@ export class ClaudeSessionManager {
       onTurnComplete: () => this.scheduleDebouncedSave(),
     });
 
+    session.setProvider(effectiveProvider);
+
     if (permissionMode) {
       session.setPermissionModeOverride(permissionMode);
     }
     if (model) {
       session.setModelOverride(model);
+    } else if (effectiveProvider === "codex") {
+      session.setModelOverride(this.getDefaultModelForProvider("codex"));
     }
-    if (claudeSessionId) {
-      session.setClaudeSessionId(claudeSessionId);
+    if (providerSessionId) {
+      session.setProviderSessionId(providerSessionId);
     }
     if (stale) {
       session.setTimestamps(stale.createdAt, stale.lastActiveAt);
@@ -200,6 +215,18 @@ export class ClaudeSessionManager {
 
   setCwdOverride(chatId: string, cwd: string): void {
     this.cwdOverrides.set(this.activeSessionKey(chatId), cwd);
+  }
+
+  setProviderOverride(chatId: string, provider: AgentProvider): void {
+    this.providerOverrides.set(this.activeSessionKey(chatId), provider);
+  }
+
+  getEffectiveProvider(chatId: string): AgentProvider {
+    const key = this.activeSessionKey(chatId);
+    return this.sessions.get(key)?.getStatus().provider
+      ?? this.staleRecords.get(key)?.provider
+      ?? this.providerOverrides.get(key)
+      ?? this.getDefaultProvider();
   }
 
   setStaleRecord(chatId: string, record: SessionRecord): void {
@@ -233,17 +260,20 @@ export class ClaudeSessionManager {
   findSession(
     target: string,
   ): { chatId: string; record: SessionRecord } | undefined {
-    // By claudeSessionId in active sessions
+    // By provider session ID in active sessions
     for (const [key, session] of this.sessions) {
       const status = session.getStatus();
-      if (status.claudeSessionId === target) {
+      if (status.providerSessionId === target) {
         const { chatId } = this.parseSessionKey(key);
-        return { chatId, record: this.statusToRecord(status) };
+        return {
+          chatId,
+          record: this.statusToRecord(this.requireProviderSessionStatus(status)),
+        };
       }
     }
-    // By claudeSessionId in stale
+    // By provider session ID in stale
     for (const [key, record] of this.staleRecords) {
-      if (record.claudeSessionId === target) {
+      if (record.providerSessionId === target) {
         const { chatId } = this.parseSessionKey(key);
         return { chatId, record };
       }
@@ -252,7 +282,11 @@ export class ClaudeSessionManager {
     const activeKey = this.activeSessionKey(target);
     if (this.sessions.has(activeKey)) {
       const status = this.sessions.get(activeKey)!.getStatus();
-      return { chatId: target, record: this.statusToRecord(status) };
+      if (!status.providerSessionId) return undefined;
+      return {
+        chatId: target,
+        record: this.statusToRecord(this.requireProviderSessionStatus(status)),
+      };
     }
     if (this.staleRecords.has(activeKey)) {
       return { chatId: target, record: this.staleRecords.get(activeKey)! };
@@ -263,20 +297,35 @@ export class ClaudeSessionManager {
   getAllSessions(): Array<{
     chatId: string;
     projectAlias?: string;
-    record: SessionRecord;
+    record: Omit<SessionRecord, "providerSessionId"> & { providerSessionId?: string };
     active: boolean;
   }> {
     const result: Array<{
       chatId: string;
       projectAlias?: string;
-      record: SessionRecord;
+      record: Omit<SessionRecord, "providerSessionId"> & { providerSessionId?: string };
       active: boolean;
     }> = [];
     for (const [key, session] of this.sessions) {
+      const status = session.getStatus();
       const { chatId, projectAlias } = this.parseSessionKey(key);
-      const entry: { chatId: string; projectAlias?: string; record: SessionRecord; active: boolean } = {
+      const entry: {
+        chatId: string;
+        projectAlias?: string;
+        record: Omit<SessionRecord, "providerSessionId"> & { providerSessionId?: string };
+        active: boolean;
+      } = {
         chatId,
-        record: this.statusToRecord(session.getStatus()),
+        record: status.providerSessionId
+          ? this.statusToRecord(this.requireProviderSessionStatus(status))
+          : {
+            provider: this.getEffectiveProvider(chatId),
+            cwd: status.cwd,
+            createdAt: status.createdAt,
+            lastActiveAt: status.lastActiveAt,
+            permissionMode: status.permissionMode,
+            model: status.model,
+          },
         active: true,
       };
       if (projectAlias !== undefined) entry.projectAlias = projectAlias;
@@ -314,7 +363,7 @@ export class ClaudeSessionManager {
     // Active sessions use composite keys; preserve them as-is.
     for (const [key, session] of this.sessions) {
       const status = session.getStatus();
-      if (!status.claudeSessionId && !session.hasExplicitOverrides()) continue;
+      if (!this.shouldPersistSession(status)) continue;
       sessions[key] = this.statusToRecord(status);
     }
     for (const [key, record] of this.staleRecords) {
@@ -360,21 +409,45 @@ export class ClaudeSessionManager {
     }
   }
 
-  private statusToRecord(status: {
-    claudeSessionId?: string;
-    cwd: string;
-    permissionMode: string;
-    model: string;
-    createdAt: string;
-    lastActiveAt: string;
-  }): SessionRecord {
+  private getDefaultProvider(): AgentProvider {
+    return this.opts.defaultProvider ?? "claude";
+  }
+
+  private getDefaultModelForProvider(provider: AgentProvider): string {
+    if (provider === "claude") {
+      return this.opts.providerConfigs?.claude.defaultModel ?? this.opts.config.defaultModel;
+    }
+    return this.opts.providerConfigs?.codex.defaultModel ?? "gpt-5-codex";
+  }
+
+  private requireProviderSessionStatus(
+    status: SessionStatus,
+  ): SessionStatus & { providerSessionId: string } {
+    if (!status.providerSessionId) {
+      throw new Error("Expected providerSessionId to be present");
+    }
+    return status as SessionStatus & { providerSessionId: string };
+  }
+
+  private statusToRecord(status: SessionStatus): SessionRecord {
     return {
-      claudeSessionId: status.claudeSessionId ?? "",
+      provider: status.provider,
       cwd: status.cwd,
       createdAt: status.createdAt,
       lastActiveAt: status.lastActiveAt,
+      ...(status.providerSessionId
+        ? { providerSessionId: status.providerSessionId }
+        : {}),
       permissionMode: status.permissionMode,
       model: status.model,
     };
+  }
+
+  private shouldPersistSession(status: SessionStatus): boolean {
+    return status.providerSessionId !== undefined
+      || status.provider !== this.getDefaultProvider()
+      || status.cwd !== this.opts.config.defaultCwd
+      || status.permissionMode !== this.opts.config.defaultPermissionMode
+      || status.model !== this.getDefaultModelForProvider(status.provider);
   }
 }

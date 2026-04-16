@@ -24,16 +24,35 @@ const AccessSchema = z.object({
   unauthorized_behavior: z.enum(["ignore", "reject"]).default("ignore"),
 });
 
-const ClaudeSchema = z.object({
+const PermissionModeSchema = z.enum([
+  "default",
+  "acceptEdits",
+  "plan",
+  "bypassPermissions",
+]);
+
+const AgentSchema = z.object({
+  default_provider: z.enum(["claude", "codex"]).default("claude"),
   default_cwd: z.string().min(1),
-  default_permission_mode: z
-    .enum(["default", "acceptEdits", "plan", "bypassPermissions"])
-    .default("default"),
-  default_model: z.string().min(1).default("claude-opus-4-6"),
-  cli_path: z.string().min(1).default("claude"),
+  default_permission_mode: PermissionModeSchema.default("default"),
   permission_timeout_seconds: z.number().int().positive().default(300),
   permission_warn_before_seconds: z.number().int().positive().default(60),
   auto_compact_threshold: z.number().min(0).max(1).optional(),
+});
+
+const ClaudeSchema = z.object({
+  default_model: z.string().min(1).default("claude-opus-4-6"),
+  cli_path: z.string().min(1).default("claude"),
+  default_cwd: z.string().min(1).optional(),
+  default_permission_mode: PermissionModeSchema.default("default"),
+  permission_timeout_seconds: z.number().int().positive().default(300),
+  permission_warn_before_seconds: z.number().int().positive().default(60),
+  auto_compact_threshold: z.number().min(0).max(1).optional(),
+});
+
+const CodexSchema = z.object({
+  default_model: z.string().min(1).default("gpt-5-codex"),
+  cli_path: z.string().min(1).default("codex"),
 });
 
 const RenderSchema = z
@@ -96,7 +115,12 @@ const McpServerSchema = z.object({
 const ConfigSchema = z.object({
   feishu: FeishuSchema,
   access: AccessSchema,
+  agent: AgentSchema.optional(),
   claude: ClaudeSchema,
+  codex: CodexSchema.default({
+    default_model: "gpt-5-codex",
+    cli_path: "codex",
+  }),
   render: RenderSchema,
   persistence: PersistenceSchema,
   logging: LoggingSchema,
@@ -114,6 +138,74 @@ function formatZodError(error: z.ZodError): string {
   return error.issues
     .map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`)
     .join("\n");
+}
+
+function hasOwnProperty(
+  value: unknown,
+  key: string,
+): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.prototype.hasOwnProperty.call(value, key)
+  );
+}
+
+function validateMixedAgentConfig(
+  path: string,
+  raw: unknown,
+  agent: z.infer<typeof AgentSchema>,
+): void {
+  if (!hasOwnProperty(raw, "claude")) return;
+  const claude = raw.claude;
+  if (!hasOwnProperty(claude, "default_cwd") &&
+      !hasOwnProperty(claude, "default_permission_mode") &&
+      !hasOwnProperty(claude, "permission_timeout_seconds") &&
+      !hasOwnProperty(claude, "permission_warn_before_seconds") &&
+      !hasOwnProperty(claude, "auto_compact_threshold")) {
+    return;
+  }
+
+  const conflicts: string[] = [];
+  if (
+    hasOwnProperty(claude, "default_cwd") &&
+    typeof claude.default_cwd === "string" &&
+    expandHome(claude.default_cwd) !== expandHome(agent.default_cwd)
+  ) {
+    conflicts.push("claude.default_cwd");
+  }
+  if (
+    hasOwnProperty(claude, "default_permission_mode") &&
+    claude.default_permission_mode !== agent.default_permission_mode
+  ) {
+    conflicts.push("claude.default_permission_mode");
+  }
+  if (
+    hasOwnProperty(claude, "permission_timeout_seconds") &&
+    claude.permission_timeout_seconds !== agent.permission_timeout_seconds
+  ) {
+    conflicts.push("claude.permission_timeout_seconds");
+  }
+  if (
+    hasOwnProperty(claude, "permission_warn_before_seconds") &&
+    claude.permission_warn_before_seconds !== agent.permission_warn_before_seconds
+  ) {
+    conflicts.push("claude.permission_warn_before_seconds");
+  }
+  if (
+    hasOwnProperty(claude, "auto_compact_threshold") &&
+    claude.auto_compact_threshold !== agent.auto_compact_threshold
+  ) {
+    conflicts.push("claude.auto_compact_threshold");
+  }
+
+  if (conflicts.length > 0) {
+    throw new ConfigError(
+      `Invalid config at ${path}:\n${conflicts
+        .map((field) => `  - ${field}: conflicts with [agent] when both sections are present`)
+        .join("\n")}`,
+    );
+  }
 }
 
 /**
@@ -177,6 +269,19 @@ export async function loadConfig(path: string): Promise<AppConfig> {
   }
 
   const data = result.data;
+  if (data.agent) {
+    validateMixedAgentConfig(path, parsed, data.agent);
+  }
+  const agent = data.agent ?? {
+    default_provider: "claude" as const,
+    default_cwd: data.claude.default_cwd,
+    default_permission_mode: data.claude.default_permission_mode,
+    permission_timeout_seconds: data.claude.permission_timeout_seconds,
+    permission_warn_before_seconds: data.claude.permission_warn_before_seconds,
+    ...(data.claude.auto_compact_threshold !== undefined
+      ? { auto_compact_threshold: data.claude.auto_compact_threshold }
+      : {}),
+  };
   return {
     feishu: {
       appId: data.feishu.app_id,
@@ -188,16 +293,44 @@ export async function loadConfig(path: string): Promise<AppConfig> {
       allowedOpenIds: data.access.allowed_open_ids,
       unauthorizedBehavior: data.access.unauthorized_behavior,
     },
+    agent: {
+      defaultProvider: agent.default_provider,
+      defaultCwd: (() => {
+        if (!agent.default_cwd) {
+          throw new ConfigError(
+            `Invalid config at ${path}:\n  - claude.default_cwd: required when [agent] is omitted`,
+          );
+        }
+        return expandHome(agent.default_cwd);
+      })(),
+      defaultPermissionMode: agent.default_permission_mode,
+      permissionTimeoutMs: agent.permission_timeout_seconds * 1000,
+      permissionWarnBeforeMs: agent.permission_warn_before_seconds * 1000,
+      ...(agent.auto_compact_threshold !== undefined
+        ? { autoCompactThreshold: agent.auto_compact_threshold }
+        : {}),
+    },
     claude: {
-      defaultCwd: expandHome(data.claude.default_cwd),
-      defaultPermissionMode: data.claude.default_permission_mode,
+      defaultCwd: (() => {
+        if (!agent.default_cwd) {
+          throw new ConfigError(
+            `Invalid config at ${path}:\n  - claude.default_cwd: required when [agent] is omitted`,
+          );
+        }
+        return expandHome(agent.default_cwd);
+      })(),
+      defaultPermissionMode: agent.default_permission_mode,
       defaultModel: data.claude.default_model,
       cliPath: data.claude.cli_path,
-      permissionTimeoutMs: data.claude.permission_timeout_seconds * 1000,
-      permissionWarnBeforeMs: data.claude.permission_warn_before_seconds * 1000,
-      ...(data.claude.auto_compact_threshold !== undefined
-        ? { autoCompactThreshold: data.claude.auto_compact_threshold }
+      permissionTimeoutMs: agent.permission_timeout_seconds * 1000,
+      permissionWarnBeforeMs: agent.permission_warn_before_seconds * 1000,
+      ...(agent.auto_compact_threshold !== undefined
+        ? { autoCompactThreshold: agent.auto_compact_threshold }
         : {}),
+    },
+    codex: {
+      defaultModel: data.codex.default_model,
+      cliPath: data.codex.cli_path,
     },
     render: {
       inlineMaxBytes: data.render.inline_max_bytes,
