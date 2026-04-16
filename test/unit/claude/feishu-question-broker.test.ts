@@ -94,6 +94,43 @@ describe("FeishuQuestionBroker.request — happy path", () => {
     expect(JSON.stringify(card)).toContain("Which editor?");
   });
 
+  it("renders a dedicated full-text block for long questions", async () => {
+    const f = makeFakeFeishu();
+    const broker = makeBroker(f.client, new FakeClock());
+    const longQuestionText =
+      "Please review the current rollout state, keep the unfinished migration constraints in mind, and choose the safest path to continue without losing validated work.";
+
+    void broker.request({
+      questions: [
+        {
+          question: longQuestionText,
+          options: [
+            {
+              label: "Use existing workspace and continue from the latest branch state",
+              description: "",
+            },
+            {
+              label: "Create a fresh workspace and replay only the verified steps",
+              description: "",
+            },
+          ],
+          multiSelect: false,
+        },
+      ],
+      chatId: "oc_x",
+      ownerOpenId: "ou_x",
+      parentMessageId: "om_p",
+      locale: "en",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const json = JSON.stringify(f.replyCard.mock.calls[0]![1]);
+    expect(json).toContain("Full question below");
+    expect(json).toContain(longQuestionText);
+    expect(json).toContain("A. Use existing");
+  });
+
   it("renders long option labels as compact prefixed button text", async () => {
     const f = makeFakeFeishu();
     const broker = makeBroker(f.client, new FakeClock());
@@ -126,6 +163,25 @@ describe("FeishuQuestionBroker.request — happy path", () => {
     expect(json).toContain("A. Use existing");
     expect(json).toContain("B. Create a fresh");
     expect(json).not.toContain(longQuestion.options[0]!.label);
+  });
+
+  it("keeps short questions on the simple one-line layout", async () => {
+    const f = makeFakeFeishu();
+    const broker = makeBroker(f.client, new FakeClock());
+
+    void broker.request({
+      questions: [Q1],
+      chatId: "oc_x",
+      ownerOpenId: "ou_x",
+      parentMessageId: "om_p",
+      locale: "en",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const json = JSON.stringify(f.replyCard.mock.calls[0]![1]);
+    expect(json).toContain("Which editor?");
+    expect(json).not.toContain("Full question below");
   });
 
   it("returns a pending promise until a click lands", async () => {

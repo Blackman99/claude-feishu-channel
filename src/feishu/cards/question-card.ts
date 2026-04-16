@@ -7,6 +7,7 @@ import { t, type Locale } from "../../util/i18n.js";
 
 /** Max characters for a button label before it wraps unpleasantly. */
 const BUTTON_LABEL_MAX = 18;
+const QUESTION_TEXT_MAX = 80;
 const OPTION_PREFIXES = ["A.", "B.", "C.", "D."] as const;
 
 interface BuildPendingArgs {
@@ -43,8 +44,15 @@ export function buildQuestionCard(args: BuildPendingArgs): FeishuCardV2 {
       : "";
     elements.push({
       tag: "markdown",
-      content: `${headerPrefix}**Q${i + 1}.** ${escapeMd(q.question)}`,
+      content: questionPromptLine(i, q.question, headerPrefix),
     });
+
+    if (isLongQuestion(q.question)) {
+      elements.push({
+        tag: "markdown",
+        content: escapeMd(q.question),
+      });
+    }
 
     const answered = args.answers[i];
     if (answered !== null && answered !== undefined) {
@@ -204,6 +212,21 @@ function makeButton(
 
 function buttonDisplayLabel(optionIndex: number, label: string): string {
   return `${optionPrefix(optionIndex)} ${clipButtonLabel(label)}`;
+}
+
+function isLongQuestion(question: string): boolean {
+  return Array.from(question.trim()).length > QUESTION_TEXT_MAX;
+}
+
+function questionPromptLine(
+  questionIndex: number,
+  question: string,
+  headerPrefix: string,
+): string {
+  if (!isLongQuestion(question)) {
+    return `${headerPrefix}**Q${questionIndex + 1}.** ${escapeMd(question)}`;
+  }
+  return `${headerPrefix}**Q${questionIndex + 1}.** Full question below`;
 }
 
 function optionPrefix(optionIndex: number): string {
