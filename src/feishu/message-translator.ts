@@ -2,6 +2,7 @@ import type { Logger } from "pino";
 import type { ReceiveV1Event } from "./types.js";
 import type { IncomingMessage } from "../types.js";
 import { detectImageMime } from "./image-mime.js";
+import { parsePost, type ParsedPost } from "./post-parser.js";
 
 export interface FeishuImageClient {
   downloadImage(messageId: string, imageKey: string): Promise<Buffer>;
@@ -44,6 +45,36 @@ export async function translateReceiveEvent(
       text = "[Image]";
     } catch (err) {
       log.warn({ err }, "Failed to download image — dropping message");
+      return null;
+    }
+  } else if (msgType === "post") {
+    let parsed: ParsedPost;
+    try {
+      parsed = parsePost(event.message.content);
+    } catch (err) {
+      log.error({ err }, "Failed to parse post message content");
+      return null;
+    }
+    text = parsed.text;
+
+    if (parsed.imageKeys.length > 0) {
+      try {
+        const buffers = await Promise.all(
+          parsed.imageKeys.map((k) =>
+            client.downloadImage(event.message.message_id, k),
+          ),
+        );
+        imageDataUris = buffers.map(
+          (b) => `data:${detectImageMime(b)};base64,${b.toString("base64")}`,
+        );
+      } catch (err) {
+        log.warn({ err }, "Failed to download post image — dropping message");
+        return null;
+      }
+    }
+
+    if (text.length === 0 && imageDataUris === undefined) {
+      log.info("Empty post, dropping");
       return null;
     }
   } else {
