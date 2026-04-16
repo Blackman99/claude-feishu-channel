@@ -94,6 +94,11 @@ interface RetainedContinuationState {
   latestObjective: string;
 }
 
+interface RuntimeHandoffOptions {
+  includeRecentContext: boolean;
+  heading: string;
+}
+
 export interface SessionStatus {
   provider: AgentProvider;
   state: SessionState;
@@ -190,6 +195,11 @@ function narrowSupportedImageMime(
  * while a turn is in-flight.
  */
 export class ClaudeSession {
+  private static readonly RECENT_CONTEXT_MAX_ENTRIES = 8;
+  private static readonly RECENT_CONTEXT_MAX_TURNS = 4;
+  private static readonly RECENT_CONTEXT_MAX_CHARS = 1_200;
+  private static readonly COMPACT_RECENT_CONTEXT_BYTE_THRESHOLD = 14_000_000;
+
   private readonly chatId: string;
   private readonly config: AppConfig["claude"];
   private readonly queryFn: QueryFn;
@@ -238,6 +248,7 @@ export class ClaudeSession {
     completionSignals: [],
     latestObjective: "",
   };
+  private recentContext: string[] = [];
   private readonly onSessionIdCaptured?: () => void;
   private readonly onTurnComplete?: () => void;
   private createdAt: string;
@@ -536,6 +547,7 @@ export class ClaudeSession {
       const prompt = this.buildPrompt(next);
       const promptText = this.promptPreview(next);
       const assessment = this.assessContextRisk(promptText);
+      this.refreshRetainedContinuation(this.immediateRequestSummary(next));
       let effectivePrompt = prompt;
 
       if (assessment.level === "warn") {
@@ -549,6 +561,10 @@ export class ClaudeSession {
         );
         this.claudeSessionId = undefined;
         await next.emit({ type: "context_compacting" });
+        effectivePrompt = this.buildRuntimeHandoffPrompt(prompt, next, {
+          heading: "Continuation summary for resumed work:",
+          includeRecentContext: this.shouldIncludeRecentContextForCompact(assessment),
+        });
       }
 
       if (assessment.level === "summarize_reset") {
@@ -558,10 +574,10 @@ export class ClaudeSession {
         );
         this.claudeSessionId = undefined;
         await next.emit({ type: "context_summarized_reset" });
-        effectivePrompt = this.prependContinuationSummary(
-          prompt,
-          this.buildContinuationSummary(next),
-        );
+        effectivePrompt = this.buildRuntimeHandoffPrompt(prompt, next, {
+          heading: "Continuation summary for a fresh session:",
+          includeRecentContext: false,
+        });
       }
 
       const handle = this.queryFn({
@@ -605,8 +621,12 @@ export class ClaudeSession {
           }
 
           // Rebuild handle without resume (fresh session).
+          const retryPrompt = this.buildRuntimeHandoffPrompt(prompt, next, {
+            heading: "Continuation summary for resumed work:",
+            includeRecentContext: false,
+          });
           const retryHandle = this.queryFn({
-            prompt,
+            prompt: retryPrompt,
             options: {
               cwd: this.config.defaultCwd,
               model: this.modelOverride ?? this.config.defaultModel,
@@ -737,6 +757,34 @@ export class ClaudeSession {
     return signals.filter((signal) => !this.isExplicitCompletionSignal(signal));
   }
 
+  private recordRecentContext(entry: string): void {
+    const trimmed = entry.trim();
+    if (trimmed.length === 0) return;
+    this.recentContext.push(trimmed);
+    if (this.recentContext.length > ClaudeSession.RECENT_CONTEXT_MAX_ENTRIES) {
+      this.recentContext.splice(
+        0,
+        this.recentContext.length - ClaudeSession.RECENT_CONTEXT_MAX_ENTRIES,
+      );
+    }
+  }
+
+  private recentContextSlice(
+    maxTurns = ClaudeSession.RECENT_CONTEXT_MAX_TURNS,
+    maxChars = ClaudeSession.RECENT_CONTEXT_MAX_CHARS,
+  ): string[] {
+    const kept: string[] = [];
+    let totalChars = 0;
+    for (let idx = this.recentContext.length - 1; idx >= 0; idx -= 1) {
+      const entry = this.recentContext[idx]!;
+      if (kept.length >= maxTurns) break;
+      if (totalChars + entry.length > maxChars && kept.length > 0) break;
+      kept.unshift(entry);
+      totalChars += entry.length;
+    }
+    return kept;
+  }
+
   private refreshRetainedContinuation(nextObjective: string): void {
     this.retainedContinuation = {
       tasks: this.pruneCompletedTasks(this.retainedContinuation.tasks),
@@ -748,12 +796,18 @@ export class ClaudeSession {
   }
 
   private buildRetainedContinuationSummary(): string {
+    return this.buildRetainedContinuationSummaryWithHeading(
+      "Continuation summary for a fresh session:",
+    );
+  }
+
+  private buildRetainedContinuationSummaryWithHeading(heading: string): string {
     const activeTasks = this.retainedContinuation.tasks.map(
       (task) => `- ${task.title} [${task.status}]`,
     );
 
     return [
-      "Continuation summary for a fresh session:",
+      heading,
       "",
       "Completed items removed from continuation context.",
       ...(this.retainedContinuation.latestObjective
@@ -774,6 +828,26 @@ export class ClaudeSession {
       `Working directory: ${status.cwd}`,
       `Permission mode: ${status.permissionMode}`,
       `Prior token totals: in=${status.totalInputTokens}, out=${status.totalOutputTokens}`,
+    ].join("\n");
+  }
+
+  private buildRuntimeHandoffSummary(
+    next: QueuedInput,
+    options: RuntimeHandoffOptions,
+  ): string {
+    const status = this.getStatus();
+    this.refreshRetainedContinuation(this.immediateRequestSummary(next));
+    const recentContext = options.includeRecentContext
+      ? this.recentContextSlice()
+      : [];
+    return [
+      this.buildRetainedContinuationSummaryWithHeading(options.heading),
+      `Provider: ${status.provider}`,
+      `Model: ${status.model}`,
+      `Working directory: ${status.cwd}`,
+      `Permission mode: ${status.permissionMode}`,
+      `Prior token totals: in=${status.totalInputTokens}, out=${status.totalOutputTokens}`,
+      ...(recentContext.length > 0 ? ["", "Recent context:", ...recentContext] : []),
     ].join("\n");
   }
 
@@ -801,6 +875,26 @@ export class ClaudeSession {
         }
       },
     };
+  }
+
+  private buildRuntimeHandoffPrompt(
+    prompt: string | AsyncIterable<SDKUserMessage>,
+    next: QueuedInput,
+    options: RuntimeHandoffOptions,
+  ): string | AsyncIterable<SDKUserMessage> {
+    return this.prependContinuationSummary(
+      prompt,
+      this.buildRuntimeHandoffSummary(next, options),
+    );
+  }
+
+  private shouldIncludeRecentContextForCompact(
+    assessment: ContextAssessment,
+  ): boolean {
+    return (
+      assessment.estimatedBytes <
+      ClaudeSession.COMPACT_RECENT_CONTEXT_BYTE_THRESHOLD
+    );
   }
 
   private async runTurn(
@@ -867,6 +961,10 @@ export class ClaudeSession {
     this.turnCount++;
     this.totalInputTokens += resultMsg.usage?.input_tokens ?? 0;
     this.totalOutputTokens += resultMsg.usage?.output_tokens ?? 0;
+    this.recordRecentContext(`User: ${this.immediateRequestSummary(input)}`);
+    if (typeof resultMsg.result === "string" && resultMsg.result.trim().length > 0) {
+      this.recordRecentContext(`Assistant: ${resultMsg.result.trim().slice(0, 400)}`);
+    }
     this.lastActiveAt = new Date().toISOString();
     this.onTurnComplete?.();
   }
@@ -1013,6 +1111,11 @@ export class ClaudeSession {
   /** @internal */
   _testRefreshRetainedContinuation(nextObjective: string): void {
     this.refreshRetainedContinuation(nextObjective);
+  }
+
+  /** @internal */
+  _testRecordRecentContext(entry: string): void {
+    this.recordRecentContext(entry);
   }
 
   /** @internal */

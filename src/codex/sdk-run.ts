@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { Logger } from "pino";
 import type {
   Codex as CodexCtor,
@@ -10,6 +13,34 @@ import type {
 import type { QueryFn, QueryHandle } from "../claude/query-handle.js";
 import type { SDKContentBlock, SDKMessageLike } from "../claude/session.js";
 import type { PermissionMode } from "../types.js";
+
+const MIME_EXTENSION: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
+
+interface ImageBase64Source {
+  media_type: string;
+  data: string;
+}
+
+function extractImageSource(block: SDKContentBlock): ImageBase64Source | undefined {
+  const source = (block as { source?: unknown }).source;
+  if (!source || typeof source !== "object") return undefined;
+  const s = source as Record<string, unknown>;
+  if (s.type !== "base64") return undefined;
+  const mediaType = typeof s.media_type === "string" ? s.media_type : undefined;
+  const data = typeof s.data === "string" ? s.data : undefined;
+  if (!mediaType || !data) return undefined;
+  return { media_type: mediaType, data };
+}
+
+interface PromptInputResult {
+  input: string | UserInput[];
+  cleanup: () => Promise<void>;
+}
 
 type CodexModule = typeof import("@openai/codex-sdk");
 
@@ -125,10 +156,22 @@ function buildTurnOptions(
 
 async function promptToInput(
   prompt: string | AsyncIterable<unknown>,
-): Promise<string | UserInput[]> {
-  if (typeof prompt === "string") return prompt;
+  logger: Logger,
+): Promise<PromptInputResult> {
+  const noCleanup = async (): Promise<void> => {};
+  if (typeof prompt === "string") return { input: prompt, cleanup: noCleanup };
 
   const parts: UserInput[] = [];
+  let tempDir: string | undefined;
+  let imageCounter = 0;
+
+  const ensureTempDir = async (): Promise<string> => {
+    if (tempDir === undefined) {
+      tempDir = await mkdtemp(path.join(tmpdir(), "afc-codex-img-"));
+    }
+    return tempDir;
+  };
+
   for await (const chunk of prompt) {
     if (!chunk || typeof chunk !== "object") continue;
     const record = chunk as Record<string, unknown>;
@@ -141,23 +184,55 @@ async function promptToInput(
         parts.push({ type: "text", text: block.text });
         continue;
       }
-      // The SDK currently supports local image paths, not data URIs.
       if (block.type === "image") {
-        parts.push({
-          type: "text",
-          text: "[image omitted: current Codex adapter cannot forward data URI images]",
-        });
+        const source = extractImageSource(block);
+        if (!source) {
+          logger.warn("Codex image block has no base64 source; omitting");
+          parts.push({
+            type: "text",
+            text: "[image omitted: missing base64 source]",
+          });
+          continue;
+        }
+        try {
+          const dir = await ensureTempDir();
+          const ext = MIME_EXTENSION[source.media_type] ?? "bin";
+          const filePath = path.join(dir, `image-${imageCounter}.${ext}`);
+          imageCounter += 1;
+          await writeFile(filePath, Buffer.from(source.data, "base64"));
+          parts.push({ type: "local_image", path: filePath });
+        } catch (err) {
+          logger.warn(
+            { err, mediaType: source.media_type },
+            "Failed to materialize Codex image to temp file; omitting",
+          );
+          parts.push({
+            type: "text",
+            text: "[image omitted: failed to write temp file]",
+          });
+        }
       }
     }
   }
 
+  const cleanup = async (): Promise<void> => {
+    if (tempDir === undefined) return;
+    const dir = tempDir;
+    tempDir = undefined;
+    try {
+      await rm(dir, { recursive: true, force: true });
+    } catch (err) {
+      logger.debug({ err, dir }, "failed to remove codex image temp dir");
+    }
+  };
+
   if (parts.length === 0) {
-    return "[input omitted]";
+    return { input: "[input omitted]", cleanup };
   }
   if (parts.length === 1 && parts[0]?.type === "text") {
-    return parts[0].text;
+    return { input: parts[0].text, cleanup };
   }
-  return parts;
+  return { input: parts, cleanup };
 }
 
 function mapItemStarted(item: ThreadItem): SDKMessageLike | undefined {
@@ -243,8 +318,18 @@ export function createCodexQueryFn(
           ? codex.resumeThread(params.options.resumeId, threadOptions)
           : codex.startThread(threadOptions);
 
-        const input = await promptToInput(params.prompt as string | AsyncIterable<unknown>);
-        const { events } = await thread.runStreamed(input, buildTurnOptions(abort.signal));
+        const { input, cleanup } = await promptToInput(
+          params.prompt as string | AsyncIterable<unknown>,
+          opts.logger,
+        );
+        let streamed: Awaited<ReturnType<typeof thread.runStreamed>>;
+        try {
+          streamed = await thread.runStreamed(input, buildTurnOptions(abort.signal));
+        } catch (err) {
+          await cleanup();
+          throw err;
+        }
+        const { events } = streamed;
         let threadId = thread.id ?? undefined;
 
         try {
@@ -290,6 +375,8 @@ export function createCodexQueryFn(
             return;
           }
           throw err;
+        } finally {
+          await cleanup();
         }
       },
     };

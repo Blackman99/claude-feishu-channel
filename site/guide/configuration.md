@@ -1,14 +1,14 @@
 # Configuration
 
-Claude Feishu Channel is configured via a TOML file. The default location is `~/.claude-feishu-channel/config.toml`. You can override this path by setting the `CLAUDE_FEISHU_CONFIG` environment variable.
+Agent Feishu Channel is configured via a TOML file. The default location is `~/.agent-feishu-channel/config.toml`. You can override this path by setting the `AGENT_FEISHU_CONFIG` environment variable (`CLAUDE_FEISHU_CONFIG` is still honored as a legacy alias).
 
-A fully commented example is available in [`config.example.toml`](https://github.com/Blackman99/claude-feishu-channel/blob/main/config.example.toml) at the project root.
+A fully commented example is available in [`config.example.toml`](https://github.com/Blackman99/agent-feishu-channel/blob/main/config.example.toml) at the project root.
 
 ## Config File Setup
 
 ```bash
-mkdir -p ~/.claude-feishu-channel
-cp config.example.toml ~/.claude-feishu-channel/config.toml
+mkdir -p ~/.agent-feishu-channel
+cp config.example.toml ~/.agent-feishu-channel/config.toml
 ```
 
 ## Config Sections
@@ -55,7 +55,7 @@ The bot has full shell and file access to your machine. Always configure `allowe
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `default_model` | `"gpt-5-codex"` | Model ID passed to the Codex SDK |
+| `default_model` | `"gpt-5.4"` | Model ID passed to the Codex SDK |
 | `cli_path` | `"codex"` | Path to the `codex` binary; resolves via `$PATH` by default |
 
 ### `[render]` — Card Rendering Options
@@ -70,8 +70,8 @@ The bot has full shell and file access to your machine. Always configure `allowe
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `state_file` | `"~/.claude-feishu-channel/state.json"` | Path to the session state file |
-| `log_dir` | `"~/.claude-feishu-channel/logs"` | Directory for structured log files |
+| `state_file` | `"~/.agent-feishu-channel/state.json"` | Path to the session state file |
+| `log_dir` | `"~/.agent-feishu-channel/logs"` | Directory for structured log files |
 | `session_ttl_days` | `30` | Days to keep session records before cleanup on startup |
 
 ### `[logging]` — Log Level
@@ -120,7 +120,8 @@ By default, `/config set` only changes the value in memory for the current proce
 
 | Variable | Description |
 |----------|-------------|
-| `CLAUDE_FEISHU_CONFIG` | Override the config file path (default: `~/.claude-feishu-channel/config.toml`) |
+| `AGENT_FEISHU_CONFIG` | Override the config file path (default: `~/.agent-feishu-channel/config.toml`) |
+| `CLAUDE_FEISHU_CONFIG` | Legacy alias for `AGENT_FEISHU_CONFIG` (still honored) |
 | `ANTHROPIC_BASE_URL` | Custom API endpoint for the Claude SDK |
 | `ANTHROPIC_AUTH_TOKEN` | Auth token for a custom endpoint |
 

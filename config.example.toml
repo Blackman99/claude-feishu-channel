@@ -1,8 +1,8 @@
-# claude-feishu-channel configuration file.
+# agent-feishu-channel configuration file.
 #
-# Copy this file to ~/.claude-feishu-channel/config.toml and fill in the
-# values for your Feishu bot. Or set CLAUDE_FEISHU_CONFIG to point at a
-# custom location.
+# Copy this file to ~/.agent-feishu-channel/config.toml and fill in the
+# values for your Feishu bot. Or set AGENT_FEISHU_CONFIG to point at a
+# custom location. (Legacy alias CLAUDE_FEISHU_CONFIG is still honored.)
 
 # ─── Feishu app credentials ──────────────────────────────────────────
 [feishu]
@@ -72,7 +72,7 @@ cli_path = "claude"
 
 # ─── Codex provider ─────────────────────────────────────────────────
 [codex]
-default_model = "gpt-5-codex"
+default_model = "gpt-5.4"
 cli_path = "codex"
 
 # ─── Render / Feishu cards ───────────────────────────────────────────
@@ -92,9 +92,9 @@ show_turn_stats = true
 
 # ─── Persistence paths ───────────────────────────────────────────────
 [persistence]
-state_file = "~/.claude-feishu-channel/state.json"
+state_file = "~/.agent-feishu-channel/state.json"
 # Directory for structured log files.
-log_dir = "~/.claude-feishu-channel/logs"
+log_dir = "~/.agent-feishu-channel/logs"
 # How many days to keep session records before cleanup. Sessions older
 # than this are pruned on startup.
 session_ttl_days = 30

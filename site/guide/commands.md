@@ -1,6 +1,6 @@
 # Commands
 
-Claude Feishu Channel supports slash commands and special input prefixes to control sessions, change settings, and manage the active agent provider.
+Agent Feishu Channel supports slash commands and special input prefixes to control sessions, change settings, and manage the active agent provider.
 
 ## Command Reference
 
@@ -105,7 +105,7 @@ Sets the permission mode for the current session. Available modes:
 
 ### `/model <name>`
 
-Switches the model for the current provider. For Claude this can be values like `claude-opus-4-6`; for Codex this can be values like `gpt-5-codex`.
+Switches the model for the current provider. For Claude this can be values like `claude-opus-4-6`; for Codex this can be values like `gpt-5.4`.
 
 ## Configuration
 

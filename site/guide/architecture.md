@@ -1,6 +1,6 @@
 # Architecture
 
-Claude Feishu Channel is built around a WebSocket connection to Feishu and a per-chat session model that drives either Claude or Codex behind a shared Feishu orchestration layer.
+Agent Feishu Channel is built around a WebSocket connection to Feishu and a per-chat session model that drives either Claude or Codex behind a shared Feishu orchestration layer.
 
 ## System Overview
 

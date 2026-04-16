@@ -28,7 +28,7 @@
           <span class="dot dot-yellow"></span>
           <span class="dot dot-green"></span>
         </div>
-        <span class="terminal-title">Claude Feishu Channel</span>
+        <span class="terminal-title">Agent Feishu Channel</span>
       </div>
 
       <!-- Prev / Next arrows -->

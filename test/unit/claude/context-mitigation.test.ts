@@ -194,6 +194,27 @@ describe("ClaudeSession context assessment", () => {
     await outcome.done;
   });
 
+  it("keeps resumeId in warning zone while continuing to use the provider thread", async () => {
+    const h = createHarness({
+      providerSessionId: "ses_warn",
+      totalInputTokens: 165_000,
+      totalOutputTokens: 2_000,
+    });
+
+    const outcome = await h.session.submit(runInput("warn me"), h.emit);
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+
+    expect(h.queryCalls[0]!.options.resumeId).toBe("ses_warn");
+
+    h.fakes[0]!.finishWithSuccess({
+      durationMs: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    await outcome.done;
+  });
+
   it("drops providerSessionId before running a compact-required turn", async () => {
     const h = createHarness({
       totalInputTokens: 190_000,
@@ -217,6 +238,30 @@ describe("ClaudeSession context assessment", () => {
       outputTokens: 1,
     });
     await outcome.done;
+  });
+
+  it("uses retained summary plus bounded recent context for lower-risk compact handoff", async () => {
+    const h = createHarness({
+      providerSessionId: "ses_compact",
+      totalInputTokens: 181_000,
+      totalOutputTokens: 1_000,
+    });
+
+    h.session._testSetRetainedTaskState([
+      { title: "Task 2", status: "in_progress" },
+    ]);
+    (h.session as any)._testRecordRecentContext("User: previous request");
+    (h.session as any)._testRecordRecentContext("Assistant: previous answer");
+
+    const outcome = await h.session.submit(runInput("continue work"), h.emit);
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+
+    expect(h.queryCalls[0]!.options.resumeId).toBeUndefined();
+    expect(h.events).toContainEqual({ type: "context_compacting" });
+    expect(typeof h.queryCalls[0]!.prompt).toBe("string");
+    expect(h.queryCalls[0]!.prompt).toContain("Continuation summary for resumed work:");
+    expect(h.queryCalls[0]!.prompt).toContain("Recent context:");
   });
 
   it("counts image payload bytes when assessing pre-turn warning risk", async () => {
@@ -274,7 +319,7 @@ describe("ClaudeSession context assessment", () => {
   it("preserves provider/model/cwd/permission mode across summarized reset", () => {
     const h = createHarness({
       providerSessionId: "thread_old",
-      model: "gpt-5-codex",
+      model: "gpt-5.4",
     });
 
     h.session.setProvider("codex");
@@ -282,7 +327,7 @@ describe("ClaudeSession context assessment", () => {
 
     const summary = h.session._testBuildContinuationSummary("next task");
     expect(summary).toContain("Current objective");
-    expect(summary).toContain("gpt-5-codex");
+    expect(summary).toContain("gpt-5.4");
     expect(summary).toContain("/tmp/cfc-test");
     expect(summary).toContain("plan");
     expect(summary).toContain("codex");
@@ -392,5 +437,33 @@ describe("ClaudeSession context assessment", () => {
     expect(h.queryCalls).toHaveLength(2);
     expect(h.queryCalls[0]!.options.resumeId).toBe("ses_backend_limit");
     expect(h.queryCalls[1]!.options.resumeId).toBeUndefined();
+  });
+
+  it("uses retained-summary handoff for hard fallback retry", async () => {
+    const h = createHarness({
+      providerSessionId: "ses_backend_limit",
+      firstRunError: new Error("Request too large: max 20MB"),
+    });
+
+    h.session._testSetRetainedTaskState([
+      { title: "Task 5", status: "in_progress" },
+    ]);
+
+    const outcome = await h.session.submit(runInput("retry me"), h.emit);
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+
+    h.fakes[0]!.finishWithSuccess({
+      durationMs: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    await outcome.done;
+
+    expect(h.queryCalls).toHaveLength(2);
+    expect(typeof h.queryCalls[1]!.prompt).toBe("string");
+    expect(h.queryCalls[1]!.prompt).toContain(
+      "Continuation summary for resumed work:",
+    );
   });
 });

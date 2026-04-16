@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.svg" width="180" alt="CFC Logo" />
+  <img src="assets/logo.svg" width="180" alt="AFC Logo" />
 </p>
 
-<h1 align="center">claude-feishu-channel</h1>
+<h1 align="center">agent-feishu-channel</h1>
 
 <p align="center">
   Claude and Codex, natively in Feishu / Lark.
@@ -11,11 +11,13 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/claude-feishu-channel"><img src="https://img.shields.io/npm/v/claude-feishu-channel.svg" alt="npm version" /></a>
-  <a href="https://www.npmjs.com/package/claude-feishu-channel"><img src="https://img.shields.io/npm/dm/claude-feishu-channel.svg" alt="npm downloads" /></a>
-  <a href="https://github.com/Blackman99/claude-feishu-channel/actions/workflows/ci.yml"><img src="https://github.com/Blackman99/claude-feishu-channel/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/node/v/claude-feishu-channel" alt="node version" />
+  <a href="https://www.npmjs.com/package/agent-feishu-channel"><img src="https://img.shields.io/npm/v/agent-feishu-channel.svg" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/agent-feishu-channel"><img src="https://img.shields.io/npm/dm/agent-feishu-channel.svg" alt="npm downloads" /></a>
+  <a href="https://github.com/Blackman99/agent-feishu-channel/actions/workflows/ci.yml"><img src="https://github.com/Blackman99/agent-feishu-channel/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <img src="https://img.shields.io/node/v/agent-feishu-channel" alt="node version" />
 </p>
+
+> **Migrating from `claude-feishu-channel`?** The project was renamed to reflect multi-provider support (Claude + Codex). Run `pnpm remove claude-feishu-channel && pnpm add agent-feishu-channel` (or the npm equivalent). Command is now `afc` instead of `cfc`. On first run, the state directory at `~/.claude-feishu-channel/` will be auto-renamed to `~/.agent-feishu-channel/` — session history is preserved. Config keys are unchanged.
 
 ## Features
 
@@ -33,26 +35,26 @@
 ### Install
 
 ```bash
-npm install -g claude-feishu-channel
+npm install -g agent-feishu-channel
 ```
 
 ### Initialize config
 
 ```bash
-cfc init
-# Creates ~/.claude-feishu-channel/config.toml from template
+afc init
+# Creates ~/.agent-feishu-channel/config.toml from template
 ```
 
 Edit the config with your Feishu credentials:
 
 ```bash
-vim ~/.claude-feishu-channel/config.toml
+vim ~/.agent-feishu-channel/config.toml
 ```
 
 ### Run
 
 ```bash
-cfc
+afc
 ```
 
 The bot connects to Feishu via WebSocket and starts listening for messages.
@@ -60,8 +62,8 @@ The bot connects to Feishu via WebSocket and starts listening for messages.
 ### CLI Options
 
 ```
-cfc [options]            Start the service
-cfc init                 Create config template at ~/.claude-feishu-channel/config.toml
+afc [options]            Start the service
+afc init                 Create config template at ~/.agent-feishu-channel/config.toml
 
 Options:
   -c, --config <path>    Path to config.toml (overrides default location)
@@ -181,8 +183,8 @@ Use `/context` to inspect current window usage and see the mitigation order refl
 
 ```bash
 # Clone and install
-git clone https://github.com/Blackman99/claude-feishu-channel.git
-cd claude-feishu-channel
+git clone https://github.com/Blackman99/agent-feishu-channel.git
+cd agent-feishu-channel
 pnpm install
 
 # Run in dev mode
@@ -202,7 +204,8 @@ pnpm build
 
 | Variable | Description |
 |----------|-------------|
-| `CLAUDE_FEISHU_CONFIG` | Override config file path (default: `~/.claude-feishu-channel/config.toml`) |
+| `AGENT_FEISHU_CONFIG` | Override config file path (default: `~/.agent-feishu-channel/config.toml`) |
+| `CLAUDE_FEISHU_CONFIG` | Legacy alias for `AGENT_FEISHU_CONFIG` (still honored) |
 | `ANTHROPIC_BASE_URL` | Custom API endpoint for Claude SDK |
 | `ANTHROPIC_AUTH_TOKEN` | Auth token for custom endpoint |
 

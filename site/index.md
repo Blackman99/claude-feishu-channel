@@ -1,19 +1,19 @@
 ---
 layout: home
 hero:
-  name: Claude Feishu Channel
+  name: Agent Feishu Channel
   text: Claude and Codex, natively in Feishu / Lark
   tagline: A full coding-agent workflow in your Feishu group chat, with dual providers and staged context protection.
   image:
     src: /logo.svg
-    alt: CFC Logo
+    alt: AFC Logo
   actions:
     - theme: brand
       text: Get Started
       link: /guide/getting-started
     - theme: alt
-      text: npm install -g claude-feishu-channel
-      link: https://www.npmjs.com/package/claude-feishu-channel
+      text: npm install -g agent-feishu-channel
+      link: https://www.npmjs.com/package/agent-feishu-channel
 features:
   - icon: 🤖
     title: Dual Providers

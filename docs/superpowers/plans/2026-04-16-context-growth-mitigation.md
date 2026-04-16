@@ -106,7 +106,7 @@ private estimatePromptBytes(prompt: string): number {
 }
 
 private contextWindowFor(model: string): number {
-  if (/opus|gpt-5-codex/i.test(model)) return 200_000;
+  if (/opus|gpt-5.4/i.test(model)) return 200_000;
   if (/sonnet/i.test(model)) return 200_000;
   return 128_000;
 }
@@ -317,13 +317,13 @@ it("preserves provider/model/cwd/permission mode across summarized reset", async
   const h = createHarness({
     provider: "codex",
     providerSessionId: "thread_old",
-    model: "gpt-5-codex",
+    model: "gpt-5.4",
     cwd: "/tmp/project",
     permissionMode: "plan",
   });
   const summary = h.session._testBuildContinuationSummary("next task");
   expect(summary).toContain("Current objective");
-  expect(summary).toContain("gpt-5-codex");
+  expect(summary).toContain("gpt-5.4");
   expect(summary).toContain("/tmp/project");
 });
 ```

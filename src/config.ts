@@ -51,7 +51,7 @@ const ClaudeSchema = z.object({
 });
 
 const CodexSchema = z.object({
-  default_model: z.string().min(1).default("gpt-5-codex"),
+  default_model: z.string().min(1).default("gpt-5.4"),
   cli_path: z.string().min(1).default("codex"),
 });
 
@@ -69,13 +69,13 @@ const RenderSchema = z
 
 const PersistenceSchema = z
   .object({
-    state_file: z.string().default("~/.claude-feishu-channel/state.json"),
-    log_dir: z.string().default("~/.claude-feishu-channel/logs"),
+    state_file: z.string().default("~/.agent-feishu-channel/state.json"),
+    log_dir: z.string().default("~/.agent-feishu-channel/logs"),
     session_ttl_days: z.number().int().positive().default(30),
   })
   .default({
-    state_file: "~/.claude-feishu-channel/state.json",
-    log_dir: "~/.claude-feishu-channel/logs",
+    state_file: "~/.agent-feishu-channel/state.json",
+    log_dir: "~/.agent-feishu-channel/logs",
     session_ttl_days: 30,
   });
 
@@ -118,7 +118,7 @@ const ConfigSchema = z.object({
   agent: AgentSchema.optional(),
   claude: ClaudeSchema,
   codex: CodexSchema.default({
-    default_model: "gpt-5-codex",
+    default_model: "gpt-5.4",
     cli_path: "codex",
   }),
   render: RenderSchema,

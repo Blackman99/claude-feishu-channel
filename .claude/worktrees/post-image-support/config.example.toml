@@ -1,0 +1,124 @@
+# claude-feishu-channel configuration file.
+#
+# Copy this file to ~/.claude-feishu-channel/config.toml and fill in the
+# values for your Feishu bot. Or set CLAUDE_FEISHU_CONFIG to point at a
+# custom location.
+
+# ─── Feishu app credentials ──────────────────────────────────────────
+[feishu]
+# Get these from https://open.feishu.cn/app -> your app -> Credentials
+app_id = "cli_xxxxxxxxxxxxxxxx"
+app_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# Optional: only needed if you enabled event encryption in the Feishu
+# developer console.
+encrypt_key = ""
+verification_token = ""
+
+# ─── Access control ──────────────────────────────────────────────────
+# The bot has full shell/file access to your machine. Lock it down!
+[access]
+# List of open_id values allowed to talk to the bot. To find yours,
+# have the bot log the `sender_open_id` of an incoming message.
+allowed_open_ids = [
+  "ou_your_open_id_here",
+]
+# "ignore" = silently drop unauthorized messages (recommended)
+# "reject" = reply with an error (noisy; reveals bot exists)
+unauthorized_behavior = "ignore"
+
+# ─── Claude runtime ──────────────────────────────────────────────────
+[claude]
+# Absolute path where Claude Code sessions should run (use ~ to expand
+# to your home directory). This is the cwd every new session starts in
+# until changed via /cd or /project.
+default_cwd = "~/my-projects"
+
+# Permission mode for new sessions. Options:
+#   default            — Phase 5 ACTIVE: tool calls post a permission
+#                        card to the Feishu group; only the user who
+#                        sent the triggering message can click.
+#   acceptEdits        — auto-approve file edits, prompt for shell
+#                        via the permission card
+#   plan               — plan mode, read-only
+#   bypassPermissions  — auto-approve everything, broker disabled
+#                        (Phase 4 legacy; prints a warn on startup)
+default_permission_mode = "default"
+
+# Model id passed to the CLI's --model flag. Any model the local
+# `claude` CLI accepts (e.g. "claude-opus-4-6", "claude-sonnet-4-6",
+# or aliases like "opus" / "sonnet").
+default_model = "claude-opus-4-6"
+
+# Path to the local Claude Code CLI binary. Leave as "claude" to resolve
+# via $PATH, or set an absolute path if the binary lives outside PATH.
+# Run `which claude` to find yours.
+cli_path = "claude"
+
+# Time in seconds the permission card waits for a click before
+# auto-denying. Card posts a warning reminder (permission_warn_before_seconds)
+# before the hard deadline.
+permission_timeout_seconds = 300
+permission_warn_before_seconds = 60
+
+# Fraction of the context window at which Claude auto-compacts the
+# conversation. 0.0–1.0. Omit to use the Claude CLI default.
+# auto_compact_threshold = 0.8
+
+# ─── Render / Feishu cards ───────────────────────────────────────────
+[render]
+# Max UTF-8 bytes of inline content (tool input params, tool output
+# previews) shown in a card before we truncate and append
+# "... (N more bytes omitted)".
+inline_max_bytes = 2048
+
+# If true, skip Claude's extended-thinking blocks entirely instead of
+# sending them as 💭 messages.
+hide_thinking = false
+
+# If true, send a small "✅ 12.3s · 1.2k in / 3.4k out" tip after each
+# turn. Disable if you find it noisy.
+show_turn_stats = true
+
+# ─── Persistence paths ───────────────────────────────────────────────
+[persistence]
+state_file = "~/.claude-feishu-channel/state.json"
+# Directory for structured log files.
+log_dir = "~/.claude-feishu-channel/logs"
+# How many days to keep session records before cleanup. Sessions older
+# than this are pruned on startup.
+session_ttl_days = 30
+
+# ─── Logging ─────────────────────────────────────────────────────────
+[logging]
+# trace | debug | info | warn | error
+level = "info"
+
+# ─── Runtime-settable keys ───────────────────────────────────────────
+# The following keys can be changed at runtime via /config set:
+#   render.hide_thinking, render.show_turn_stats, render.inline_max_bytes,
+#   logging.level, claude.default_model, claude.default_cwd,
+#   claude.default_permission_mode, claude.permission_timeout_seconds,
+#   claude.permission_warn_before_seconds
+# Use /config set <key> <value> --persist to write changes back to this file.
+
+# ─── Project aliases ─────────────────────────────────────────────────
+# Aliases for /project command — quickly switch cwd by name.
+# [projects]
+# my-app = "~/projects/my-app"
+# infra = "~/projects/infrastructure"
+
+# ---------------------------------------------------------------------------
+# MCP servers — add custom tool servers (optional)
+# ---------------------------------------------------------------------------
+# [[mcp]]
+# name = "my-tools"
+# type = "stdio"
+# command = "npx"
+# args = ["-y", "@company/my-mcp-server"]
+# # env = { API_KEY = "secret" }
+
+# [[mcp]]
+# name = "remote"
+# type = "sse"
+# url = "http://localhost:8080/sse"

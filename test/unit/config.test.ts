@@ -58,7 +58,7 @@ cli_path = "claude"
     expect(agent.permissionWarnBeforeMs).toBe(60_000);
     expect(cfg.claude.defaultModel).toBe("claude-opus-4-6");
     expect(cfg.claude.cliPath).toBe("claude");
-    expect(codex.defaultModel).toBe("gpt-5-codex");
+    expect(codex.defaultModel).toBe("gpt-5.4");
     expect(codex.cliPath).toBe("codex");
   });
 
@@ -70,8 +70,8 @@ ${MINIMAL_CONFIG}
 default_cwd = "/tmp/cfc-test"
 
 [persistence]
-state_file = "~/.claude-feishu-channel/state.json"
-log_dir = "~/.claude-feishu-channel/logs"
+state_file = "~/.agent-feishu-channel/state.json"
+log_dir = "~/.agent-feishu-channel/logs"
 
 [claude]
 default_model = "claude-opus-4-6"
@@ -80,10 +80,10 @@ default_model = "claude-opus-4-6"
     const agent = cfg.agent!;
     const codex = cfg.codex!;
     expect(cfg.persistence.stateFile).toBe(
-      join(homedir(), ".claude-feishu-channel/state.json"),
+      join(homedir(), ".agent-feishu-channel/state.json"),
     );
     expect(cfg.persistence.logDir).toBe(
-      join(homedir(), ".claude-feishu-channel/logs"),
+      join(homedir(), ".agent-feishu-channel/logs"),
     );
   });
 
@@ -104,7 +104,7 @@ default_model = "claude-sonnet-4-6"
 cli_path = "/usr/local/bin/claude"
 
 [codex]
-default_model = "gpt-5-codex-mini"
+default_model = "gpt-5.4-mini"
 cli_path = "/opt/homebrew/bin/codex"
 `);
     const cfg = await loadConfig(path);
@@ -118,7 +118,7 @@ cli_path = "/opt/homebrew/bin/codex"
     expect(agent.autoCompactThreshold).toBe(0.7);
     expect(cfg.claude.defaultModel).toBe("claude-sonnet-4-6");
     expect(cfg.claude.cliPath).toBe("/usr/local/bin/claude");
-    expect(codex.defaultModel).toBe("gpt-5-codex-mini");
+    expect(codex.defaultModel).toBe("gpt-5.4-mini");
     expect(codex.cliPath).toBe("/opt/homebrew/bin/codex");
   });
 
@@ -166,7 +166,7 @@ cli_path = "/usr/local/bin/claude"
     expect(agent.autoCompactThreshold).toBe(0.8);
     expect(cfg.claude.defaultModel).toBe("claude-sonnet-4-6");
     expect(cfg.claude.cliPath).toBe("/usr/local/bin/claude");
-    expect(codex.defaultModel).toBe("gpt-5-codex");
+    expect(codex.defaultModel).toBe("gpt-5.4");
     expect(codex.cliPath).toBe("codex");
   });
 

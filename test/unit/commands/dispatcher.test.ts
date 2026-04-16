@@ -54,7 +54,7 @@ const BASE_CONFIG: AppConfig = {
     permissionWarnBeforeMs: 60_000,
   },
   codex: {
-    defaultModel: "gpt-5-codex",
+    defaultModel: "gpt-5.4",
     cliPath: "codex",
   },
   render: {
@@ -213,7 +213,7 @@ describe("CommandDispatcher — simple commands", () => {
 
       const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
       expect(text).toContain("codex");
-      expect(text).toContain("gpt-5-codex");
+      expect(text).toContain("gpt-5.4");
     });
 
     it("reports the restored provider from a stale codex session", async () => {
@@ -226,7 +226,7 @@ describe("CommandDispatcher — simple commands", () => {
         createdAt: new Date().toISOString(),
         lastActiveAt: new Date().toISOString(),
         permissionMode: "default",
-        model: "gpt-5-codex",
+        model: "gpt-5.4",
       });
 
       await dispatcher.dispatch(
@@ -239,7 +239,7 @@ describe("CommandDispatcher — simple commands", () => {
 
       const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
       expect(text).toContain("codex");
-      expect(text).toContain("gpt-5-codex");
+      expect(text).toContain("gpt-5.4");
     });
   });
 
@@ -400,7 +400,7 @@ describe("CommandDispatcher — /model", () => {
     const { sessionManager, dispatcher } = makeHarness();
 
     await dispatcher.dispatch({ name: "provider", provider: "codex" }, CTX);
-    await dispatcher.dispatch({ name: "model", model: "gpt-5-codex-mini" }, CTX);
+    await dispatcher.dispatch({ name: "model", model: "gpt-5.4-mini" }, CTX);
 
     expect(sessionManager.getEffectiveProvider(CTX.chatId)).toBe("codex");
   });
@@ -422,7 +422,7 @@ describe("CommandDispatcher — /provider", () => {
 
     const after = sessionManager.getOrCreate(CTX.chatId);
     expect(after).not.toBe(before);
-    expect(after.getStatus().model).toBe("gpt-5-codex");
+    expect(after.getStatus().model).toBe("gpt-5.4");
   });
 
   it("rejects when session is not idle", async () => {
@@ -843,7 +843,7 @@ describe("CommandDispatcher — /resume", () => {
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
       permissionMode: "default",
-      model: "gpt-5-codex",
+      model: "gpt-5.4",
     });
 
     await dispatcher.dispatch({ name: "resume", target: "oc_resume_codex" }, CTX);

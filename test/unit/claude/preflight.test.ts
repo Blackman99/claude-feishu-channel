@@ -70,7 +70,7 @@ describe("checkClaudeCli", () => {
 
   it("fails with a clear reason when spawn hits ENOENT (bare name not on PATH)", async () => {
     // A bare name that is essentially guaranteed not to exist on PATH.
-    const result = await checkClaudeCli("claude-feishu-channel-nonexistent-xyz");
+    const result = await checkClaudeCli("agent-feishu-channel-nonexistent-xyz");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toMatch(/not found on PATH/);

@@ -1,0 +1,1430 @@
+<template>
+  <div ref="rootEl" class="terminal-replay-wrapper">
+    <!-- Scene tab bar -->
+    <div class="scene-tabs">
+      <button
+        v-for="(scene, si) in SCENES"
+        :key="si"
+        class="scene-tab"
+        :class="{ 'scene-tab-active': si === sceneIndex }"
+        @click="goToScene(si)"
+      >
+        <span class="scene-tab-icon">{{ scene.icon }}</span>
+        <span class="scene-tab-text">{{ scene.title }}</span>
+        <!-- Auto-play progress bar -->
+        <span
+          v-if="si === sceneIndex"
+          class="scene-tab-progress"
+          :style="{ animationDuration: sceneDurationMs + 'ms', animationPlayState: autoPlaying ? 'running' : 'paused' }"
+        ></span>
+      </button>
+    </div>
+
+    <div class="terminal-window">
+      <!-- Chrome bar -->
+      <div class="terminal-chrome">
+        <div class="terminal-dots">
+          <span class="dot dot-red"></span>
+          <span class="dot dot-yellow"></span>
+          <span class="dot dot-green"></span>
+        </div>
+        <span class="terminal-title">Claude Feishu Channel</span>
+      </div>
+
+      <!-- Prev / Next arrows -->
+      <button class="nav-arrow nav-arrow-left" @click="prevScene" aria-label="Previous">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="nav-arrow nav-arrow-right" @click="nextSceneManual" aria-label="Next">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+
+      <!-- Chat area -->
+      <div ref="terminalBodyEl" class="terminal-body" :class="{ 'scene-fade': fading }">
+        <template v-for="(step, i) in currentSteps" :key="`${sceneIndex}-${i}`">
+          <!-- User message -->
+          <div
+            v-if="step.type === 'user' && i <= visibleUpTo"
+            class="chat-row chat-row-right step-visible"
+          >
+            <div class="bubble bubble-user">
+              <span>{{ step.text }}</span>
+              <span v-if="i === visibleUpTo && autoPlaying" class="typing-cursor"></span>
+            </div>
+          </div>
+
+          <!-- Queued user message (sent while Claude is busy — awaiting turn) -->
+          <div
+            v-if="step.type === 'queued' && i <= visibleUpTo"
+            class="chat-row chat-row-right step-visible"
+          >
+            <div class="bubble bubble-user bubble-queued">
+              <span>{{ step.text }}</span>
+              <span class="queued-badge">⏳ queued</span>
+            </div>
+          </div>
+
+          <!-- Status -->
+          <div
+            v-if="step.type === 'status' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <span class="status-text" :class="{ 'status-pulse': i === visibleUpTo }">
+              {{ step.text }}
+            </span>
+          </div>
+
+          <!-- Tool card -->
+          <div
+            v-if="step.type === 'tool' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <div class="tool-card">
+              <span class="tool-icon">{{ step.icon }}</span>
+              <span class="tool-name">{{ step.name }}</span>
+              <span class="tool-detail">{{ step.detail }}</span>
+            </div>
+          </div>
+
+          <!-- Permission card -->
+          <div
+            v-if="step.type === 'permission' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <!-- Resolved: compact one-liner, buttons gone -->
+            <div
+              v-if="isPermissionResolved(i)"
+              class="permission-card-resolved step-visible"
+            >
+              <span class="perm-resolved-icon">✅</span>
+              <span class="perm-resolved-label">Allowed</span>
+              <span class="perm-resolved-sep">·</span>
+              <code class="perm-resolved-tool">{{ step.tool }}</code>
+            </div>
+            <!-- Clicking: full card, allow button in highlight+ripple state -->
+            <div v-else-if="isPermissionClicking(i)" class="permission-card">
+              <div class="permission-header">
+                <span>🔐 Permission Request · {{ step.tool }}</span>
+              </div>
+              <div class="permission-info">
+                <span class="tool-icon">🔧</span>
+                <span class="tool-name">{{ step.tool }}</span>
+                <span class="tool-detail">{{ step.command }}</span>
+              </div>
+              <div class="permission-buttons">
+                <button class="perm-btn perm-allow perm-allow--clicking">✅ Allow</button>
+                <button class="perm-btn perm-deny">❌ Deny</button>
+              </div>
+              <div class="perm-hint">Only the requester can click · auto-denied after 5 min</div>
+            </div>
+            <!-- Pending: full card, normal state -->
+            <div v-else class="permission-card">
+              <div class="permission-header">
+                <span>🔐 Permission Request · {{ step.tool }}</span>
+              </div>
+              <div class="permission-info">
+                <span class="tool-icon">🔧</span>
+                <span class="tool-name">{{ step.tool }}</span>
+                <span class="tool-detail">{{ step.command }}</span>
+              </div>
+              <div class="permission-buttons">
+                <button class="perm-btn perm-allow">✅ Allow</button>
+                <button class="perm-btn perm-deny">❌ Deny</button>
+              </div>
+              <div class="perm-hint">Only the requester can click · auto-denied after 5 min</div>
+            </div>
+          </div>
+
+          <!-- Question card -->
+          <div
+            v-if="step.type === 'question' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <!-- Resolved: compact answer line, buttons gone -->
+            <div
+              v-if="questionAnswer(i) !== null"
+              class="question-card-resolved step-visible"
+            >
+              <span class="q-resolved-q">❓ Q1</span>
+              <span class="q-resolved-arrow">→</span>
+              <span class="q-resolved-answer">{{ questionAnswer(i) }}</span>
+            </div>
+            <!-- Pending / clicking: question with option buttons -->
+            <div v-else class="question-card">
+              <div class="question-header">🙋 Question</div>
+              <div class="question-text">{{ step.text }}</div>
+              <div class="question-options">
+                <button
+                  v-for="(opt, oi) in step.options"
+                  :key="oi"
+                  class="q-opt-btn"
+                  :class="{ 'q-opt-btn--selected': questionClickingOption(i) === oi }"
+                >{{ opt }}</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- System message -->
+          <div
+            v-if="step.type === 'system' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <div class="system-card">
+              <span>{{ step.text }}</span>
+            </div>
+          </div>
+
+          <!-- Interrupt -->
+          <div
+            v-if="step.type === 'interrupt' && i <= visibleUpTo"
+            class="chat-row chat-row-right step-visible"
+          >
+            <div class="bubble bubble-interrupt">
+              <span class="interrupt-prefix">!</span>
+              <span>{{ step.text }}</span>
+            </div>
+          </div>
+
+          <!-- Stats card -->
+          <div
+            v-if="step.type === 'stats' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <div class="stats-card">
+              <div class="stats-row" v-for="(s, si) in step.items" :key="si">
+                <span class="stats-label">{{ s.label }}</span>
+                <span class="stats-value">{{ s.value }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Response -->
+          <div
+            v-if="step.type === 'response' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <div class="bubble bubble-response">
+              <span>🤖 {{ step.text }}</span>
+            </div>
+          </div>
+
+          <!-- Thinking card — collapsed panel showing truncated thought preview -->
+          <div
+            v-if="step.type === 'thinking-card' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <div class="panel-card panel-card--thinking">
+              <div class="panel-card-header">
+                <span class="panel-card-icon">💭</span>
+                <span class="panel-card-title">Thinking</span>
+                <span class="panel-card-preview">{{ step.preview }}</span>
+                <span class="panel-card-chevron">▶</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tool activity card — collapsed panel listing N tools that ran -->
+          <div
+            v-if="step.type === 'tool-activity-card' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <div class="panel-card panel-card--tools">
+              <div class="panel-card-header">
+                <span class="panel-card-icon">🔧</span>
+                <span class="panel-card-title">{{ step.count }} tools used</span>
+                <span class="panel-card-preview">{{ step.tools?.join(' · ') }}</span>
+                <span class="panel-card-chevron">▶</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Intermediate replies card — collapsed panel for N earlier text blocks -->
+          <div
+            v-if="step.type === 'intermediate-card' && i <= visibleUpTo"
+            class="chat-row chat-row-left step-visible"
+          >
+            <div class="panel-card panel-card--intermediate">
+              <div class="panel-card-header">
+                <span class="panel-card-icon">💬</span>
+                <span class="panel-card-title">{{ step.count }} earlier replies</span>
+                <span class="panel-card-preview">Tap to expand</span>
+                <span class="panel-card-chevron">▶</span>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Fake cursor — animated into .perm-allow--clicking / .q-opt-btn--selected
+             during permission-click and question-click steps. Positioned absolute
+             relative to .terminal-body; JS computes the target button's center via
+             getBoundingClientRect so the cursor lands on the right spot regardless
+             of card position in the chat timeline. -->
+        <div
+          class="fake-cursor"
+          :class="{ 'fake-cursor--pressing': cursorPressing }"
+          :style="{
+            left: cursorX + 'px',
+            top: cursorY + 'px',
+            opacity: cursorVisible ? 1 : 0,
+            transition: cursorTransitioning
+              ? 'left 0.35s cubic-bezier(0.2,0.6,0.4,1), top 0.35s cubic-bezier(0.2,0.6,0.4,1), opacity 0.15s'
+              : 'opacity 0.2s',
+          }"
+        >
+          <svg width="16" height="20" viewBox="0 0 16 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 1l12 12-4.5.8 2.8 5.5-2 1-2.8-5.5L3.5 17z" fill="white" stroke="#333" stroke-width="0.8" stroke-linejoin="round"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+
+interface StatsItem {
+  label: string
+  value: string
+}
+
+interface Step {
+  type: 'user' | 'queued' | 'status' | 'tool' | 'permission' | 'permission-click' | 'question' | 'question-click' | 'response' | 'system' | 'interrupt' | 'stats' | 'thinking-card' | 'tool-activity-card' | 'intermediate-card'
+  text?: string
+  icon?: string
+  name?: string
+  detail?: string
+  tool?: string
+  command?: string
+  items?: StatsItem[]
+  // question card
+  options?: string[]
+  optionIndex?: number
+  // collapsed panel cards
+  count?: number     // tool count or intermediate-reply count
+  tools?: string[]   // tool names for tool-activity-card
+  preview?: string   // preview text for thinking-card
+}
+
+interface Scene {
+  icon: string
+  title: string
+  steps: Step[]
+}
+
+const SCENES: Scene[] = [
+  {
+    icon: '🤖',
+    title: 'Agent Capabilities',
+    steps: [
+      { type: 'user', text: 'Refactor auth module and add test coverage' },
+      { type: 'status', text: '💭 Thinking...' },
+      { type: 'thinking-card', preview: 'Analyzing file structure, identifying shared patterns across auth modules…' },
+      { type: 'status', text: '🔧 Read · Grep · Bash — 3 tools running' },
+      { type: 'tool-activity-card', count: 3, tools: ['Read', 'Grep', 'Bash'] },
+      { type: 'status', text: '✅ Done' },
+      { type: 'intermediate-card', count: 2 },
+      { type: 'response', text: 'Refactored into 3 modules. Added 18 tests — all pass.' },
+    ],
+  },
+  {
+    icon: '🔐',
+    title: 'Permission Brokering',
+    steps: [
+      { type: 'user', text: 'Clean build artifacts and rebuild' },
+      { type: 'status', text: 'Thinking...' },
+      { type: 'tool', icon: '🔧', name: 'Bash', detail: 'rm -rf dist/' },
+      { type: 'permission', tool: 'Bash', command: 'rm -rf dist/' },
+      { type: 'permission-click' },
+      { type: 'status', text: 'Running command...' },
+      { type: 'tool', icon: '🔧', name: 'Bash', detail: 'pnpm build' },
+      { type: 'response', text: 'Build complete — 42 files compiled, output in dist/' },
+    ],
+  },
+  {
+    icon: '🙋',
+    title: 'Interactive Q&A',
+    steps: [
+      { type: 'user', text: 'Build a user login page for me' },
+      { type: 'status', text: 'Thinking...' },
+      {
+        type: 'question',
+        text: 'Which frontend framework?',
+        options: ['React', 'Vue', 'Vanilla HTML'],
+      },
+      { type: 'question-click', optionIndex: 1 },
+      { type: 'status', text: 'Generating...' },
+      { type: 'tool', icon: '✏️', name: 'Write', detail: 'src/views/Login.vue' },
+      { type: 'tool', icon: '✏️', name: 'Edit', detail: 'src/router/index.ts' },
+      { type: 'response', text: 'Login page created (Vue). Includes form validation, error messages, and remember me.' },
+    ],
+  },
+  {
+    icon: '⚡',
+    title: 'Queue & Interrupt',
+    steps: [
+      { type: 'user', text: 'Analyze the performance bottlenecks in this project' },
+      { type: 'status', text: 'Analyzing...' },
+      { type: 'tool', icon: '📄', name: 'Read', detail: 'src/index.ts' },
+      { type: 'queued', text: 'Also check the DB query layer' },
+      { type: 'interrupt', text: 'Stop — fix the login bug first' },
+      { type: 'system', text: '⚡ Interrupted · 1 message in queue' },
+      { type: 'tool', icon: '🔍', name: 'Grep', detail: '"login" src/' },
+      { type: 'response', text: 'Found it: src/auth.ts:42 — wrong token expiry check.' },
+      { type: 'system', text: '📬 Resuming queued message…' },
+    ],
+  },
+  {
+    icon: '⚙️',
+    title: 'Runtime Config',
+    steps: [
+      { type: 'user', text: '/config set logging.level debug --persist' },
+      { type: 'system', text: '✅ Config updated: logging.level = debug (persisted)' },
+      { type: 'user', text: '/mode acceptEdits' },
+      { type: 'system', text: '✅ Permission mode switched to acceptEdits' },
+      { type: 'user', text: '/status' },
+      {
+        type: 'stats',
+        items: [
+          { label: 'Status', value: 'idle' },
+          { label: 'Model', value: 'claude-sonnet-4-20250514' },
+          { label: 'Mode', value: 'acceptEdits' },
+          { label: 'Turns', value: '5' },
+          { label: 'Tokens', value: '↓12.4k ↑3.2k' },
+        ],
+      },
+    ],
+  },
+  {
+    icon: '💾',
+    title: 'Session Persistence',
+    steps: [
+      { type: 'system', text: '⚠️ Bot restarted — previous session restored' },
+      { type: 'user', text: '/sessions' },
+      {
+        type: 'stats',
+        items: [
+          { label: 'oc_abc123…', value: '~/projects/api  active' },
+          { label: 'oc_def456…', value: '~/projects/web  stale' },
+        ],
+      },
+      { type: 'user', text: '/resume oc_def456' },
+      { type: 'system', text: '✅ Session oc_def456… resumed, cwd: ~/projects/web' },
+      { type: 'user', text: 'Continue where we left off' },
+      { type: 'response', text: 'Sure — last time we were optimizing DB queries. Picking up from there…' },
+    ],
+  },
+]
+
+const STEP_DELAYS: Record<string, number> = {
+  user: 1000,
+  status: 600,
+  tool: 700,
+  permission: 900,
+  'permission-click': 1100,
+  question: 1000,
+  'question-click': 1100,
+  response: 900,
+  system: 800,
+  interrupt: 900,
+  stats: 1000,
+  queued: 600,
+  'thinking-card': 800,
+  'tool-activity-card': 800,
+  'intermediate-card': 700,
+}
+
+const sceneIndex = ref(0)
+const visibleUpTo = ref(-1)
+const fading = ref(false)
+const autoPlaying = ref(true)
+const rootEl = ref<HTMLElement | null>(null)
+const terminalBodyEl = ref<HTMLElement | null>(null)
+let timer: ReturnType<typeof setTimeout> | null = null
+let observer: IntersectionObserver | null = null
+let isVisible = true
+
+// ── Fake cursor ───────────────────────────────────────────────────
+// Moves from off-card to the target button during click steps so the
+// animation reads as "user moves mouse in → hovers → clicks", not just
+// a button that abruptly changes colour.
+const cursorVisible = ref(false)
+const cursorPressing = ref(false)
+const cursorX = ref(0)
+const cursorY = ref(0)
+const cursorTransitioning = ref(false)
+
+// Animate cursor from an off-card start position into the center of
+// `targetEl`, then simulate a click press and hide.
+async function animateCursorTo(targetEl: Element): Promise<void> {
+  if (!terminalBodyEl.value) return
+  const bodyRect = terminalBodyEl.value.getBoundingClientRect()
+  const btnRect = targetEl.getBoundingClientRect()
+  // Land slightly left-of-center and top-of-center so the cursor tip
+  // (top-left corner of the arrow SVG) points into the button.
+  const targetX = Math.round(btnRect.left - bodyRect.left + btnRect.width * 0.3)
+  const targetY = Math.round(btnRect.top - bodyRect.top + btnRect.height * 0.3)
+
+  // Snap to a start position: come in from the upper-left of the button.
+  cursorTransitioning.value = false
+  cursorX.value = targetX - 65
+  cursorY.value = targetY - 30
+  cursorPressing.value = false
+  cursorVisible.value = true
+
+  // Double rAF so the browser paints the start position before we
+  // re-enable the CSS transition — otherwise both changes collapse into
+  // a single frame and the cursor appears to teleport.
+  await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+
+  // Slide to the button.
+  cursorTransitioning.value = true
+  cursorX.value = targetX
+  cursorY.value = targetY
+
+  // After the slide (~350ms), simulate the press.
+  await new Promise<void>((r) => setTimeout(r, 380))
+  cursorPressing.value = true
+
+  // Hold the press, then fade out.
+  await new Promise<void>((r) => setTimeout(r, 600))
+  cursorTransitioning.value = false
+  cursorVisible.value = false
+  cursorPressing.value = false
+}
+
+// Trigger cursor animation whenever a click step becomes active.
+watch(visibleUpTo, async (newVal) => {
+  if (newVal < 0) {
+    cursorVisible.value = false
+    return
+  }
+  const steps = currentSteps.value
+  if (newVal >= steps.length) return
+  const step = steps[newVal]
+
+  if (step.type === 'permission-click') {
+    await nextTick()
+    const btn = terminalBodyEl.value?.querySelector('.perm-allow--clicking')
+    if (btn) animateCursorTo(btn)
+  } else if (step.type === 'question-click') {
+    await nextTick()
+    const btn = terminalBodyEl.value?.querySelector('.q-opt-btn--selected')
+    if (btn) animateCursorTo(btn)
+  }
+})
+
+const currentSteps = computed(() => SCENES[sceneIndex.value].steps)
+
+// Total animation duration for the progress bar
+const sceneDurationMs = computed(() => {
+  let total = 0
+  for (const step of currentSteps.value) {
+    total += STEP_DELAYS[step.type] ?? 600
+  }
+  return total + 2500 // + end pause
+})
+
+// Returns true when the permission-click step is currently being "played"
+// (visibleUpTo === j) — the clicking highlight phase.
+function isPermissionClicking(stepIndex: number): boolean {
+  const steps = currentSteps.value
+  for (let j = stepIndex + 1; j < steps.length; j++) {
+    if (steps[j].type === 'permission-click') {
+      return visibleUpTo.value === j
+    }
+  }
+  return false
+}
+
+// Returns true once the permission-click step is fully past
+// (visibleUpTo > j) — collapses to the resolved one-liner.
+function isPermissionResolved(stepIndex: number): boolean {
+  const steps = currentSteps.value
+  for (let j = stepIndex + 1; j < steps.length; j++) {
+    if (steps[j].type === 'permission-click') {
+      return visibleUpTo.value > j
+    }
+  }
+  return false
+}
+
+// Returns the selected option label when question-click has been reached,
+// or null while still pending.
+function questionAnswer(stepIndex: number): string | null {
+  const steps = currentSteps.value
+  for (let j = stepIndex + 1; j < steps.length; j++) {
+    if (steps[j].type === 'question-click') {
+      // Only collapse (resolved) when we are *past* the click step,
+      // so the "clicking" highlight phase is visible while visibleUpTo === j.
+      if (visibleUpTo.value > j) {
+        const optIdx = steps[j].optionIndex ?? 0
+        return steps[stepIndex].options?.[optIdx] ?? null
+      }
+      return null
+    }
+  }
+  return null
+}
+
+// Returns the optionIndex being "clicked" during the question-click step,
+// or null when outside that window (pending or already resolved).
+function questionClickingOption(stepIndex: number): number | null {
+  const steps = currentSteps.value
+  for (let j = stepIndex + 1; j < steps.length; j++) {
+    if (steps[j].type === 'question-click') {
+      if (visibleUpTo.value === j) {
+        return steps[j].optionIndex ?? 0
+      }
+      return null
+    }
+  }
+  return null
+}
+
+function clearTimer() {
+  if (timer) {
+    clearTimeout(timer)
+    timer = null
+  }
+}
+
+function switchScene(index: number) {
+  clearTimer()
+  fading.value = true
+  timer = setTimeout(() => {
+    visibleUpTo.value = -1
+    sceneIndex.value = index
+    fading.value = false
+    timer = setTimeout(advance, 500)
+  }, 350)
+}
+
+function goToScene(index: number) {
+  if (index === sceneIndex.value && visibleUpTo.value >= currentSteps.value.length - 1) {
+    // Clicked the same completed scene — replay it
+    switchScene(index)
+    return
+  }
+  if (index === sceneIndex.value) return
+  autoPlaying.value = true
+  switchScene(index)
+}
+
+function prevScene() {
+  const next = (sceneIndex.value - 1 + SCENES.length) % SCENES.length
+  autoPlaying.value = true
+  switchScene(next)
+}
+
+function nextSceneManual() {
+  const next = (sceneIndex.value + 1) % SCENES.length
+  autoPlaying.value = true
+  switchScene(next)
+}
+
+function nextSceneAuto() {
+  const next = (sceneIndex.value + 1) % SCENES.length
+  switchScene(next)
+}
+
+function advance() {
+  if (!isVisible) {
+    timer = setTimeout(advance, 500)
+    return
+  }
+  const steps = currentSteps.value
+  if (visibleUpTo.value >= steps.length - 1) {
+    if (autoPlaying.value) {
+      timer = setTimeout(nextSceneAuto, 2500)
+    }
+    return
+  }
+  visibleUpTo.value++
+  const delay = STEP_DELAYS[steps[visibleUpTo.value].type] ?? 600
+  timer = setTimeout(advance, delay)
+}
+
+onMounted(() => {
+  if (rootEl.value && typeof IntersectionObserver !== 'undefined') {
+    observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          isVisible = entry.isIntersecting
+        })
+      },
+      { threshold: 0.1 },
+    )
+    observer.observe(rootEl.value)
+  }
+  timer = setTimeout(advance, 800)
+})
+
+onUnmounted(() => {
+  clearTimer()
+  if (observer) observer.disconnect()
+})
+</script>
+
+<style scoped>
+/* Scene tab bar */
+.scene-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 0 2px;
+}
+
+.scene-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.scene-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: none;
+  background: #313244;
+  color: #6c7086;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 10px 10px 0 0;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s;
+  overflow: hidden;
+  flex: 1;
+  justify-content: center;
+}
+
+.scene-tab:hover {
+  background: #45475a;
+  color: #cdd6f4;
+}
+
+.scene-tab-active {
+  background: var(--term-bg, #1e1e2e);
+  color: #cdd6f4;
+}
+
+.scene-tab-icon {
+  font-size: 14px;
+}
+
+.scene-tab-text {
+  font-size: 12px;
+}
+
+/* Progress bar under active tab */
+.scene-tab-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: #89b4fa;
+  animation: tabProgress linear forwards;
+  width: 0;
+}
+
+@keyframes tabProgress {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+/* Terminal window */
+.terminal-window {
+  position: relative;
+  background: var(--term-bg, #1e1e2e);
+  border-radius: 0 0 12px 12px;
+  border: 1px solid var(--term-border, #313244);
+  border-top: none;
+  overflow: hidden;
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Chrome bar */
+.terminal-chrome {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--term-border, #313244);
+  background: var(--term-bg, #1e1e2e);
+}
+
+.terminal-dots {
+  display: flex;
+  gap: 6px;
+  margin-right: 12px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dot-red { background: #f38ba8; }
+.dot-yellow { background: #f9e2af; }
+.dot-green { background: #a6e3a1; }
+
+.terminal-title {
+  color: #cdd6f4;
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.7;
+}
+
+/* Navigation arrows */
+.nav-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #45475a;
+  background: #313244;
+  color: #6c7086;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  padding: 0;
+}
+
+.nav-arrow:hover {
+  background: #45475a;
+  color: #cdd6f4;
+  border-color: #6c7086;
+}
+
+.nav-arrow-left {
+  left: 8px;
+}
+
+.nav-arrow-right {
+  right: 8px;
+}
+
+/* Chat body */
+.terminal-body {
+  position: relative; /* anchor for .fake-cursor absolute positioning */
+  padding: 16px 48px;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: opacity 0.3s ease;
+}
+
+/* ── Fake cursor ── */
+.fake-cursor {
+  position: absolute;
+  pointer-events: none;
+  z-index: 20;
+  /* left/top/opacity driven by Vue reactive style; transitions set inline */
+}
+
+.fake-cursor svg {
+  display: block;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+  transform-origin: 2px 2px; /* scale from tip of arrow */
+  transition: transform 0.12s ease;
+}
+
+.fake-cursor--pressing svg {
+  transform: scale(0.78);
+}
+
+.scene-fade {
+  opacity: 0;
+}
+
+/* Chat rows */
+.chat-row {
+  display: flex;
+}
+
+.chat-row-left {
+  justify-content: flex-start;
+}
+
+.chat-row-right {
+  justify-content: flex-end;
+}
+
+/* Step animation */
+.step-visible {
+  animation: stepIn 0.35s ease both;
+}
+
+@keyframes stepIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Bubbles */
+.bubble {
+  padding: 8px 14px;
+  border-radius: 10px;
+  max-width: 85%;
+  word-break: break-word;
+}
+
+.bubble-user {
+  background: #45475a;
+  color: #cdd6f4;
+}
+
+.bubble-response {
+  background: #313244;
+  color: #cdd6f4;
+}
+
+.bubble-interrupt {
+  background: #f38ba8;
+  color: #1e1e2e;
+}
+
+/* Queued message — right-aligned like user but dimmed + dashed border */
+.bubble-queued {
+  opacity: 0.72;
+  border: 1px dashed #585b70;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.queued-badge {
+  font-size: 10px;
+  color: #6c7086;
+  text-align: right;
+  font-style: italic;
+}
+
+.interrupt-prefix {
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+/* Typing cursor */
+.typing-cursor::after {
+  content: '\2588';
+  animation: blink 0.7s step-end infinite;
+  margin-left: 2px;
+  color: #cdd6f4;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* Status text */
+.status-text {
+  color: #6c7086;
+  font-size: 13px;
+  padding-left: 4px;
+}
+
+.status-pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Tool card */
+.tool-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #313244;
+  border: 1px solid #45475a;
+  border-radius: 8px;
+  padding: 8px 14px;
+}
+
+.tool-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.tool-name {
+  color: #89b4fa;
+  font-weight: 600;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.tool-detail {
+  color: #a6adc8;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* System message card */
+.system-card {
+  background: #313244;
+  border-left: 3px solid #89b4fa;
+  border-radius: 0 8px 8px 0;
+  padding: 8px 14px;
+  color: #cdd6f4;
+  font-size: 13px;
+}
+
+/* Stats card */
+.stats-card {
+  background: #313244;
+  border: 1px solid #45475a;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 260px;
+}
+
+.stats-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.stats-label {
+  color: #6c7086;
+}
+
+.stats-value {
+  color: #cdd6f4;
+  font-weight: 500;
+}
+
+/* Question card — pending state */
+.question-card {
+  background: #1e2a3a;
+  border: 1px solid #89b4fa44;
+  border-top: 3px solid #89b4fa;
+  border-radius: 8px;
+  padding: 12px 14px;
+  max-width: 85%;
+}
+
+.question-header {
+  font-weight: 600;
+  font-size: 13px;
+  color: #89b4fa;
+  margin-bottom: 6px;
+}
+
+.question-text {
+  font-size: 13px;
+  color: #cdd6f4;
+  margin-bottom: 10px;
+}
+
+.question-options {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.q-opt-btn {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #89b4fa44;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: default;
+  font-family: inherit;
+  background: #89b4fa1a;
+  color: #89b4fa;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.q-opt-btn--selected {
+  animation: q-btn-hover-click 1100ms ease forwards;
+}
+
+@keyframes q-btn-hover-click {
+  0%   {
+    background: #89b4fa1a;
+    color: #89b4fa;
+    border-color: #89b4fa44;
+    transform: scale(1);
+  }
+  20%  {
+    /* hover */
+    background: #89b4fa33;
+    color: #89b4fa;
+    border-color: #89b4fa88;
+    transform: scale(1.03);
+  }
+  42%  {
+    /* press */
+    background: #89b4fa;
+    color: #1e1e2e;
+    border-color: #89b4fa;
+    transform: scale(1.05);
+  }
+  100% {
+    background: #89b4fa;
+    color: #1e1e2e;
+    border-color: #89b4fa;
+    transform: scale(1.05);
+  }
+}
+
+.q-opt-btn--selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  animation: q-ripple 500ms ease-out forwards;
+  animation-delay: 400ms;
+}
+
+@keyframes q-ripple {
+  0%   { width: 0;    height: 0;    opacity: 0.5; }
+  100% { width: 220%; height: 220%; opacity: 0; }
+}
+
+/* Question card — resolved state */
+.question-card-resolved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #1e2535;
+  border: 1px solid #89b4fa33;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  animation: stepIn 0.35s ease both;
+}
+
+.q-resolved-q {
+  color: #6c7086;
+  font-size: 12px;
+}
+
+.q-resolved-arrow {
+  color: #45475a;
+  font-size: 12px;
+}
+
+.q-resolved-answer {
+  color: #89b4fa;
+  font-weight: 600;
+}
+
+/* Permission card — pending state */
+.permission-card {
+  background: #2a2520;
+  border: 1px solid #f9e2af44;
+  border-top: 3px solid #f9e2af;
+  border-radius: 8px;
+  padding: 12px 14px;
+  max-width: 85%;
+}
+
+.permission-header {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 8px;
+  color: #f9e2af;
+}
+
+.permission-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.permission-info .tool-name {
+  color: #89b4fa;
+}
+
+.permission-info .tool-detail {
+  color: #a6adc8;
+}
+
+.permission-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.perm-btn {
+  position: relative;
+  overflow: hidden;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: default;
+  font-family: inherit;
+  flex: 1;
+}
+
+.perm-allow {
+  background: #a6e3a133;
+  color: #a6e3a1;
+  border: 1px solid #a6e3a155;
+}
+
+.perm-deny {
+  background: #f38ba822;
+  color: #f38ba8;
+  border: 1px solid #f38ba844;
+}
+
+/* Permission allow button — clicking phase */
+/* Plays a hover→press keyframe automatically so the animation reads as
+   "cursor moves in, button lights up, then click fires". The ripple ::after
+   is delayed to sync with the press moment in the keyframe. */
+.perm-allow--clicking {
+  animation: perm-btn-hover-click 1100ms ease forwards;
+}
+
+@keyframes perm-btn-hover-click {
+  0%   {
+    background: #a6e3a133;
+    color: #a6e3a1;
+    border-color: #a6e3a155;
+    transform: scale(1);
+    box-shadow: none;
+  }
+  20%  {
+    /* hover: subtle glow, slight scale */
+    background: #a6e3a144;
+    color: #a6e3a1;
+    border-color: #a6e3a188;
+    transform: scale(1.03);
+    box-shadow: 0 0 0 3px #a6e3a122;
+  }
+  42%  {
+    /* press: full fill, darker text, larger scale */
+    background: #a6e3a1;
+    color: #1e2e25;
+    border-color: #a6e3a1;
+    transform: scale(1.05);
+    box-shadow: 0 0 0 4px #a6e3a133;
+  }
+  100% {
+    /* hold pressed until resolved transition */
+    background: #a6e3a1;
+    color: #1e2e25;
+    border-color: #a6e3a1;
+    transform: scale(1.05);
+    box-shadow: 0 0 0 4px #a6e3a133;
+  }
+}
+
+/* Ripple — fires when the "press" keyframe hits (~42% × 1100ms ≈ 460ms) */
+.perm-allow--clicking::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  animation: perm-ripple 500ms ease-out forwards;
+  animation-delay: 400ms;
+  pointer-events: none;
+}
+
+@keyframes perm-ripple {
+  0%   { width: 0;    height: 0;    opacity: 0.5; }
+  100% { width: 220%; height: 220%; opacity: 0; }
+}
+
+.perm-hint {
+  font-size: 11px;
+  color: #585b70;
+  margin-top: 8px;
+}
+
+/* Permission card — resolved state (after click) */
+.permission-card-resolved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #1e3a28;
+  border: 1px solid #a6e3a133;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  animation: stepIn 0.35s ease both;
+}
+
+.perm-resolved-icon {
+  font-size: 13px;
+}
+
+.perm-resolved-label {
+  color: #a6e3a1;
+  font-weight: 600;
+}
+
+.perm-resolved-sep {
+  color: #585b70;
+}
+
+.perm-resolved-tool {
+  color: #89b4fa;
+  background: #313244;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+}
+
+/* ── Panel cards — collapsed Feishu collapsible_panel style ── */
+/* Shared base: dark background, border, rounded corners */
+.panel-card {
+  background: #252535;
+  border: 1px solid #45475a;
+  border-radius: 8px;
+  max-width: 88%;
+  overflow: hidden;
+}
+
+.panel-card-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+}
+
+.panel-card-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.panel-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cdd6f4;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Preview text — muted, truncated */
+.panel-card-preview {
+  font-size: 12px;
+  color: #585b70;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Collapsed chevron → indicator */
+.panel-card-chevron {
+  font-size: 10px;
+  color: #585b70;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+/* Thinking panel — lavender left accent */
+.panel-card--thinking {
+  border-left: 3px solid #cba6f7;
+}
+
+/* Tool activity panel — blue left accent */
+.panel-card--tools {
+  border-left: 3px solid #89b4fa;
+}
+
+/* Intermediate replies panel — subdued grey accent */
+.panel-card--intermediate {
+  border-left: 3px solid #6c7086;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .terminal-window {
+    font-size: 12px;
+  }
+
+  .terminal-body {
+    padding: 12px 40px;
+    min-height: 180px;
+  }
+
+  .bubble {
+    max-width: 92%;
+  }
+
+  .stats-card {
+    min-width: unset;
+  }
+
+  .scene-tab {
+    padding: 8px 10px;
+  }
+
+  .scene-tab-text {
+    font-size: 11px;
+  }
+
+  .nav-arrow {
+    width: 26px;
+    height: 26px;
+  }
+
+  .nav-arrow-left { left: 4px; }
+  .nav-arrow-right { right: 4px; }
+}
+
+@media (max-width: 480px) {
+  .scene-tab-text {
+    display: none;
+  }
+
+  .scene-tab {
+    padding: 8px 12px;
+    flex: unset;
+  }
+
+  .scene-tabs {
+    justify-content: center;
+  }
+
+  .terminal-body {
+    padding: 10px 36px;
+  }
+}
+</style>

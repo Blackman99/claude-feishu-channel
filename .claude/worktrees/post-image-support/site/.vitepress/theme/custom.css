@@ -1,0 +1,34 @@
+/* Terminal CSS variables (always dark, independent of VitePress theme) */
+:root {
+  --term-bg: #1e1e2e;
+  --term-border: #313244;
+  --term-surface: #45475a;
+  --term-text: #cdd6f4;
+  --term-subtext: #a6adc8;
+  --term-muted: #6c7086;
+  --term-blue: #89b4fa;
+  --term-red: #f38ba8;
+  --term-yellow: #f9e2af;
+  --term-green: #a6e3a1;
+}
+
+.terminal-replay-wrapper {
+  /* Match VitePress hero container: max-width 1280px centered, 64px side padding */
+  max-width: 1280px;
+  margin: 2rem auto 3rem;
+  padding: 0 64px;
+  box-sizing: border-box;
+}
+
+/* Match VitePress responsive padding breakpoints */
+@media (max-width: 959px) {
+  .terminal-replay-wrapper {
+    padding: 0 32px;
+  }
+}
+
+@media (max-width: 639px) {
+  .terminal-replay-wrapper {
+    padding: 0 24px;
+  }
+}

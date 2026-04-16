@@ -213,7 +213,7 @@ default_model = "claude-opus-4-6"
 cli_path = "claude"
 
 [codex]
-default_model = "gpt-5-codex"
+default_model = "gpt-5.4"
 cli_path = "codex"
 ```
 

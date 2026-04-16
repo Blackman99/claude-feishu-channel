@@ -417,7 +417,7 @@ export class ClaudeSessionManager {
     if (provider === "claude") {
       return this.opts.providerConfigs?.claude.defaultModel ?? this.opts.config.defaultModel;
     }
-    return this.opts.providerConfigs?.codex.defaultModel ?? "gpt-5-codex";
+    return this.opts.providerConfigs?.codex.defaultModel ?? "gpt-5.4";
   }
 
   private requireProviderSessionStatus(

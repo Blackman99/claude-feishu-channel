@@ -73,7 +73,7 @@ expect(state.sessions["oc_1"]).toEqual({
   createdAt: expect.any(String),
   lastActiveAt: expect.any(String),
   permissionMode: "default",
-  model: "gpt-5-codex",
+  model: "gpt-5.4",
 });
 ```
 
@@ -173,7 +173,7 @@ agent: {
   ...(threshold !== undefined ? { autoCompactThreshold: threshold } : {}),
 },
 codex: {
-  defaultModel: data.codex?.default_model ?? "gpt-5-codex",
+  defaultModel: data.codex?.default_model ?? "gpt-5.4",
   cliPath: data.codex?.cli_path ?? "codex",
 },
 ```
@@ -193,7 +193,7 @@ default_model = "claude-opus-4-6"
 cli_path = "claude"
 
 [codex]
-default_model = "gpt-5-codex"
+default_model = "gpt-5.4"
 cli_path = "codex"
 ```
 
@@ -245,7 +245,7 @@ Add a new provider helper test:
 expect(defaultModelForProvider(
   "codex",
   config,
-)).toBe("gpt-5-codex");
+)).toBe("gpt-5.4");
 ```
 
 - [ ] **Step 2: Run targeted tests to confirm the old session model fails**

@@ -6,6 +6,7 @@ import {
   copyFileSync,
   mkdirSync,
   existsSync,
+  renameSync,
 } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -16,21 +17,45 @@ import { fileURLToPath } from "node:url";
 // ---------------------------------------------------------------------------
 
 export function printHelp(): string {
-  return `claude-feishu-channel — Bridge Claude Code to a Feishu group chat
+  return `agent-feishu-channel — Bridge Claude Code or Codex to a Feishu group chat
 
 Usage:
-  cfc [options]            Start the service
-  cfc init                 Create a config template at ~/.claude-feishu-channel/config.toml
+  afc [options]            Start the service
+  afc init                 Create a config template at ~/.agent-feishu-channel/config.toml
 
 Options:
-  -c, --config <path>      Path to config.toml (default: ~/.claude-feishu-channel/config.toml)
+  -c, --config <path>      Path to config.toml (default: ~/.agent-feishu-channel/config.toml)
   -v, --version            Show version number
   -h, --help               Show this help message
 
 Environment variables:
-  CLAUDE_FEISHU_CONFIG     Override the default config file path
+  AGENT_FEISHU_CONFIG      Override the default config file path
+  CLAUDE_FEISHU_CONFIG     Legacy alias for AGENT_FEISHU_CONFIG (still honored)
 
-Documentation: https://github.com/anthropics/claude-feishu-channel`;
+Documentation: https://github.com/Blackman99/agent-feishu-channel`;
+}
+
+/**
+ * One-time migration for users upgrading from the old `claude-feishu-channel`
+ * package: if the legacy state directory exists and the new one does not,
+ * rename it in place. Idempotent — no-op once migrated.
+ */
+export function migrateLegacyStateDir(
+  legacyDir: string,
+  newDir: string,
+  log: (msg: string) => void = (msg: string) => console.error(msg),
+): void {
+  if (existsSync(newDir)) return;
+  if (!existsSync(legacyDir)) return;
+  try {
+    renameSync(legacyDir, newDir);
+    log(`[migrate] Renamed state directory: ${legacyDir} -> ${newDir}`);
+  } catch (err) {
+    log(
+      `[migrate] Could not auto-rename ${legacyDir} -> ${newDir}: ${String(err)}\n` +
+        `[migrate] Run manually: mv ${legacyDir} ${newDir}`,
+    );
+  }
 }
 
 export function runInit(
@@ -86,16 +111,22 @@ async function run(): Promise<void> {
     process.exit(0);
   }
 
+  // Auto-migrate legacy state dir once, before any subcommand that touches it.
+  migrateLegacyStateDir(
+    join(homedir(), ".claude-feishu-channel"),
+    join(homedir(), ".agent-feishu-channel"),
+  );
+
   const subcommand = positionals[0];
 
   if (subcommand === "init") {
-    const targetDir = join(homedir(), ".claude-feishu-channel");
+    const targetDir = join(homedir(), ".agent-feishu-channel");
     const templatePath = resolveTemplatePath();
     const { created, targetFile } = runInit(targetDir, templatePath);
 
     if (created) {
       console.log(
-        `Config template created at ${targetFile}\nEdit it with your Feishu credentials, then run: cfc`,
+        `Config template created at ${targetFile}\nEdit it with your Feishu credentials, then run: afc`,
       );
     } else {
       console.log(`Config already exists at ${targetFile}, skipping.`);

@@ -18,11 +18,69 @@ describe("printHelp", () => {
     const { printHelp } = await import("../../src/cli.js");
     const help = printHelp();
     expect(help).toContain("Usage:");
-    expect(help).toContain("cfc");
+    expect(help).toContain("afc");
     expect(help).toContain("--config");
     expect(help).toContain("--version");
     expect(help).toContain("--help");
     expect(help).toContain("init");
+  });
+});
+
+describe("migrateLegacyStateDir", () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = join(tmpdir(), `afc-migrate-test-${Date.now()}`);
+    mkdirSync(root, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("renames legacy dir to new dir when only legacy exists", async () => {
+    const { migrateLegacyStateDir } = await import("../../src/cli.js");
+    const legacy = join(root, ".claude-feishu-channel");
+    const next = join(root, ".agent-feishu-channel");
+    mkdirSync(legacy, { recursive: true });
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(join(legacy, "state.json"), "{}");
+
+    const logs: string[] = [];
+    migrateLegacyStateDir(legacy, next, (m) => logs.push(m));
+
+    expect(existsSync(legacy)).toBe(false);
+    expect(existsSync(next)).toBe(true);
+    expect(existsSync(join(next, "state.json"))).toBe(true);
+    expect(logs.some((l) => l.includes("Renamed"))).toBe(true);
+  });
+
+  it("is a no-op when new dir already exists", async () => {
+    const { migrateLegacyStateDir } = await import("../../src/cli.js");
+    const legacy = join(root, ".claude-feishu-channel");
+    const next = join(root, ".agent-feishu-channel");
+    mkdirSync(legacy, { recursive: true });
+    mkdirSync(next, { recursive: true });
+
+    const logs: string[] = [];
+    migrateLegacyStateDir(legacy, next, (m) => logs.push(m));
+
+    expect(existsSync(legacy)).toBe(true);
+    expect(existsSync(next)).toBe(true);
+    expect(logs).toHaveLength(0);
+  });
+
+  it("is a no-op when neither dir exists", async () => {
+    const { migrateLegacyStateDir } = await import("../../src/cli.js");
+    const legacy = join(root, ".claude-feishu-channel");
+    const next = join(root, ".agent-feishu-channel");
+
+    const logs: string[] = [];
+    migrateLegacyStateDir(legacy, next, (m) => logs.push(m));
+
+    expect(existsSync(legacy)).toBe(false);
+    expect(existsSync(next)).toBe(false);
+    expect(logs).toHaveLength(0);
   });
 });
 

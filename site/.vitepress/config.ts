@@ -1,11 +1,11 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
-  title: 'Claude Feishu Channel',
-  description: 'Bridge Claude Code to Feishu group chat',
-  base: '/claude-feishu-channel/',
+  title: 'Agent Feishu Channel',
+  description: 'Bridge Claude Code or Codex to Feishu group chat',
+  base: '/agent-feishu-channel/',
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/claude-feishu-channel/logo.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/agent-feishu-channel/logo.svg' }],
   ],
 
   themeConfig: {
@@ -13,8 +13,8 @@ export default defineConfig({
 
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
-      { text: 'npm', link: 'https://www.npmjs.com/package/claude-feishu-channel' },
-      { text: 'GitHub', link: 'https://github.com/Blackman99/claude-feishu-channel' },
+      { text: 'npm', link: 'https://www.npmjs.com/package/agent-feishu-channel' },
+      { text: 'GitHub', link: 'https://github.com/Blackman99/agent-feishu-channel' },
     ],
 
     sidebar: [
@@ -30,7 +30,7 @@ export default defineConfig({
     ],
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/Blackman99/claude-feishu-channel' },
+      { icon: 'github', link: 'https://github.com/Blackman99/agent-feishu-channel' },
     ],
 
     footer: {

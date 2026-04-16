@@ -21,7 +21,7 @@ const BASE_CLAUDE_CONFIG = {
   defaultPermissionMode: "default" as const,
   defaultProvider: "claude" as const,
   defaultModel: "claude-opus-4-6",
-  codexDefaultModel: "gpt-5-codex",
+  codexDefaultModel: "gpt-5.4",
   cliPath: "claude",
   permissionTimeoutMs: 300_000,
   permissionWarnBeforeMs: 60_000,
@@ -177,7 +177,7 @@ describe("ClaudeSessionManager", () => {
     mgr.setProviderOverride("oc_1", "codex");
 
     expect(mgr.getEffectiveProvider("oc_1")).toBe("codex");
-    expect(mgr.getOrCreate("oc_1").getStatus().model).toBe("gpt-5-codex");
+    expect(mgr.getOrCreate("oc_1").getStatus().model).toBe("gpt-5.4");
   });
 
   it("active codex-selected session reports codex as its shared status provider", () => {
@@ -228,7 +228,7 @@ describe("ClaudeSessionManager", () => {
       providerConfigs: {
         claude: BASE_CLAUDE_CONFIG,
         codex: {
-          defaultModel: "gpt-5-codex",
+          defaultModel: "gpt-5.4",
           cliPath: "codex",
         },
       },
@@ -411,7 +411,7 @@ describe("ClaudeSessionManager — Persistence startup", () => {
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
       permissionMode: "default",
-      model: "gpt-5-codex",
+      model: "gpt-5.4",
     };
 
     const mgr = new ClaudeSessionManager({
@@ -539,7 +539,7 @@ describe("ClaudeSessionManager — Save triggers", () => {
 
     const session = mgr.getOrCreate("oc_override_only");
     session.setProvider("codex");
-    session.setModelOverride("gpt-5-codex-mini");
+    session.setModelOverride("gpt-5.4-mini");
     session.setPermissionModeOverride("plan");
 
     const saveCountBefore = store.saveCount;
@@ -553,7 +553,7 @@ describe("ClaudeSessionManager — Save triggers", () => {
       createdAt: expect.any(String),
       lastActiveAt: expect.any(String),
       permissionMode: "plan",
-      model: "gpt-5-codex-mini",
+      model: "gpt-5.4-mini",
     });
   });
 

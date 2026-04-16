@@ -45,9 +45,10 @@ import { detectLocale, t } from "./util/i18n.js";
 
 function resolveConfigPath(override?: string): string {
   if (override) return override;
-  const envOverride = process.env["CLAUDE_FEISHU_CONFIG"];
+  const envOverride =
+    process.env["AGENT_FEISHU_CONFIG"] ?? process.env["CLAUDE_FEISHU_CONFIG"];
   if (envOverride) return envOverride;
-  return join(homedir(), ".claude-feishu-channel", "config.toml");
+  return join(homedir(), ".agent-feishu-channel", "config.toml");
 }
 
 export async function main(configPathOverride?: string): Promise<void> {
@@ -1043,7 +1044,7 @@ export async function main(configPathOverride?: string): Promise<void> {
       hide_thinking: config.render.hideThinking,
       show_turn_stats: config.render.showTurnStats,
     },
-    "claude-feishu-channel Phase 8 ready",
+    "agent-feishu-channel ready",
   );
 
   if (config.claude.defaultPermissionMode === "bypassPermissions") {

@@ -1,6 +1,6 @@
 # Getting Started
 
-Claude Feishu Channel bridges coding agents and [Feishu / Lark](https://www.feishu.cn/) group chat. It currently supports both [Claude Code](https://claude.ai/claude-code) and Codex through a shared Feishu session model. Send a message in a Feishu group, and the selected provider processes it with tool access — file read/write, shell commands, search — then streams results back as interactive Feishu cards.
+Agent Feishu Channel bridges coding agents and [Feishu / Lark](https://www.feishu.cn/) group chat. It currently supports both [Claude Code](https://claude.ai/claude-code) and Codex through a shared Feishu session model. Send a message in a Feishu group, and the selected provider processes it with tool access — file read/write, shell commands, search — then streams results back as interactive Feishu cards.
 
 ## Prerequisites
 
@@ -16,25 +16,27 @@ Before you begin, make sure you have:
 Install globally via npm:
 
 ```bash
-npm install -g claude-feishu-channel
+npm install -g agent-feishu-channel
 ```
 
-This gives you the `cfc` command.
+This gives you the `afc` command.
+
+> Upgrading from `claude-feishu-channel`? Uninstall the old package (`npm uninstall -g claude-feishu-channel`) and install this one. On first run, your state directory at `~/.claude-feishu-channel/` will be auto-renamed to `~/.agent-feishu-channel/` — session history is preserved.
 
 ## Quick Start
 
 ### 1. Initialize config
 
 ```bash
-cfc init
+afc init
 ```
 
-This creates a config template at `~/.claude-feishu-channel/config.toml`.
+This creates a config template at `~/.agent-feishu-channel/config.toml`.
 
 ### 2. Edit config
 
 ```bash
-vim ~/.claude-feishu-channel/config.toml
+vim ~/.agent-feishu-channel/config.toml
 ```
 
 Fill in your Feishu credentials, allowed `open_id` values, and pick a default provider in `[agent]`.
@@ -42,7 +44,7 @@ Fill in your Feishu credentials, allowed `open_id` values, and pick a default pr
 ### 3. Run
 
 ```bash
-cfc
+afc
 ```
 
 The bot will connect to Feishu via WebSocket and start listening for messages.
@@ -67,8 +69,8 @@ Switching provider resets the current provider thread for that chat, but keeps t
 ### CLI Options
 
 ```
-cfc [options]            Start the service
-cfc init                 Create config template
+afc [options]            Start the service
+afc init                 Create config template
 
 Options:
   -c, --config <path>    Path to config.toml (overrides default)
@@ -79,14 +81,16 @@ Options:
 You can also specify a custom config file:
 
 ```bash
-cfc --config /path/to/my-config.toml
+afc --config /path/to/my-config.toml
 ```
 
 Or use the environment variable:
 
 ```bash
-CLAUDE_FEISHU_CONFIG=/path/to/config.toml cfc
+AGENT_FEISHU_CONFIG=/path/to/config.toml afc
 ```
+
+(`CLAUDE_FEISHU_CONFIG` is still honored as a legacy alias.)
 
 ## Setting Up Your Feishu Bot
 
@@ -119,8 +123,8 @@ Use `/context` in chat to inspect current usage and the mitigation order.
 If you want to develop or contribute:
 
 ```bash
-git clone https://github.com/Blackman99/claude-feishu-channel.git
-cd claude-feishu-channel
+git clone https://github.com/Blackman99/agent-feishu-channel.git
+cd agent-feishu-channel
 pnpm install
 
 # Run in dev mode
