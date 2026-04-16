@@ -73,7 +73,7 @@ describe("buildQuestionCard (pending)", () => {
     }
     expect(buttons.map((b) => b.value.option_index).sort()).toEqual([0, 1]);
     expect(buttons.map((b) => b.label)).toEqual(
-      expect.arrayContaining(["Vim", "Emacs"]),
+      expect.arrayContaining(["A. Vim", "B. Emacs"]),
     );
   });
 
