@@ -94,6 +94,40 @@ describe("FeishuQuestionBroker.request — happy path", () => {
     expect(JSON.stringify(card)).toContain("Which editor?");
   });
 
+  it("renders long option labels as compact prefixed button text", async () => {
+    const f = makeFakeFeishu();
+    const broker = makeBroker(f.client, new FakeClock());
+    const longQuestion: AskUserQuestionSpec = {
+      question: "Which rollout path should we take for the next deployment?",
+      options: [
+        {
+          label: "Use existing workspace and continue from the latest branch state",
+          description: "",
+        },
+        {
+          label: "Create a fresh workspace and replay only the verified steps",
+          description: "",
+        },
+      ],
+      multiSelect: false,
+    };
+
+    void broker.request({
+      questions: [longQuestion],
+      chatId: "oc_x",
+      ownerOpenId: "ou_x",
+      parentMessageId: "om_p",
+      locale: "en",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const json = JSON.stringify(f.replyCard.mock.calls[0]![1]);
+    expect(json).toContain("A. Use existing");
+    expect(json).toContain("B. Create a fresh");
+    expect(json).not.toContain(longQuestion.options[0]!.label);
+  });
+
   it("returns a pending promise until a click lands", async () => {
     const f = makeFakeFeishu();
     const broker = makeBroker(f.client, new FakeClock());
@@ -168,6 +202,47 @@ describe("FeishuQuestionBroker.resolveByCard — single question", () => {
     // channel is the only reliable visual-update mechanism for
     // click-triggered updates.
     expect(f.patchCard).not.toHaveBeenCalled();
+  });
+
+  it("returns the original full option label after clicking a shortened button", async () => {
+    const f = makeFakeFeishu();
+    const broker = makeBroker(f.client, new FakeClock());
+    const longLabel =
+      "Use existing workspace and continue from the latest branch state";
+
+    const pending = broker.request({
+      questions: [
+        {
+          question: "Which rollout path?",
+          options: [
+            { label: longLabel, description: "" },
+            { label: "Create a fresh workspace", description: "" },
+          ],
+          multiSelect: false,
+        },
+      ],
+      chatId: "oc_x",
+      ownerOpenId: "ou_x",
+      parentMessageId: "om_p",
+      locale: "en",
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    const requestId = findRequestIdInCard(f.replyCard.mock.calls[0]![1]);
+
+    await broker.resolveByCard({
+      requestId,
+      senderOpenId: "ou_x",
+      choice: { questionIndex: 0, optionIndex: 0 },
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      kind: "answered",
+      answers: {
+        "Which rollout path?": longLabel,
+      },
+    });
   });
 
   it("non-owner click returns forbidden and leaves the request pending", async () => {

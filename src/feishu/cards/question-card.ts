@@ -7,6 +7,7 @@ import { t, type Locale } from "../../util/i18n.js";
 
 /** Max characters for a button label before it wraps unpleasantly. */
 const BUTTON_LABEL_MAX = 18;
+const OPTION_PREFIXES = ["A.", "B.", "C.", "D."] as const;
 
 interface BuildPendingArgs {
   requestId: string;
@@ -189,7 +190,7 @@ function makeButton(
 ): FeishuElement {
   return {
     tag: "button",
-    text: { tag: "plain_text", content: clipButtonLabel(label) },
+    text: { tag: "plain_text", content: buttonDisplayLabel(optionIndex, label) },
     type: "default",
     width: "fill",
     value: {
@@ -201,11 +202,20 @@ function makeButton(
   };
 }
 
+function buttonDisplayLabel(optionIndex: number, label: string): string {
+  return `${optionPrefix(optionIndex)} ${clipButtonLabel(label)}`;
+}
+
+function optionPrefix(optionIndex: number): string {
+  return OPTION_PREFIXES[optionIndex] ?? `${optionIndex + 1}.`;
+}
+
 function clipButtonLabel(label: string): string {
   // Count code points, not bytes — Chinese button text is common
   // and we want the visual length, not the UTF-8 length.
-  const chars = Array.from(label);
-  if (chars.length <= BUTTON_LABEL_MAX) return label;
+  const clipped = label.trim();
+  const chars = Array.from(clipped);
+  if (chars.length <= BUTTON_LABEL_MAX) return clipped;
   return chars.slice(0, BUTTON_LABEL_MAX - 1).join("") + "…";
 }
 
