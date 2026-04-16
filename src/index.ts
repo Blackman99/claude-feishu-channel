@@ -789,6 +789,7 @@ export async function main(configPathOverride?: string): Promise<void> {
           ...parsed,
           senderOpenId: msg.senderOpenId,
           parentMessageId: msg.messageId,
+          ...(msg.imageDataUris ? { imageDataUris: msg.imageDataUris } : {}),
           locale,
         },
         emit,
