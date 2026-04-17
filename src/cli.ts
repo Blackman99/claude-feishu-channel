@@ -7,6 +7,7 @@ import {
   mkdirSync,
   existsSync,
   renameSync,
+  realpathSync,
 } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -149,8 +150,19 @@ async function run(): Promise<void> {
   });
 }
 
-// Only run CLI when executed directly (not imported)
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Only run CLI when executed directly (not imported). Compare realpaths so
+// symlinked bin wrappers (created by `npm install -g`) still match.
+function isDirectInvocation(): boolean {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  try {
+    return realpathSync(argv1) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectInvocation()) {
   run().catch((err: unknown) => {
     console.error("Unexpected CLI error:", err);
     process.exit(1);
