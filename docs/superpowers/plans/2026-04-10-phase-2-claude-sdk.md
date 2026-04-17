@@ -12,7 +12,7 @@
 - `src/index.ts` replaces the echo handler with `manager.getOrCreate(chatId).handleMessage(text)` and forwards the result to `FeishuClient.sendText`. Errors during a turn become a `❌ 错误: ...` reply.
 - Dependency injection: `ClaudeSession` takes a `QueryFn` interface (structural) so unit tests can pass a fake async iterator. `src/index.ts` wraps the real `query` from the SDK into that interface.
 
-**Tech Stack:** TypeScript 5, Node 20+, pnpm, vitest. New dependency: `@anthropic-ai/claude-agent-sdk` (v0.2.98+). Existing: `@larksuiteoapi/node-sdk`, `pino`, `zod`, `smol-toml`.
+**Tech Stack:** TypeScript 5, Node LTS+, pnpm, vitest. New dependency: `@anthropic-ai/claude-agent-sdk` (v0.2.98+). Existing: `@larksuiteoapi/node-sdk`, `pino`, `zod`, `smol-toml`.
 
 **Scope boundaries:**
 - **In scope:** `[claude]` config section, credential preflight, `extractAssistantText`, `ClaudeSession` (single-turn, mutex-serialized), `ClaudeSessionManager`, index.ts wiring, README update.
@@ -20,7 +20,7 @@
 
 **Prerequisites the engineer must verify:**
 - Phase 1 is already merged (current working tree: tag `v0.1.0-phase1`).
-- `pnpm --version` works, Node 20+ is active.
+- `pnpm --version` works, Node LTS is active.
 - `ANTHROPIC_API_KEY` is set in the shell used for manual E2E (Task 7).
 
 ---

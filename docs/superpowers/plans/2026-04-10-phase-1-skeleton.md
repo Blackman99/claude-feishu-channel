@@ -6,14 +6,14 @@
 
 **Architecture:** pnpm + TypeScript project. Pure utility modules, config loader, and atomic state store built with strict TDD (Red-Green-Refactor, one test → one commit). Feishu WebSocket gateway wires an end-to-end "receive → whitelist filter → reply" flow without any Claude integration yet.
 
-**Tech Stack:** Node.js 20+, TypeScript 5, pnpm, vitest, `@larksuiteoapi/node-sdk`, `smol-toml`, `zod`, `pino`, `pino-pretty`.
+**Tech Stack:** Node.js LTS+, TypeScript 5, pnpm, vitest, `@larksuiteoapi/node-sdk`, `smol-toml`, `zod`, `pino`, `pino-pretty`.
 
 **Scope boundaries:**
 - **In scope:** scaffold, pure utils (deferred, mutex, dedup, clock), config loading with validation, pino logger with redaction, state-store atomic read/write, Feishu gateway + REST client, whitelist filter, echo flow (receive → reply with fixed template), graceful shutdown.
 - **Out of scope (future phases):** Claude Agent SDK, ClaudeSession, state machine, Renderer, PermissionBroker, commands, persistence of session_id, cards, crash recovery.
 
 **Prerequisites the engineer must verify:**
-- Node.js 20+ installed (`node --version`)
+- Node.js LTS installed (`node --version`)
 - pnpm installed (`pnpm --version`); if missing: `npm install -g pnpm`
 - Feishu developer account with a bot app created (for the Task 25 manual E2E test only — everything before that can be built and unit-tested without real credentials)
 
@@ -2113,7 +2113,7 @@ Bridge a Claude Code session to a Feishu (Lark) bot so you can drive your local 
 
 ## Requirements
 
-- Node.js 20+
+- Node.js LTS+
 - pnpm (`npm install -g pnpm`)
 - A Feishu developer account with a custom app
 - A Feishu bot added to the custom app, with the `im:message` and `im:message.receive_v1` event subscribed

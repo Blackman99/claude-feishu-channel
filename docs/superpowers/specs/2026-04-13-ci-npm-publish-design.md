@@ -11,7 +11,7 @@ Add two GitHub Actions workflows:
 
 ## Constraints
 
-- Follow existing workflow conventions (pnpm 10, Node 20, `actions/checkout@v4`)
+- Follow existing workflow conventions (pnpm 10, Node LTS via `actions/setup-node`, `actions/checkout@v4`)
 - npm authentication via `NPM_TOKEN` repository secret
 - Zero changes to existing `deploy-docs.yml`
 - Zero changes to source code
@@ -44,7 +44,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: lts/*
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
@@ -55,7 +55,7 @@ jobs:
 Design choices:
 - Single job (typecheck → test → build sequential). These are fast (~5s total); parallelizing into separate jobs adds overhead without benefit.
 - Runs on push to main and PRs to main. Feature branch pushes only trigger CI when they have an open PR.
-- Matches `deploy-docs.yml` setup (pnpm 10, Node 20, `--frozen-lockfile`).
+- Matches `deploy-docs.yml` setup (pnpm 10, Node LTS, `--frozen-lockfile`).
 
 ## 2. `.github/workflows/publish.yml`
 
@@ -80,7 +80,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: lts/*
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile

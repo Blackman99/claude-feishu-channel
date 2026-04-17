@@ -6,7 +6,7 @@
 
 **Architecture:** Three hand-written SVG files in `assets/`, mirrored into `site/public/` so VitePress can serve them. VitePress config switches from a single `logo` string to `{ light, dark }` so the theme toggle swaps plates. README keeps pointing at `assets/logo.svg` and auto-picks up the new content. Unused `feishu-logo.png` files are removed now that nothing embeds or references them.
 
-**Tech Stack:** SVG, VitePress (`vitepress` 1.x via `pnpm docs:*` scripts), Node 20, pnpm.
+**Tech Stack:** SVG, VitePress (`vitepress` 1.x via `pnpm docs:*` scripts), Node LTS, pnpm.
 
 **Design spec:** `docs/superpowers/specs/2026-04-17-logo-redesign-design.md`
 
