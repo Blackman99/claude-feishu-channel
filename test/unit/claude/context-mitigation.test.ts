@@ -151,11 +151,11 @@ describe("ClaudeSession context assessment", () => {
     });
   });
 
-  it("classifies summarize_reset when estimated bytes are above the hard threshold", async () => {
-    const huge = "x".repeat(19_000_000);
+  it("keeps warning classification when estimated bytes are above the 50MB warning threshold", async () => {
+    const huge = "x".repeat(31_000_000);
     const h = createHarness();
     expect(h.session._testAssessContextRisk(huge)).toMatchObject({
-      level: "summarize_reset",
+      level: "warn",
     });
   });
 
@@ -165,7 +165,7 @@ describe("ClaudeSession context assessment", () => {
       totalOutputTokens: 200_000,
     });
     expect(h.session._testAssessContextRisk("small prompt")).toMatchObject({
-      level: "summarize_reset",
+      level: "warn",
     });
   });
 
@@ -215,7 +215,7 @@ describe("ClaudeSession context assessment", () => {
     await outcome.done;
   });
 
-  it("drops providerSessionId before running a compact-required turn", async () => {
+  it("keeps providerSessionId and only warns when token usage is high", async () => {
     const h = createHarness({
       totalInputTokens: 190_000,
       totalOutputTokens: 2_000,
@@ -226,11 +226,11 @@ describe("ClaudeSession context assessment", () => {
     if (outcome.kind !== "started") throw new Error("unreachable");
     await flushMicrotasks();
 
-    expect(h.timeline[0]).toBe("event:context_compacting");
+    expect(h.timeline[0]).toBe("event:context_warning");
     expect(h.timeline[1]).toBe("queryFn");
-    expect(h.events).toContainEqual({ type: "context_compacting" });
+    expect(h.events).toContainEqual({ type: "context_warning", level: "warn" });
     expect(h.queryCalls).toHaveLength(1);
-    expect(h.queryCalls[0]!.options.resumeId).toBeUndefined();
+    expect(h.queryCalls[0]!.options.resumeId).toBe("ses_old");
 
     h.fakes[0]!.finishWithSuccess({
       durationMs: 1,
@@ -240,7 +240,7 @@ describe("ClaudeSession context assessment", () => {
     await outcome.done;
   });
 
-  it("uses retained summary plus bounded recent context for lower-risk compact handoff", async () => {
+  it("does not rewrite the prompt into a handoff summary in the warning zone", async () => {
     const h = createHarness({
       providerSessionId: "ses_compact",
       totalInputTokens: 181_000,
@@ -257,16 +257,14 @@ describe("ClaudeSession context assessment", () => {
     if (outcome.kind !== "started") throw new Error("unreachable");
     await flushMicrotasks();
 
-    expect(h.queryCalls[0]!.options.resumeId).toBeUndefined();
-    expect(h.events).toContainEqual({ type: "context_compacting" });
-    expect(typeof h.queryCalls[0]!.prompt).toBe("string");
-    expect(h.queryCalls[0]!.prompt).toContain("Continuation summary for resumed work:");
-    expect(h.queryCalls[0]!.prompt).toContain("Recent context:");
+    expect(h.queryCalls[0]!.options.resumeId).toBe("ses_compact");
+    expect(h.events).toContainEqual({ type: "context_warning", level: "warn" });
+    expect(h.queryCalls[0]!.prompt).toBe("continue work");
   });
 
   it("counts image payload bytes when assessing pre-turn warning risk", async () => {
     const h = createHarness();
-    const imageDataUri = `data:image/png;base64,${"a".repeat(12_500_000)}`;
+    const imageDataUri = `data:image/png;base64,${"a".repeat(31_000_000)}`;
 
     const outcome = await h.session.submit(
       runImageInput("describe image", [imageDataUri]),
@@ -288,7 +286,7 @@ describe("ClaudeSession context assessment", () => {
     await outcome.done;
   });
 
-  it("starts a fresh summarized session when context risk requires summarize_reset", async () => {
+  it("keeps the current session and original prompt when estimated bytes exceed the old summarized-reset threshold", async () => {
     const huge = "x".repeat(19_000_000);
     const h = createHarness({
       providerSessionId: "ses_old",
@@ -301,12 +299,11 @@ describe("ClaudeSession context assessment", () => {
     if (outcome.kind === "rejected") throw new Error(outcome.reason);
     await flushMicrotasks();
 
-    expect(h.events).toContainEqual({ type: "context_summarized_reset" });
+    expect(h.events).toContainEqual({ type: "context_warning", level: "warn" });
     expect(h.queryCalls).toHaveLength(1);
-    expect(h.queryCalls[0]!.options.resumeId).toBeUndefined();
-    expect(typeof h.queryCalls[0]!.prompt).toBe("string");
-    expect(h.queryCalls[0]!.prompt).toContain("Continuation summary for a fresh session:");
-    expect(h.session.getStatus().providerSessionId).toBeUndefined();
+    expect(h.queryCalls[0]!.options.resumeId).toBe("ses_old");
+    expect(h.queryCalls[0]!.prompt).toBe(huge);
+    expect(h.session.getStatus().providerSessionId).toBe("ses_old");
 
     h.fakes[0]!.finishWithSuccess({
       durationMs: 1,
@@ -314,23 +311,6 @@ describe("ClaudeSession context assessment", () => {
       outputTokens: 1,
     });
     await outcome.done;
-  });
-
-  it("preserves provider/model/cwd/permission mode across summarized reset", () => {
-    const h = createHarness({
-      providerSessionId: "thread_old",
-      model: "gpt-5.4",
-    });
-
-    h.session.setProvider("codex");
-    h.session.setPermissionModeOverride("plan");
-
-    const summary = h.session._testBuildContinuationSummary("next task");
-    expect(summary).toContain("Current objective");
-    expect(summary).toContain("gpt-5.4");
-    expect(summary).toContain("/tmp/cfc-test");
-    expect(summary).toContain("plan");
-    expect(summary).toContain("codex");
   });
 
   it("removes explicitly completed structured tasks from retained continuation state", () => {
@@ -373,7 +353,7 @@ describe("ClaudeSession context assessment", () => {
     expect(summary).toContain("Task 6");
   });
 
-  it("preserves image prompts when summarized reset starts a fresh session", async () => {
+  it("keeps image prompts intact while remaining in the warning path", async () => {
     const h = createHarness({
       providerSessionId: "ses_old",
       totalInputTokens: 10_000,
@@ -388,7 +368,7 @@ describe("ClaudeSession context assessment", () => {
     if (outcome.kind === "rejected") throw new Error(outcome.reason);
     await flushMicrotasks();
 
-    expect(h.events).toContainEqual({ type: "context_summarized_reset" });
+    expect(h.events).toContainEqual({ type: "context_warning", level: "warn" });
     expect(typeof h.queryCalls[0]!.prompt).not.toBe("string");
 
     const messages: unknown[] = [];
@@ -396,14 +376,9 @@ describe("ClaudeSession context assessment", () => {
       messages.push(msg);
     }
 
-    expect(messages).toHaveLength(2);
-    expect(messages[0]).toMatchObject({
-      message: {
-        content: [{ type: "text", text: expect.stringContaining("Current objective") }],
-      },
-    });
-    expect(messages[1]).toMatchObject({ type: "user" });
-    const secondContent = (messages[1] as { message: { content: Array<{ type: string }> } })
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ type: "user" });
+    const secondContent = (messages[0] as { message: { content: Array<{ type: string }> } })
       .message.content;
     expect(secondContent[0]).toMatchObject({ type: "image" });
     expect(secondContent[1]).toMatchObject({ type: "text", text: "describe image" });
@@ -419,7 +394,7 @@ describe("ClaudeSession context assessment", () => {
   it("still performs the existing reset-and-retry when backend size detection misses", async () => {
     const h = createHarness({
       providerSessionId: "ses_backend_limit",
-      firstRunError: new Error("Request too large: max 20MB"),
+      firstRunError: new Error("Request too large: max 50MB"),
     });
 
     const outcome = await h.session.submit(runInput("retry me"), h.emit);
@@ -442,7 +417,7 @@ describe("ClaudeSession context assessment", () => {
   it("uses retained-summary handoff for hard fallback retry", async () => {
     const h = createHarness({
       providerSessionId: "ses_backend_limit",
-      firstRunError: new Error("Request too large: max 20MB"),
+      firstRunError: new Error("Request too large: max 50MB"),
     });
 
     h.session._testSetRetainedTaskState([
@@ -465,5 +440,27 @@ describe("ClaudeSession context assessment", () => {
     expect(h.queryCalls[1]!.prompt).toContain(
       "Continuation summary for resumed work:",
     );
+  });
+
+  it("recognizes max 50MB errors even without the request-too-large prefix", async () => {
+    const h = createHarness({
+      providerSessionId: "ses_backend_limit",
+      firstRunError: new Error("max 50MB"),
+    });
+
+    const outcome = await h.session.submit(runInput("retry me"), h.emit);
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+
+    h.fakes[0]!.finishWithSuccess({
+      durationMs: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    await outcome.done;
+
+    expect(h.events).toContainEqual({ type: "context_reset" });
+    expect(h.queryCalls).toHaveLength(2);
+    expect(h.queryCalls[1]!.options.resumeId).toBeUndefined();
   });
 });

@@ -23,23 +23,27 @@ type LegacySessionRecordInput = {
 };
 
 export interface State {
-  version: 2;
+  version: 3;
   lastCleanShutdown: boolean;
   /**
-   * Sessions keyed by chatId (default project) or `chatId\tprojectAlias`
-   * (named project). The tab character is used as a separator since it
-   * cannot appear in Feishu chat IDs or project alias names.
+   * Sessions keyed by `chatId\t\tprovider` (default project) or
+   * `chatId\tprojectAlias\tprovider` (named project). Older state files may
+   * still contain legacy keys without a provider suffix and are normalized by
+   * the session manager at runtime.
    */
   sessions: Record<string, SessionRecord>;
   /** Tracks the currently active project alias per chatId. */
   activeProjects: Record<string, string>;
+  /** Tracks the currently selected provider per chatId or `chatId\tprojectAlias`. */
+  activeProviders: Record<string, "claude" | "codex">;
 }
 
 const INITIAL_STATE: State = {
-  version: 2,
+  version: 3,
   lastCleanShutdown: true,
   sessions: {},
   activeProjects: {},
+  activeProviders: {},
 };
 
 function isString(value: unknown): value is string {
@@ -86,6 +90,7 @@ function normalizeState(parsed: {
   lastCleanShutdown?: unknown;
   sessions?: Record<string, unknown>;
   activeProjects?: Record<string, string>;
+  activeProviders?: Record<string, unknown>;
 }): State {
   const sessions: Record<string, SessionRecord> = {};
   for (const [key, value] of Object.entries(parsed.sessions ?? {})) {
@@ -105,11 +110,19 @@ function normalizeState(parsed: {
     }
   }
 
+  const activeProviders: Record<string, "claude" | "codex"> = {};
+  for (const [key, value] of Object.entries(parsed.activeProviders ?? {})) {
+    if (value === "claude" || value === "codex") {
+      activeProviders[key] = value;
+    }
+  }
+
   return {
-    version: 2,
+    version: 3,
     lastCleanShutdown: Boolean(parsed.lastCleanShutdown),
     sessions,
     activeProjects: parsed.activeProjects ?? {},
+    activeProviders,
   };
 }
 
@@ -137,15 +150,24 @@ export class StateStore {
         `Malformed JSON in state file ${this.path}: ${(err as Error).message}`,
       );
     }
-    // Migrate v1 → v2: add activeProjects field.
+    // Migrate v1/v2 → v3: add activeProjects/activeProviders fields.
     if ((parsed as { version: number }).version === 1) {
       return normalizeState({
         lastCleanShutdown: (parsed as unknown as { lastCleanShutdown: boolean }).lastCleanShutdown,
         sessions: (parsed as unknown as { sessions: Record<string, unknown> }).sessions,
         activeProjects: {},
+        activeProviders: {},
       });
     }
-    if (parsed.version !== 2) {
+    if ((parsed as { version: number }).version === 2) {
+      return normalizeState({
+        lastCleanShutdown: (parsed as unknown as { lastCleanShutdown: boolean }).lastCleanShutdown,
+        sessions: (parsed as unknown as { sessions: Record<string, unknown> }).sessions,
+        activeProjects: (parsed as unknown as { activeProjects?: Record<string, string> }).activeProjects ?? {},
+        activeProviders: {},
+      });
+    }
+    if (parsed.version !== 3) {
       throw new Error(
         `Unsupported state file version ${(parsed as { version: number }).version} in ${this.path}`,
       );

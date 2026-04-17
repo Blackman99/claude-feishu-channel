@@ -29,8 +29,6 @@ export interface AgentConfig {
   permissionTimeoutMs: number;
   /** How far BEFORE the timeout to post the "⏰ 60s" warning reminder. */
   permissionWarnBeforeMs: number;
-  /** 0.0–1.0 fill fraction at which auto-compact triggers. */
-  autoCompactThreshold?: number;
 }
 
 export interface LoadedAppConfig {
@@ -50,7 +48,6 @@ export interface LoadedAppConfig {
     defaultPermissionMode: PermissionMode;
     permissionTimeoutMs: number;
     permissionWarnBeforeMs: number;
-    autoCompactThreshold?: number;
   };
   codex: ProviderConfig;
   render: {

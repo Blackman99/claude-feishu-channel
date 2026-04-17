@@ -49,9 +49,6 @@ export function createSdkQueryFn(opts: SdkQueryFnOptions): QueryFn {
         ...(params.options.disallowedTools
           ? { disallowedTools: [...params.options.disallowedTools] }
           : {}),
-        ...(params.options.autoCompactThreshold !== undefined
-          ? { autoCompactThreshold: params.options.autoCompactThreshold }
-          : {}),
       },
     });
 

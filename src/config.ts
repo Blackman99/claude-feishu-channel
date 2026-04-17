@@ -37,7 +37,6 @@ const AgentSchema = z.object({
   default_permission_mode: PermissionModeSchema.default("default"),
   permission_timeout_seconds: z.number().int().positive().default(300),
   permission_warn_before_seconds: z.number().int().positive().default(60),
-  auto_compact_threshold: z.number().min(0).max(1).optional(),
 });
 
 const ClaudeSchema = z.object({
@@ -47,7 +46,6 @@ const ClaudeSchema = z.object({
   default_permission_mode: PermissionModeSchema.default("default"),
   permission_timeout_seconds: z.number().int().positive().default(300),
   permission_warn_before_seconds: z.number().int().positive().default(60),
-  auto_compact_threshold: z.number().min(0).max(1).optional(),
 });
 
 const CodexSchema = z.object({
@@ -161,8 +159,7 @@ function validateMixedAgentConfig(
   if (!hasOwnProperty(claude, "default_cwd") &&
       !hasOwnProperty(claude, "default_permission_mode") &&
       !hasOwnProperty(claude, "permission_timeout_seconds") &&
-      !hasOwnProperty(claude, "permission_warn_before_seconds") &&
-      !hasOwnProperty(claude, "auto_compact_threshold")) {
+      !hasOwnProperty(claude, "permission_warn_before_seconds")) {
     return;
   }
 
@@ -191,12 +188,6 @@ function validateMixedAgentConfig(
     claude.permission_warn_before_seconds !== agent.permission_warn_before_seconds
   ) {
     conflicts.push("claude.permission_warn_before_seconds");
-  }
-  if (
-    hasOwnProperty(claude, "auto_compact_threshold") &&
-    claude.auto_compact_threshold !== agent.auto_compact_threshold
-  ) {
-    conflicts.push("claude.auto_compact_threshold");
   }
 
   if (conflicts.length > 0) {
@@ -278,9 +269,6 @@ export async function loadConfig(path: string): Promise<AppConfig> {
     default_permission_mode: data.claude.default_permission_mode,
     permission_timeout_seconds: data.claude.permission_timeout_seconds,
     permission_warn_before_seconds: data.claude.permission_warn_before_seconds,
-    ...(data.claude.auto_compact_threshold !== undefined
-      ? { auto_compact_threshold: data.claude.auto_compact_threshold }
-      : {}),
   };
   return {
     feishu: {
@@ -306,9 +294,6 @@ export async function loadConfig(path: string): Promise<AppConfig> {
       defaultPermissionMode: agent.default_permission_mode,
       permissionTimeoutMs: agent.permission_timeout_seconds * 1000,
       permissionWarnBeforeMs: agent.permission_warn_before_seconds * 1000,
-      ...(agent.auto_compact_threshold !== undefined
-        ? { autoCompactThreshold: agent.auto_compact_threshold }
-        : {}),
     },
     claude: {
       defaultCwd: (() => {
@@ -324,9 +309,6 @@ export async function loadConfig(path: string): Promise<AppConfig> {
       cliPath: data.claude.cli_path,
       permissionTimeoutMs: agent.permission_timeout_seconds * 1000,
       permissionWarnBeforeMs: agent.permission_warn_before_seconds * 1000,
-      ...(agent.auto_compact_threshold !== undefined
-        ? { autoCompactThreshold: agent.auto_compact_threshold }
-        : {}),
     },
     codex: {
       defaultModel: data.codex.default_model,

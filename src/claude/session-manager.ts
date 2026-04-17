@@ -48,8 +48,8 @@ export class ClaudeSessionManager {
    * Internal maps use a *session key* rather than raw chatId.
    *
    * Key format:
-   *   - Default project : `chatId`
-   *   - Named project   : `chatId\tprojectAlias`
+   *   - Default project : `chatId\t\tprovider`
+   *   - Named project   : `chatId\tprojectAlias\tprovider`
    *
    * The tab character is the separator — it cannot appear in Feishu chat IDs
    * or project alias names, so it's safe to use without escaping.
@@ -69,17 +69,62 @@ export class ClaudeSessionManager {
 
   // --- project helpers ---
 
-  /** Returns the session-map key for the currently active project of chatId. */
+  /** Returns the project-scope key for the currently active project of chatId. */
+  private activeProjectKey(chatId: string): string {
+    return this.projectKey(chatId, this.activeProjects.get(chatId));
+  }
+
+  private projectKey(chatId: string, projectAlias?: string): string {
+    return projectAlias ? `${chatId}\t${projectAlias}` : chatId;
+  }
+
+  private sessionKey(
+    chatId: string,
+    provider: AgentProvider,
+    projectAlias = this.activeProjects.get(chatId),
+  ): string {
+    return `${chatId}\t${projectAlias ?? ""}\t${provider}`;
+  }
+
+  /** Returns the session-map key for the currently selected provider/project of chatId. */
   private activeSessionKey(chatId: string): string {
-    const alias = this.activeProjects.get(chatId);
-    return alias ? `${chatId}\t${alias}` : chatId;
+    return this.sessionKey(chatId, this.getEffectiveProvider(chatId));
   }
 
   /** Parse a session key back into its components. */
-  private parseSessionKey(key: string): { chatId: string; projectAlias?: string } {
-    const tab = key.indexOf("\t");
-    if (tab === -1) return { chatId: key };
-    return { chatId: key.slice(0, tab), projectAlias: key.slice(tab + 1) };
+  private parseSessionKey(key: string): {
+    chatId: string;
+    projectAlias?: string;
+    provider?: AgentProvider;
+  } {
+    const parts = key.split("\t");
+    if (
+      parts.length === 3 &&
+      (parts[2] === "claude" || parts[2] === "codex")
+    ) {
+      const parsed: {
+        chatId: string;
+        projectAlias?: string;
+        provider?: AgentProvider;
+      } = {
+        chatId: parts[0] ?? key,
+        provider: parts[2],
+      };
+      if (parts[1]) parsed.projectAlias = parts[1];
+      return parsed;
+    }
+    if (parts.length === 2) {
+      const parsed: {
+        chatId: string;
+        projectAlias?: string;
+        provider?: AgentProvider;
+      } = {
+        chatId: parts[0] ?? key,
+      };
+      if (parts[1]) parsed.projectAlias = parts[1];
+      return parsed;
+    }
+    return { chatId: key };
   }
 
   // --- lifecycle ---
@@ -94,12 +139,19 @@ export class ClaudeSessionManager {
     for (const [key, record] of Object.entries(state.sessions)) {
       const lastActive = new Date(record.lastActiveAt).getTime();
       if (now - lastActive > ttlMs) continue;
-      this.staleRecords.set(key, record);
+      const parsed = this.parseSessionKey(key);
+      const normalizedKey = parsed.provider
+        ? key
+        : this.sessionKey(parsed.chatId, record.provider, parsed.projectAlias);
+      this.staleRecords.set(normalizedKey, record);
     }
 
     // Restore active project per chatId.
     for (const [chatId, alias] of Object.entries(state.activeProjects ?? {})) {
       this.activeProjects.set(chatId, alias);
+    }
+    for (const [key, provider] of Object.entries(state.activeProviders ?? {})) {
+      this.providerOverrides.set(key, provider);
     }
 
     // Persist the pruned set so expired sessions are dropped from disk.
@@ -139,13 +191,13 @@ export class ClaudeSessionManager {
   // --- session CRUD ---
 
   getOrCreate(chatId: string): ClaudeSession {
-    const key = this.activeSessionKey(chatId);
+    const effectiveProvider = this.getEffectiveProvider(chatId);
+    const key = this.sessionKey(chatId, effectiveProvider);
     let session = this.sessions.get(key);
     if (session !== undefined) return session;
 
     const stale = this.staleRecords.get(key);
     const cwdOverride = this.cwdOverrides.get(key);
-    const effectiveProvider = this.getEffectiveProvider(chatId);
     const queryFn =
       this.opts.providerQueryFns?.[effectiveProvider] ?? this.opts.queryFn;
 
@@ -218,19 +270,19 @@ export class ClaudeSessionManager {
   }
 
   setProviderOverride(chatId: string, provider: AgentProvider): void {
-    this.providerOverrides.set(this.activeSessionKey(chatId), provider);
+    this.providerOverrides.set(this.activeProjectKey(chatId), provider);
   }
 
   getEffectiveProvider(chatId: string): AgentProvider {
-    const key = this.activeSessionKey(chatId);
-    return this.sessions.get(key)?.getStatus().provider
-      ?? this.staleRecords.get(key)?.provider
-      ?? this.providerOverrides.get(key)
+    const key = this.activeProjectKey(chatId);
+    return this.providerOverrides.get(key)
+      ?? this.inferProviderForProject(chatId, this.activeProjects.get(chatId))
       ?? this.getDefaultProvider();
   }
 
   setStaleRecord(chatId: string, record: SessionRecord): void {
-    this.staleRecords.set(this.activeSessionKey(chatId), record);
+    this.providerOverrides.set(this.activeProjectKey(chatId), record.provider);
+    this.staleRecords.set(this.sessionKey(chatId, record.provider), record);
     void this.saveNow();
   }
 
@@ -241,12 +293,14 @@ export class ClaudeSessionManager {
    * working directory.
    */
   switchProject(chatId: string, alias: string, cwd: string): void {
-    const newKey = `${chatId}\t${alias}`;
-    // Only apply the cwd as an initial override if no session exists yet.
-    if (!this.sessions.has(newKey) && !this.staleRecords.has(newKey)) {
-      this.cwdOverrides.set(newKey, cwd);
-    }
     this.activeProjects.set(chatId, alias);
+    // Only apply the cwd as an initial override if no session exists yet.
+    for (const provider of ["claude", "codex"] as const) {
+      const newKey = this.sessionKey(chatId, provider, alias);
+      if (!this.sessions.has(newKey) && !this.staleRecords.has(newKey)) {
+        this.cwdOverrides.set(newKey, cwd);
+      }
+    }
     void this.saveNow();
   }
 
@@ -358,6 +412,10 @@ export class ClaudeSessionManager {
     return Object.fromEntries(this.activeProjects);
   }
 
+  getActiveProvidersSnapshot(): Record<string, AgentProvider> {
+    return Object.fromEntries(this.providerOverrides);
+  }
+
   buildSessionsSnapshot(): Record<string, SessionRecord> {
     const sessions: Record<string, SessionRecord> = {};
     // Active sessions use composite keys; preserve them as-is.
@@ -397,10 +455,11 @@ export class ClaudeSessionManager {
       this.debounceTimer = null;
     }
     const state: State = {
-      version: 2,
+      version: 3,
       lastCleanShutdown: false,
       sessions: this.buildSessionsSnapshot(),
       activeProjects: Object.fromEntries(this.activeProjects),
+      activeProviders: Object.fromEntries(this.providerOverrides),
     };
     try {
       await this.opts.stateStore.save(state);
@@ -449,5 +508,27 @@ export class ClaudeSessionManager {
       || status.cwd !== this.opts.config.defaultCwd
       || status.permissionMode !== this.opts.config.defaultPermissionMode
       || status.model !== this.getDefaultModelForProvider(status.provider);
+  }
+
+  private inferProviderForProject(
+    chatId: string,
+    projectAlias?: string,
+  ): AgentProvider | undefined {
+    const providers = new Set<AgentProvider>();
+    for (const [key, session] of this.sessions) {
+      const parsed = this.parseSessionKey(key);
+      if (parsed.chatId === chatId && parsed.projectAlias === projectAlias) {
+        providers.add(session.getStatus().provider);
+      }
+    }
+    for (const [key, record] of this.staleRecords) {
+      const parsed = this.parseSessionKey(key);
+      if (parsed.chatId === chatId && parsed.projectAlias === projectAlias) {
+        providers.add(record.provider);
+      }
+    }
+    return providers.size === 1
+      ? [...providers][0]
+      : undefined;
   }
 }

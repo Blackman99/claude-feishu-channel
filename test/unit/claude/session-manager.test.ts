@@ -42,7 +42,13 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 class FakeStateStore {
-  state: State = { version: 2, lastCleanShutdown: true, sessions: {}, activeProjects: {} };
+  state: State = {
+    version: 3,
+    lastCleanShutdown: true,
+    sessions: {},
+    activeProjects: {},
+    activeProviders: {},
+  };
   saveCount = 0;
   lastSaved: State | null = null;
   async load(): Promise<State> {
@@ -178,6 +184,29 @@ describe("ClaudeSessionManager", () => {
 
     expect(mgr.getEffectiveProvider("oc_1")).toBe("codex");
     expect(mgr.getOrCreate("oc_1").getStatus().model).toBe("gpt-5.4");
+  });
+
+  it("isolates sessions by provider for the same chat and restores the original provider session when switched back", () => {
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+    });
+
+    const claudeSession = mgr.getOrCreate("oc_provider_isolated");
+    expect(claudeSession.getStatus().provider).toBe("claude");
+
+    mgr.setProviderOverride("oc_provider_isolated", "codex");
+    const codexSession = mgr.getOrCreate("oc_provider_isolated");
+
+    expect(codexSession).not.toBe(claudeSession);
+    expect(codexSession.getStatus().provider).toBe("codex");
+
+    mgr.setProviderOverride("oc_provider_isolated", "claude");
+    expect(mgr.getOrCreate("oc_provider_isolated")).toBe(claudeSession);
   });
 
   it("active codex-selected session reports codex as its shared status provider", () => {
@@ -374,7 +403,7 @@ describe("ClaudeSessionManager — Persistence startup", () => {
     expect(status.providerSessionId).toBe("ses_stale");
   });
 
-  it("stale persisted provider wins over an explicit provider override", async () => {
+  it("an explicit provider override can select a different provider than the stale persisted one", async () => {
     const store = new FakeStateStore();
     store.state.sessions["oc_stale_provider"] = {
       provider: "claude",
@@ -399,7 +428,7 @@ describe("ClaudeSessionManager — Persistence startup", () => {
     await mgr.startupLoad();
     mgr.setProviderOverride("oc_stale_provider", "codex");
 
-    expect(mgr.getEffectiveProvider("oc_stale_provider")).toBe("claude");
+    expect(mgr.getEffectiveProvider("oc_stale_provider")).toBe("codex");
   });
 
   it("restored stale session retains its provider after stale record consumption", async () => {
@@ -520,7 +549,7 @@ describe("ClaudeSessionManager — Save triggers", () => {
     // saveNow should have been called at least once after session_id captured
     expect(store.saveCount).toBeGreaterThan(saveCountBefore);
     // The saved state should contain the session with the session_id
-    expect(store.lastSaved?.sessions["oc_sid"]?.providerSessionId).toBe(
+    expect(store.lastSaved?.sessions["oc_sid\t\tclaude"]?.providerSessionId).toBe(
       "ses_new123",
     );
   });
@@ -537,8 +566,8 @@ describe("ClaudeSessionManager — Save triggers", () => {
       stateStore: store as unknown as StateStore,
     });
 
+    mgr.setProviderOverride("oc_override_only", "codex");
     const session = mgr.getOrCreate("oc_override_only");
-    session.setProvider("codex");
     session.setModelOverride("gpt-5.4-mini");
     session.setPermissionModeOverride("plan");
 
@@ -547,7 +576,7 @@ describe("ClaudeSessionManager — Save triggers", () => {
     await flushMicrotasks();
 
     expect(store.saveCount).toBeGreaterThan(saveCountBefore);
-    expect(store.lastSaved?.sessions["oc_override_only"]).toEqual({
+    expect(store.lastSaved?.sessions["oc_override_only\t\tcodex"]).toEqual({
       provider: "codex",
       cwd: "/tmp/cfc-test",
       createdAt: expect.any(String),
@@ -578,8 +607,40 @@ describe("ClaudeSessionManager — Save triggers", () => {
     await flushMicrotasks();
 
     expect(store.saveCount).toBeGreaterThan(saveCountBefore);
-    expect(store.lastSaved?.sessions["oc_codex_persist"]?.provider).toBe("codex");
-    expect(store.lastSaved?.sessions["oc_codex_persist"]?.providerSessionId).toBe("ses_codex_persist");
+    expect(store.lastSaved?.sessions["oc_codex_persist\t\tcodex"]?.provider).toBe("codex");
+    expect(store.lastSaved?.sessions["oc_codex_persist\t\tcodex"]?.providerSessionId).toBe("ses_codex_persist");
+  });
+
+  it("persists separate session records per provider and remembers the selected provider", async () => {
+    const store = new FakeStateStore();
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+      stateStore: store as unknown as StateStore,
+    });
+
+    mgr.getOrCreate("oc_dual_provider").setProviderSessionId("ses_claude");
+
+    mgr.setProviderOverride("oc_dual_provider", "codex");
+    const codexSession = mgr.getOrCreate("oc_dual_provider");
+    codexSession.setProviderSessionId("thread_codex");
+
+    mgr.persistNow();
+    await flushMicrotasks();
+
+    expect(Object.keys(store.lastSaved?.sessions ?? {}).sort()).toEqual([
+      "oc_dual_provider\t\tclaude",
+      "oc_dual_provider\t\tcodex",
+    ]);
+    expect(store.lastSaved?.sessions["oc_dual_provider\t\tclaude"]?.providerSessionId).toBe("ses_claude");
+    expect(store.lastSaved?.sessions["oc_dual_provider\t\tcodex"]?.providerSessionId).toBe("thread_codex");
+    expect(store.lastSaved?.activeProviders).toEqual({
+      oc_dual_provider: "codex",
+    });
   });
 
   it("delete triggers immediate save", async () => {

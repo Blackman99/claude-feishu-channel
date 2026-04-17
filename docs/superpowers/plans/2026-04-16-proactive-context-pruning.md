@@ -159,7 +159,7 @@ private refreshRetainedContinuation(nextObjective: string): void {
 Call it:
 
 - after successful turn completion
-- during warning-zone handling before summarized reset logic is needed
+- during warning-zone handling before hard fallback logic is needed
 
 - [ ] **Step 4: Render continuation summaries from retained state**
 
@@ -174,7 +174,7 @@ private buildContinuationSummary(next: QueuedInput): string {
     .join("\n");
 
   return [
-    "Continuation summary for a fresh session:",
+    "Continuation summary:",
     "",
     "Completed items removed from continuation context.",
     `Current objective: ${this.retainedContinuation.latestObjective}`,
@@ -212,16 +212,16 @@ Expected:
 
 ---
 
-### Task 3: Preserve existing summarized reset behavior and verify regressions
+### Task 3: Preserve existing hard fallback behavior and verify regressions
 
 **Files:**
 - Modify: `src/claude/session.ts`
 - Verify: `test/unit/claude/context-mitigation.test.ts`
 - Verify: `test/unit/claude/session-state-machine.test.ts`
 
-- [ ] **Step 1: Ensure summarized reset consumes retained continuation state**
+- [ ] **Step 1: Ensure hard fallback retry consumes retained continuation state**
 
-Keep the existing summarized-reset branch, but make sure it uses the retained state rather than recreating summary content from raw prompt text.
+Keep the existing hard-fallback retry branch, but make sure it uses the retained state rather than recreating summary content from raw prompt text.
 
 Do not remove:
 

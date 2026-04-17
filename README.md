@@ -27,7 +27,7 @@
 - **Session persistence** — survives process restarts, auto-resumes conversations
 - **Queue & interrupt** — messages queue during generation; `!` prefix interrupts
 - **Interactive cards** — streaming status, tool activity, thinking blocks, permissions
-- **Staged context mitigation** — warn, compact, summarized fresh session, then hard 20MB fallback
+- **Staged context mitigation** — warn, then hard 50MB fallback
 - **Runtime config** — `/config set` to tune behavior without restart
 
 ## Quick Start
@@ -120,7 +120,7 @@ See [`config.example.toml`](config.example.toml) for all options with comments.
 |---------|------|-------------|
 | `[feishu]` | `app_id`, `app_secret`, `encrypt_key`, `verification_token` | Feishu bot credentials |
 | `[access]` | `allowed_open_ids`, `unauthorized_behavior` | Who can talk to the bot |
-| `[agent]` | `default_provider`, `default_cwd`, `default_permission_mode`, `permission_timeout_seconds`, `permission_warn_before_seconds`, `auto_compact_threshold` | Shared agent defaults |
+| `[agent]` | `default_provider`, `default_cwd`, `default_permission_mode`, `permission_timeout_seconds`, `permission_warn_before_seconds` | Shared agent defaults |
 | `[claude]` | `default_model`, `cli_path` | Claude provider defaults |
 | `[codex]` | `default_model`, `cli_path` | Codex provider defaults |
 | `[render]` | `inline_max_bytes`, `hide_thinking`, `show_turn_stats` | Card rendering options |
@@ -175,12 +175,10 @@ FeishuGateway (event decryption, dedup, access control)
 
 ## Context Handling
 
-The bot now applies staged mitigation before it hits Claude's 20MB hard request limit:
+The bot now applies staged mitigation before it hits Claude's 50MB hard request limit:
 
 1. `warn` — notify that the session is getting large
-2. `compact` — clear the provider thread and continue the turn in-place when risk is high
-3. `summarized fresh session` — start a new provider thread with a continuation summary that preserves unfinished work and key constraints
-4. `hard reset fallback` — keep the old backend-driven `Request too large / max 20MB` reset-and-retry path as the last fallback
+2. `hard reset fallback` — keep the backend-driven `Request too large / max 50MB` reset-and-retry path as the last fallback
 
 Use `/context` to inspect current window usage and see the mitigation order reflected in user-facing output.
 

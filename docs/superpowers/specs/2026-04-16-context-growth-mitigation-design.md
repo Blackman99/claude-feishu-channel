@@ -3,8 +3,8 @@
 - **Date**: 2026-04-16
 - **Status**: Draft
 - **Author**: zhaodongsheng x Codex
-- **Upstream context**: current Claude/Codex provider runtime in `src/claude/session.ts`, `/context` command in `src/commands/dispatcher.ts`, existing 20MB fallback reset path
-- **Downstream output**: implementation plan for proactive context warnings and staged mitigation before hard 20MB failures
+- **Upstream context**: current Claude/Codex provider runtime in `src/claude/session.ts`, `/context` command in `src/commands/dispatcher.ts`, existing 50MB fallback reset path
+- **Downstream output**: implementation plan for proactive context warnings and staged mitigation before hard 50MB failures
 
 ---
 
@@ -15,14 +15,14 @@ Add proactive context-growth mitigation so the bot warns early, attempts a light
 This work is driven by a real failure mode in the current runtime:
 
 - the same provider session is resumed repeatedly
-- context accumulates until the backend rejects the request with a `Request too large` / `max 20MB` error
+- context accumulates until the backend rejects the request with a `Request too large` / `max 50MB` error
 - only then does the runtime clear the provider session and retry once
 
 That fallback remains necessary, but it should become the last line of defense instead of the primary control path.
 
 **Success criteria**
 
-1. The bot can warn before a turn is likely to hit the hard 20MB request-size error.
+1. The bot can warn before a turn is likely to hit the hard 50MB request-size error.
 2. The bot uses both token-based trend detection and byte-based preflight estimation.
 3. High-risk turns first attempt compaction before abandoning the current provider thread.
 4. If a fresh session is required, the new session starts with a compact continuation summary rather than a blank reset.
@@ -47,7 +47,7 @@ The mitigation pipeline uses two signals:
 - **token usage trend** from the existing session counters and `/context` model-window estimate
 - **request byte estimate** computed immediately before sending a turn
 
-Token usage is used for earlier warning and trend tracking. Byte estimation is used for the final pre-send risk check because the actual user-reported failure is tied to the 20MB request limit rather than model context size alone.
+Token usage is used for earlier warning and trend tracking. Byte estimation is used for the final pre-send risk check because the actual user-reported failure is tied to the 50MB request limit rather than model context size alone.
 
 ### 2.2 Mitigation order
 
@@ -100,7 +100,7 @@ Current behavior lives almost entirely inside `src/claude/session.ts`:
 
 - each turn reuses `providerSessionId` when present
 - `autoCompactThreshold` is passed through to provider runtimes
-- if the provider throws a `Request too large` / `max 20MB` error, the session drops `providerSessionId`, emits `context_reset`, and retries the same input once
+- if the provider throws a `Request too large` / `max 50MB` error, the session drops `providerSessionId`, emits `context_reset`, and retries the same input once
 
 This means mitigation only happens after failure, and the fresh retry has no preserved continuation state.
 
@@ -122,15 +122,13 @@ Recommended internal concepts:
 - `ContextRiskLevel`
   - `normal`
   - `warn`
-  - `compact`
-  - `summarize_reset`
 - `ContextAssessment`
   - token usage
   - token percentage
   - estimated request bytes
   - chosen mitigation level
 - `ContinuationSummary`
-  - compact string payload used to seed a fresh session retry
+  - compact string payload used to seed a hard fallback retry
 
 These do not need to become public APIs, but they should be explicit in code and tests rather than buried in inline conditionals.
 
@@ -264,7 +262,7 @@ Required coverage:
 1. warning-only path
 2. compact path before provider call
 3. summarize-reset path before provider call
-4. hard backend 20MB failure still triggers old reset-and-retry fallback
+4. hard backend 50MB failure still triggers old reset-and-retry fallback
 5. summarized fresh session preserves provider/model/cwd/permission mode
 6. `/context` text reflects the new staged behavior
 
@@ -310,4 +308,4 @@ It should not attempt:
 3. broad command-surface expansion
 4. long-term memory features
 
-This keeps the feature focused on preventing 20MB failures while preserving useful conversational continuity.
+This keeps the feature focused on preventing 50MB failures while preserving useful conversational continuity.

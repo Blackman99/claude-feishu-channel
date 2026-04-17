@@ -76,16 +76,6 @@ const STRINGS = {
     cdCancelled: "🛑 已取消切换工作目录",
     cdTimedOut: "⏰ 切换工作目录已超时",
 
-    // ── session.ts (context reset) ────────────────────────────────
-    contextWarningRuntime:
-      "⚠️ 当前会话上下文已接近上限，系统会优先尝试压缩后继续。",
-    contextCompacting:
-      "🗜️ 当前会话上下文过大，系统正在先尝试压缩并继续本轮请求。",
-    contextSummarizedReset:
-      "⚠️ 当前会话上下文已过大，系统已提炼未完成内容并切到新会话后继续本轮请求。",
-    contextReset:
-      "⚠️ 对话上下文过大（超过 20MB 限制），已自动开启新会话重试您的消息。之前的对话历史已清除。",
-
     // ── session-manager.ts ───────────────────────────────────────
     crashRecovery:
       "⚠️ 上次 bot 异常重启，已恢复会话。请检查上一轮的执行结果是否完整",
@@ -151,13 +141,12 @@ const STRINGS = {
     contextUsed: (tokens: number) => `已用：${tokens.toLocaleString()} tokens`,
     contextWindow: (tokens: number) => `窗口：${tokens.toLocaleString()} tokens`,
     contextPercent: (pct: string) => `占用：${pct}%`,
-    contextWarning: "⚠️ 上下文已超过 80%，系统会开始分级控制以避免撞上 20MB 限制。",
-    contextStages: "系统处理顺序：预警 -> 压缩 -> 提炼后新会话 -> 最后兜底重置",
+    contextWarning: "⚠️ 上下文已超过 80%，系统会开始分级控制以避免撞上 50MB 限制。",
+    contextStages: "系统处理顺序：预警 -> 最后兜底重置",
     sessionBusy:
       "会话正在执行中，请先发送 /stop 或等待完成",
     newSessionStarted: "新会话已开始，下条消息将开启新对话",
-    compactStarted:
-      "🗜️ 会话已重置。auto-compact 已配置时将在上下文满时自动触发；也可通过 /config set claude.auto_compact_threshold 0.8 开启。",
+    compactStarted: "🗜️ 会话已重置。后续消息会在新的会话上下文中继续。",
     providerSwitched: (provider: string) => `提供方已切换为 ${provider}，当前会话上下文已重置`,
     modeSwitched: (mode: string) => `权限模式已切换为 ${mode}`,
     modelSwitched: (model: string) => `模型已切换为 ${model}`,
@@ -256,16 +245,6 @@ const STRINGS = {
     cdCancelled: "🛑 Directory change cancelled",
     cdTimedOut: "⏰ Directory change timed out",
 
-    // ── session.ts (context reset) ────────────────────────────────
-    contextWarningRuntime:
-      "⚠️ Context is nearing the limit. The session will try compacting first and continue.",
-    contextCompacting:
-      "🗜️ Context is large enough that the session is compacting before continuing this turn.",
-    contextSummarizedReset:
-      "⚠️ Context is too large to continue safely. The session condensed unfinished state and continued in a fresh thread.",
-    contextReset:
-      "⚠️ Conversation context too large (exceeded 20MB limit). Automatically started a new session to retry your message. Previous conversation history has been cleared.",
-
     // ── session-manager.ts ───────────────────────────────────────
     crashRecovery:
       "⚠️ Bot restarted unexpectedly — session restored. Please check if the last turn completed successfully.",
@@ -334,14 +313,14 @@ const STRINGS = {
     contextWindow: (tokens: number) => `Window: ${tokens.toLocaleString()} tokens`,
     contextPercent: (pct: string) => `Usage: ${pct}%`,
     contextWarning:
-      "⚠️ Context is over 80% full. The session will start staged mitigation before it hits the 20MB limit.",
+      "⚠️ Context is over 80% full. The session will start staged mitigation before it hits the 50MB limit.",
     contextStages:
-      "Mitigation order: warn -> compact -> summarized new session -> hard reset fallback",
+      "Mitigation order: warn -> hard reset fallback",
     sessionBusy:
       "A turn is in progress — send /stop or wait for it to finish",
     newSessionStarted: "New session started — next message begins a fresh conversation",
     compactStarted:
-      "🗜️ Session reset. When auto-compact is configured it triggers automatically near the context limit; enable via /config set claude.auto_compact_threshold 0.8.",
+      "🗜️ Session reset. Future messages will continue in a fresh session context.",
     providerSwitched: (provider: string) =>
       `Provider switched to ${provider}; the current session context has been reset.`,
     modeSwitched: (mode: string) => `Permission mode set to ${mode}`,

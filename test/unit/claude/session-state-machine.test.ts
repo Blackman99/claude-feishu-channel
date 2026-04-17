@@ -113,6 +113,56 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
     expect(h.session._testGetState()).toBe("idle");
   });
 
+  it("logs start and completion with the active provider name", async () => {
+    const infoMessages: string[] = [];
+    const fakeLogger = {
+      child() {
+        return this;
+      },
+      info(_obj: unknown, msg?: string) {
+        if (typeof msg === "string") infoMessages.push(msg);
+      },
+      warn() {},
+      error() {},
+      debug() {},
+    } as unknown as ClaudeSessionOptions["logger"];
+    const fakes: FakeQueryHandle[] = [];
+    const queryFn: QueryFn = (params) => {
+      const fake = new FakeQueryHandle();
+      fake.canUseTool = params.canUseTool;
+      fakes.push(fake);
+      return fake as QueryHandle;
+    };
+    const session = new ClaudeSession({
+      chatId: "oc_x",
+      config: BASE_CLAUDE_CONFIG,
+      queryFn,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: fakeLogger,
+    });
+    session.setProvider("codex");
+    const spy = new SpyRenderer();
+
+    const outcome = await session.submit(
+      { kind: "run", text: "hi", senderOpenId: "ou_test", parentMessageId: "om_test", locale: "zh" },
+      spy.emit,
+    );
+    if (outcome.kind !== "started") throw new Error("unreachable");
+    await flushMicrotasks();
+    fakes[0]!.finishWithSuccess({
+      durationMs: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    await outcome.done;
+
+    expect(infoMessages).toContain("Codex turn start");
+    expect(infoMessages).toContain("Codex turn complete");
+    expect(infoMessages).not.toContain("Claude turn complete");
+  });
+
   it("passes cwd / model / permissionMode / settingSources / mcpServers / disallowedTools to the injected queryFn", async () => {
     const recorded: Array<{
       prompt: string | AsyncIterable<unknown>;
@@ -123,7 +173,6 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
         settingSources: readonly string[];
         mcpServers?: Readonly<Record<string, unknown>>;
         disallowedTools?: readonly string[];
-        autoCompactThreshold?: number;
       };
     }> = [];
     const fakes: FakeQueryHandle[] = [];
@@ -140,9 +189,6 @@ describe("ClaudeSession — happy path (idle → generating → idle)", () => {
             : {}),
           ...(params.options.disallowedTools
             ? { disallowedTools: params.options.disallowedTools }
-            : {}),
-          ...(params.options.autoCompactThreshold !== undefined
-            ? { autoCompactThreshold: params.options.autoCompactThreshold }
             : {}),
         },
       });

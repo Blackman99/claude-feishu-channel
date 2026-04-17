@@ -60,7 +60,7 @@ Prints the running token totals for the current session — total input tokens, 
 
 Displays current context-window usage. When usage is high, the response also explains the mitigation order:
 
-`warn -> compact -> summarized new session -> hard reset fallback`
+`warn -> hard reset fallback`
 
 ### `/compact`
 

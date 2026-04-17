@@ -801,10 +801,10 @@ git commit -m "docs: update product messaging for claude and codex providers"
 
 This work is explicitly deferred until after Tasks 1-5 complete, to avoid overlapping edits in `src/claude/session.ts`, `src/commands/dispatcher.ts`, and related tests while the provider abstraction is still in flight.
 
-### Follow-up: Context Growth Warnings and Staged 20MB Mitigation
+### Follow-up: Context Growth Warnings and Staged 50MB Mitigation
 
 **Intent:**
-- detect risky context growth before the backend rejects a request for exceeding the 20MB limit
+- detect risky context growth before the backend rejects a request for exceeding the 50MB limit
 - warn the user before failure
 - apply staged automatic mitigation:
   1. warn

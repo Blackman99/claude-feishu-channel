@@ -72,7 +72,7 @@ export type RenderEventEmitter = EmitFn;
 
 export type SessionState = "idle" | "generating" | "awaiting_permission";
 
-type ContextRiskLevel = "normal" | "warn" | "compact" | "summarize_reset";
+type ContextRiskLevel = "normal" | "warn";
 
 interface ContextAssessment {
   level: ContextRiskLevel;
@@ -198,8 +198,6 @@ export class ClaudeSession {
   private static readonly RECENT_CONTEXT_MAX_ENTRIES = 8;
   private static readonly RECENT_CONTEXT_MAX_TURNS = 4;
   private static readonly RECENT_CONTEXT_MAX_CHARS = 1_200;
-  private static readonly COMPACT_RECENT_CONTEXT_BYTE_THRESHOLD = 14_000_000;
-
   private readonly chatId: string;
   private readonly config: AppConfig["claude"];
   private readonly queryFn: QueryFn;
@@ -548,40 +546,13 @@ export class ClaudeSession {
       const promptText = this.promptPreview(next);
       const assessment = this.assessContextRisk(promptText);
       this.refreshRetainedContinuation(this.immediateRequestSummary(next));
-      let effectivePrompt = prompt;
 
       if (assessment.level === "warn") {
         await next.emit({ type: "context_warning", level: "warn" });
       }
 
-      if (assessment.level === "compact" && this.claudeSessionId !== undefined) {
-        this.logger.warn(
-          { seq: next.seq, old_session_id: this.claudeSessionId, assessment },
-          "Context approaching limit — compacting before provider call",
-        );
-        this.claudeSessionId = undefined;
-        await next.emit({ type: "context_compacting" });
-        effectivePrompt = this.buildRuntimeHandoffPrompt(prompt, next, {
-          heading: "Continuation summary for resumed work:",
-          includeRecentContext: this.shouldIncludeRecentContextForCompact(assessment),
-        });
-      }
-
-      if (assessment.level === "summarize_reset") {
-        this.logger.warn(
-          { seq: next.seq, old_session_id: this.claudeSessionId, assessment },
-          "Context requires summarized fresh session",
-        );
-        this.claudeSessionId = undefined;
-        await next.emit({ type: "context_summarized_reset" });
-        effectivePrompt = this.buildRuntimeHandoffPrompt(prompt, next, {
-          heading: "Continuation summary for a fresh session:",
-          includeRecentContext: false,
-        });
-      }
-
       const handle = this.queryFn({
-        prompt: effectivePrompt,
+        prompt,
         options: {
           cwd: this.config.defaultCwd,
           model: this.modelOverride ?? this.config.defaultModel,
@@ -589,9 +560,6 @@ export class ClaudeSession {
           settingSources: ["user", "project"],
           mcpServers,
           disallowedTools: ["AskUserQuestion"],
-          ...(this.config.autoCompactThreshold !== undefined
-            ? { autoCompactThreshold: this.config.autoCompactThreshold }
-            : {}),
           ...(this.claudeSessionId !== undefined
             ? { resumeId: this.claudeSessionId }
             : {}),
@@ -604,7 +572,7 @@ export class ClaudeSession {
       try {
         await this.runTurn(next, handle);
       } catch (err) {
-        // When the accumulated conversation context exceeds 20 MB the
+        // When the accumulated conversation context exceeds 50 MB the
         // Claude API rejects the request outright. Detect this, drop
         // the session id (so the next attempt starts a fresh context),
         // notify the user, and retry the same input once.
@@ -634,9 +602,6 @@ export class ClaudeSession {
               settingSources: ["user", "project"],
               mcpServers,
               disallowedTools: ["AskUserQuestion"],
-              ...(this.config.autoCompactThreshold !== undefined
-                ? { autoCompactThreshold: this.config.autoCompactThreshold }
-                : {}),
               // no resume — start fresh
             },
             canUseTool: this.buildCanUseToolClosure(next),
@@ -653,7 +618,10 @@ export class ClaudeSession {
             turnError = retryErr;
           }
         } else {
-          this.logger.error({ err, seq: next.seq }, "Claude turn failed");
+          this.logger.error(
+            { err, seq: next.seq },
+            `${this.currentProviderLabel()} turn failed`,
+          );
           turnError = err;
         }
       }
@@ -695,12 +663,6 @@ export class ClaudeSession {
     );
     const estimatedBytes = this.estimatePromptBytes(prompt);
 
-    if (estimatedBytes >= 18_000_000) {
-      return { level: "summarize_reset", tokenUsage, tokenWindow, estimatedBytes };
-    }
-    if (tokenUsage / tokenWindow >= 0.9) {
-      return { level: "compact", tokenUsage, tokenWindow, estimatedBytes };
-    }
     if (tokenUsage / tokenWindow >= 0.8 || estimatedBytes >= 12_000_000) {
       return { level: "warn", tokenUsage, tokenWindow, estimatedBytes };
     }
@@ -795,12 +757,6 @@ export class ClaudeSession {
     };
   }
 
-  private buildRetainedContinuationSummary(): string {
-    return this.buildRetainedContinuationSummaryWithHeading(
-      "Continuation summary for a fresh session:",
-    );
-  }
-
   private buildRetainedContinuationSummaryWithHeading(heading: string): string {
     const activeTasks = this.retainedContinuation.tasks.map(
       (task) => `- ${task.title} [${task.status}]`,
@@ -815,19 +771,6 @@ export class ClaudeSession {
         : []),
       ...activeTasks,
       ...this.retainedContinuation.completionSignals,
-    ].join("\n");
-  }
-
-  private buildContinuationSummary(next: QueuedInput): string {
-    const status = this.getStatus();
-    this.refreshRetainedContinuation(this.immediateRequestSummary(next));
-    return [
-      this.buildRetainedContinuationSummary(),
-      `Provider: ${status.provider}`,
-      `Model: ${status.model}`,
-      `Working directory: ${status.cwd}`,
-      `Permission mode: ${status.permissionMode}`,
-      `Prior token totals: in=${status.totalInputTokens}, out=${status.totalOutputTokens}`,
     ].join("\n");
   }
 
@@ -888,13 +831,8 @@ export class ClaudeSession {
     );
   }
 
-  private shouldIncludeRecentContextForCompact(
-    assessment: ContextAssessment,
-  ): boolean {
-    return (
-      assessment.estimatedBytes <
-      ClaudeSession.COMPACT_RECENT_CONTEXT_BYTE_THRESHOLD
-    );
+  private currentProviderLabel(): string {
+    return this.provider === "codex" ? "Codex" : "Claude";
   }
 
   private async runTurn(
@@ -903,7 +841,7 @@ export class ClaudeSession {
   ): Promise<void> {
     this.logger.info(
       { len: input.text.length, seq: input.seq },
-      "Claude turn start",
+      `${this.currentProviderLabel()} turn start`,
     );
     let resultMsg: SDKMessageLike | undefined;
 
@@ -933,7 +871,7 @@ export class ClaudeSession {
     }
 
     if (resultMsg === undefined) {
-      throw new Error("Claude turn ended without a result message");
+      throw new Error(`${this.currentProviderLabel()} turn ended without a result message`);
     }
     if (resultMsg.subtype !== "success") {
       const errs = resultMsg.errors?.join("; ") ?? "unknown error";
@@ -943,9 +881,11 @@ export class ClaudeSession {
           errors: resultMsg.errors,
           seq: input.seq,
         },
-        "Claude turn errored",
+        `${this.currentProviderLabel()} turn errored`,
       );
-      throw new Error(`Claude turn failed (${resultMsg.subtype}): ${errs}`);
+      throw new Error(
+        `${this.currentProviderLabel()} turn failed (${resultMsg.subtype}): ${errs}`,
+      );
     }
 
     await input.emit({
@@ -956,7 +896,7 @@ export class ClaudeSession {
     });
     this.logger.info(
       { durationMs: resultMsg.duration_ms, seq: input.seq },
-      "Claude turn complete",
+      `${this.currentProviderLabel()} turn complete`,
     );
     this.turnCount++;
     this.totalInputTokens += resultMsg.usage?.input_tokens ?? 0;
@@ -1086,19 +1026,6 @@ export class ClaudeSession {
   }
 
   /** @internal */
-  _testBuildContinuationSummary(nextInput: string): string {
-    return this.buildContinuationSummary({
-      text: nextInput,
-      senderOpenId: "ou_test",
-      parentMessageId: "om_test",
-      emit: async () => {},
-      done: createDeferred<void>(),
-      seq: -1,
-      locale: "en",
-    });
-  }
-
-  /** @internal */
   _testSetRetainedTaskState(tasks: RetainedTaskState[]): void {
     this.retainedContinuation.tasks = tasks.map((task) => ({ ...task }));
   }
@@ -1120,7 +1047,9 @@ export class ClaudeSession {
 
   /** @internal */
   _testBuildRetainedContinuationSummary(): string {
-    return this.buildRetainedContinuationSummary();
+    return this.buildRetainedContinuationSummaryWithHeading(
+      "Continuation summary:",
+    );
   }
 
   private buildPrompt(
@@ -1199,13 +1128,13 @@ export class ClaudeSession {
   /**
    * Detect whether an error is the Claude API "Request too large"
    * rejection. The SDK surfaces this as an error message containing
-   * "Request too large" or "max 20MB" — match both variants and
+   * "Request too large" or "max 50MB" — match both variants and
    * common casing variations so we don't miss it.
    */
   private isRequestTooLargeError(err: unknown): boolean {
     const msg =
       err instanceof Error ? err.message : typeof err === "string" ? err : "";
-    return /request too large|max 20\s?mb/i.test(msg);
+    return /request too large|max 50\s?mb/i.test(msg);
   }
 
   private buildCanUseToolClosure(input: QueuedInput): CanUseToolFn {

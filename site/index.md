@@ -29,7 +29,7 @@ features:
     details: Messages queue during generation. Use ! prefix to interrupt and redirect.
   - icon: 🧠
     title: Context Mitigation
-    details: The bot warns early, compacts first, then starts a summarized fresh session before falling back to the 20MB hard reset path.
+    details: The bot warns early, then falls back to the 50MB hard reset path if needed.
   - icon: 🎴
     title: Interactive Cards
     details: Streaming status, tool activity, thinking blocks — rich Feishu card UI.

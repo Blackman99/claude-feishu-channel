@@ -263,18 +263,18 @@ describe("CommandDispatcher — simple commands", () => {
       expect(text).toContain("200,000");
     });
 
-    it("explains staged mitigation in /context output when usage is high", async () => {
-      const { feishu, dispatcher, sessionManager } = makeHarness();
-      const session = sessionManager.getOrCreate(CTX.chatId) as any;
-      session.totalInputTokens = 165_000;
+  it("explains staged mitigation in /context output when usage is high", async () => {
+    const { feishu, dispatcher, sessionManager } = makeHarness();
+    const session = sessionManager.getOrCreate(CTX.chatId) as any;
+    session.totalInputTokens = 165_000;
 
       await dispatcher.dispatch({ name: "context" }, CTX);
 
       const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
       expect(text).toContain("预警");
-      expect(text).toContain("压缩");
-      expect(text).toContain("提炼后新会话");
       expect(text).toContain("兜底重置");
+      expect(text).toContain("系统处理顺序：预警 -> 最后兜底重置");
+      expect(text).not.toContain("压缩");
     });
   });
 
@@ -941,6 +941,24 @@ describe("CommandDispatcher — /config set", () => {
     const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("不支持");
     expect(text).toContain("render.hide_thinking"); // lists valid keys
+  });
+
+  it("rejects removed auto compact config key", async () => {
+    const { feishu, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch(
+      {
+        name: "config_set",
+        key: "claude.auto_compact_threshold",
+        value: "0.8",
+        persist: false,
+      },
+      CTX,
+    );
+
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("不支持");
   });
 
   it("rejects invalid boolean value", async () => {

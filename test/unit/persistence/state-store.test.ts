@@ -20,10 +20,11 @@ afterEach(() => {
 });
 
 const EMPTY_STATE: State = {
-  version: 2,
+  version: 3,
   lastCleanShutdown: true,
   sessions: {},
   activeProjects: {},
+  activeProviders: {},
 };
 
 describe("StateStore", () => {
@@ -36,7 +37,7 @@ describe("StateStore", () => {
   it("load() returns parsed state when file exists", async () => {
     const store = new StateStore(statePath);
     await store.save({
-      version: 2,
+      version: 3,
       lastCleanShutdown: false,
       sessions: {
         chat_a: {
@@ -48,6 +49,9 @@ describe("StateStore", () => {
         },
       },
       activeProjects: {},
+      activeProviders: {
+        chat_a: "claude",
+      },
     });
 
     const store2 = new StateStore(statePath);
@@ -55,6 +59,7 @@ describe("StateStore", () => {
     expect(state.lastCleanShutdown).toBe(false);
     expect(state.sessions.chat_a?.provider).toBe("claude");
     expect(state.sessions.chat_a?.providerSessionId).toBe("sid-1");
+    expect(state.activeProviders).toEqual({ chat_a: "claude" });
     expect("claudeSessionId" in state.sessions.chat_a!).toBe(false);
   });
 
@@ -79,8 +84,9 @@ describe("StateStore", () => {
     );
     const store = new StateStore(statePath);
     const state = await store.load();
-    expect(state.version).toBe(2);
+    expect(state.version).toBe(3);
     expect(state.activeProjects).toEqual({});
+    expect(state.activeProviders).toEqual({});
     expect(state.sessions.chat_a?.provider).toBe("claude");
     expect(state.sessions.chat_a?.providerSessionId).toBe("sid-legacy");
     expect("claudeSessionId" in state.sessions.chat_a!).toBe(false);
@@ -91,7 +97,7 @@ describe("StateStore", () => {
     writeFileSync(
       statePath,
       JSON.stringify({
-        version: 2,
+        version: 3,
         lastCleanShutdown: true,
         sessions: {
           valid_chat: {
@@ -108,6 +114,7 @@ describe("StateStore", () => {
           },
         },
         activeProjects: {},
+        activeProviders: {},
       }),
       "utf8",
     );
@@ -129,7 +136,7 @@ describe("StateStore", () => {
     expect(existsSync(statePath)).toBe(true);
     const raw = readFileSync(statePath, "utf8");
     const parsed = JSON.parse(raw);
-    expect(parsed.version).toBe(2);
+    expect(parsed.version).toBe(3);
   });
 
   it("save() creates parent directory if missing", async () => {

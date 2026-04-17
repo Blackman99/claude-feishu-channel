@@ -2,19 +2,19 @@
 
 - **Date**: 2026-04-16
 - **Author**: zhaodongsheng x Codex
-- **Upstream context**: existing staged context mitigation in `src/claude/session.ts`, retained continuation pruning, summarized reset handling, and hard 20MB fallback retry
+- **Upstream context**: existing staged context mitigation in `src/claude/session.ts`, retained continuation pruning, and hard 50MB fallback retry
 - **Downstream output**: implementation plan for reducing routine token consumption by switching runtime handoff from raw provider history to retained summaries once risk increases
 
 ## 1. Goal
 
-Make proactive context pruning reduce **actual routine token consumption**, not just the size of the eventual summarized-reset payload.
+Make proactive context pruning reduce **actual routine token consumption**, not just the size of the eventual fallback-retry payload.
 
 The target behavior is:
 
 1. normal turns may keep using the provider's historical thread
 2. warning turns build and strengthen retained summary state
 3. compact and higher-risk paths stop relying on raw historical thread alone
-4. compact, summarized reset, and hard fallback retries all reuse retained summary plus the current request, instead of replaying a bloated raw context
+4. compact and hard fallback retries all reuse retained summary plus the current request, instead of replaying a bloated raw context
 
 ## 2. Scope
 
@@ -22,7 +22,7 @@ In scope:
 
 - runtime handoff rules between `resumeId` and retained-summary-based continuation
 - graded compact behavior
-- reuse of retained summary in summarized reset and hard fallback retry
+- reuse of retained summary in hard fallback retry
 - bounded carry-forward of recent raw context during lower-risk compact
 
 Out of scope:
@@ -43,7 +43,7 @@ The current implementation now maintains a retained continuation summary and can
 That means:
 
 1. completed work may be removed from local retained state but still remain in the provider-side historical thread
-2. routine turns still pay token cost for historical context until the system reaches compact or summarized reset
+2. routine turns still pay token cost for historical context until the system leaves raw provider-thread resume
 3. the hard backend fallback retry still rebuilds a fresh request from the raw prompt rather than from retained summary state
 
 So current pruning improves the eventual summary, but does not yet significantly reduce day-to-day token use.
@@ -86,7 +86,7 @@ Behavior changes here:
 
 This is where retained summary starts affecting real token usage.
 
-### 4.4 Summarized reset zone
+### 4.4 Hard fallback reset zone
 
 Behavior:
 
@@ -98,7 +98,7 @@ Behavior:
 
 Behavior:
 
-- if backend still throws `Request too large` / `max 20MB`
+- if backend still throws `Request too large` / `max 50MB`
 - the retry should also use retained summary plus current request
 - do not retry with the raw prompt alone
 
@@ -221,7 +221,7 @@ If compact-level handoff drops too much recent context, model continuity may deg
 Mitigation:
 
 - keep a lower-risk compact tier with bounded recent raw context
-- reserve summary-only handoff for higher-risk compact and summarized reset
+- reserve summary-only handoff for higher-risk compact and hard fallback retry
 
 ### 10.2 Duplicate context
 
@@ -248,17 +248,15 @@ Add tests covering:
 1. warning zone still uses `resumeId` but refreshes retained summary
 2. lower-risk compact switches away from `resumeId` and includes retained summary plus bounded recent context
 3. higher-risk compact switches away from `resumeId` and includes retained summary without recent raw context
-4. summarized reset uses retained summary-based handoff
-5. hard fallback retry also uses retained summary-based handoff
-6. image prompts still preserve non-text input while adding retained summary text
+4. hard fallback retry uses retained summary-based handoff
+5. image prompts still preserve non-text input while adding retained summary text
 
 ## 12. Acceptance Criteria
 
 The change is complete when:
 
-1. retained summary affects routine runtime handoff before summarized reset
+1. retained summary affects routine runtime handoff before a hard fallback is needed
 2. compact-level mitigation no longer depends on raw provider history alone
 3. lower-risk and higher-risk compact tiers differ in how much recent raw context they include
-4. hard fallback retry uses retained summary-based handoff
-5. warning zone still avoids unnecessary early reset
-6. relevant tests pass
+4. warning zone still avoids unnecessary early reset
+5. relevant tests pass

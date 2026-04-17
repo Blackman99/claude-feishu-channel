@@ -54,10 +54,6 @@ default_permission_mode = "default"
 permission_timeout_seconds = 300
 permission_warn_before_seconds = 60
 
-# Fraction of the context window at which the active provider auto-compacts
-# the conversation. 0.0–1.0. Omit to use the provider default.
-# auto_compact_threshold = 0.8
-
 # ─── Claude provider ─────────────────────────────────────────────────
 [claude]
 # Model id passed to the CLI's --model flag. Any model the local

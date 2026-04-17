@@ -76,10 +76,6 @@ const SETTABLE_KEYS: Record<string, SettableKeyDef> = {
     type: "number",
     multiplier: 1000,
   },
-  "claude.auto_compact_threshold": {
-    path: ["claude", "autoCompactThreshold"],
-    type: "fraction",
-  },
 };
 
 function parseConfigValue(
@@ -350,7 +346,6 @@ export class CommandDispatcher {
       `  defaultPermissionMode: ${cfg.agent.defaultPermissionMode}`,
       `  permissionTimeoutMs: ${cfg.agent.permissionTimeoutMs}`,
       `  permissionWarnBeforeMs: ${cfg.agent.permissionWarnBeforeMs}`,
-      `  autoCompactThreshold: ${cfg.agent.autoCompactThreshold ?? "(default)"}`,
       "",
       "[claude]",
       `  defaultCwd: ${cfg.claude.defaultCwd}`,
@@ -359,7 +354,6 @@ export class CommandDispatcher {
       `  cliPath: ${cfg.claude.cliPath}`,
       `  permissionTimeoutMs: ${cfg.claude.permissionTimeoutMs}`,
       `  permissionWarnBeforeMs: ${cfg.claude.permissionWarnBeforeMs}`,
-      `  autoCompactThreshold: ${cfg.claude.autoCompactThreshold ?? "(default)"}`,
       "",
       "[codex]",
       `  defaultModel: ${cfg.codex.defaultModel}`,
@@ -513,7 +507,7 @@ export class CommandDispatcher {
       return;
     }
     this.sessionManager.setProviderOverride(ctx.chatId, provider);
-    this.sessionManager.delete(ctx.chatId);
+    this.sessionManager.persistNow();
     await this.feishu.replyText(
       ctx.parentMessageId,
       t(ctx.locale).providerSwitched(provider),

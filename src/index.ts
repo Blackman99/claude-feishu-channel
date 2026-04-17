@@ -553,59 +553,10 @@ export async function main(configPathOverride?: string): Promise<void> {
           }
           return;
         case "context_warning":
-          try {
-            await feishuClient.replyText(
-              msg.messageId,
-              t(locale).contextWarningRuntime,
-            );
-          } catch (err) {
-            logger.warn(
-              { err, chat_id: msg.chatId },
-              "context_warning notice send failed",
-            );
-          }
-          return;
-        case "context_compacting":
-          try {
-            await feishuClient.replyText(
-              msg.messageId,
-              t(locale).contextCompacting,
-            );
-          } catch (err) {
-            logger.warn(
-              { err, chat_id: msg.chatId },
-              "context_compacting notice send failed",
-            );
-          }
-          return;
-        case "context_summarized_reset":
-          try {
-            await feishuClient.replyText(
-              msg.messageId,
-              t(locale).contextSummarizedReset,
-            );
-          } catch (err) {
-            logger.warn(
-              { err, chat_id: msg.chatId },
-              "context_summarized_reset notice send failed",
-            );
-          }
           return;
         case "context_reset":
-          // Session auto-reset due to "Request too large" (>20 MB).
-          // Notify the user that context was dropped and the message
-          // is being retried in a fresh session.
-          try {
-            await feishuClient.replyText(
-              msg.messageId,
-              t(locale).contextReset,
-            );
-          } catch (err) {
-            logger.warn(
-              { err, chat_id: msg.chatId },
-              "context_reset notice send failed",
-            );
-          }
+          // Keep the automatic hard-reset retry behavior, but do not
+          // surface an extra chat message for the reset event itself.
           return;
         default: {
           // Exhaustiveness check — a future RenderEvent variant will make
@@ -1002,10 +953,11 @@ export async function main(configPathOverride?: string): Promise<void> {
     try {
       await sessionManager.flushPendingSave();
       const finalState: State = {
-        version: 2,
+        version: 3,
         lastCleanShutdown: true,
         sessions: sessionManager.buildSessionsSnapshot(),
         activeProjects: sessionManager.getActiveProjectsSnapshot(),
+        activeProviders: sessionManager.getActiveProvidersSnapshot(),
       };
       await stateStore.save(finalState);
     } catch (err) {

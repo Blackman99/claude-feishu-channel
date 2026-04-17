@@ -109,11 +109,10 @@ The bot has full shell and file access to your machine. Always configure `allowe
 
 ## Context Growth Handling
 
-The bot now mitigates oversized conversations before they hit the backend's hard 20MB limit:
+The bot now mitigates oversized conversations before they hit the backend's hard 50MB limit:
 
 1. warn when usage trends high
-2. compact the current provider thread if possible
-3. start a summarized fresh session that carries unfinished work and key constraints
+2. retry in a fresh provider thread only if the backend rejects the request as too large
 4. keep the old backend-driven reset-and-retry path as the last fallback
 
 Use `/context` in chat to inspect current usage and the mitigation order.

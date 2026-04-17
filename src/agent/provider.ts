@@ -7,7 +7,6 @@ export interface ProviderRunOptions {
   model: string;
   permissionMode: PermissionMode;
   resumeId?: string;
-  autoCompactThreshold?: number;
 }
 
 export interface ProviderRunHandle<Message = unknown> {

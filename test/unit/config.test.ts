@@ -97,7 +97,6 @@ default_cwd = "~/workspace"
 default_permission_mode = "acceptEdits"
 permission_timeout_seconds = 120
 permission_warn_before_seconds = 30
-auto_compact_threshold = 0.7
 
 [claude]
 default_model = "claude-sonnet-4-6"
@@ -115,7 +114,6 @@ cli_path = "/opt/homebrew/bin/codex"
     expect(agent.defaultPermissionMode).toBe("acceptEdits");
     expect(agent.permissionTimeoutMs).toBe(120_000);
     expect(agent.permissionWarnBeforeMs).toBe(30_000);
-    expect(agent.autoCompactThreshold).toBe(0.7);
     expect(cfg.claude.defaultModel).toBe("claude-sonnet-4-6");
     expect(cfg.claude.cliPath).toBe("/usr/local/bin/claude");
     expect(codex.defaultModel).toBe("gpt-5.4-mini");
@@ -151,7 +149,6 @@ default_cwd = "/tmp/legacy"
 default_permission_mode = "plan"
 permission_timeout_seconds = 180
 permission_warn_before_seconds = 45
-auto_compact_threshold = 0.8
 default_model = "claude-sonnet-4-6"
 cli_path = "/usr/local/bin/claude"
 `);
@@ -163,7 +160,6 @@ cli_path = "/usr/local/bin/claude"
     expect(agent.defaultPermissionMode).toBe("plan");
     expect(agent.permissionTimeoutMs).toBe(180_000);
     expect(agent.permissionWarnBeforeMs).toBe(45_000);
-    expect(agent.autoCompactThreshold).toBe(0.8);
     expect(cfg.claude.defaultModel).toBe("claude-sonnet-4-6");
     expect(cfg.claude.cliPath).toBe("/usr/local/bin/claude");
     expect(codex.defaultModel).toBe("gpt-5.4");
@@ -266,18 +262,6 @@ cli_path = "/usr/local/bin/claude"
 `);
     const cfg = await loadConfig(path);
     expect(cfg.claude.cliPath).toBe("/usr/local/bin/claude");
-  });
-
-  it("parses auto_compact_threshold", async () => {
-    const path = writeConfig(`
-${MINIMAL_CONFIG}
-
-[claude]
-default_cwd = "/tmp/x"
-auto_compact_threshold = 0.7
-`);
-    const cfg = await loadConfig(path);
-    expect(cfg.agent!.autoCompactThreshold).toBe(0.7);
   });
 
   it("expands ~ in default_cwd", async () => {

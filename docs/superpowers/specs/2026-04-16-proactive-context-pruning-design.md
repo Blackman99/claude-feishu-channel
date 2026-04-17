@@ -3,11 +3,11 @@
 - **Date**: 2026-04-16
 - **Author**: zhaodongsheng x Codex
 - **Upstream context**: existing staged context mitigation in `src/claude/session.ts`, continuation summary generation, session status tracking, and the superpowers-style task execution model used in this workflow
-- **Downstream output**: implementation plan for proactively pruning completed work from continuation context before a forced summarized reset is needed
+- **Downstream output**: implementation plan for proactively pruning completed work from continuation context before a hard fallback reset is needed
 
 ## 1. Goal
 
-Improve context mitigation so the system starts pruning completed work **before** the conversation reaches the point where a summarized fresh session is required.
+Improve context mitigation so the system starts pruning completed work **before** the conversation reaches the point where a hard fallback retry is required.
 
 The target behavior is:
 
@@ -23,31 +23,31 @@ In scope:
 - proactive continuation-summary maintenance
 - explicit rules for deleting completed task context
 - combining structured task state and explicit completion statements
-- escalation behavior between normal, warning, and summarized-reset stages
+- escalation behavior between normal, warning, and hard-fallback stages
 
 Out of scope:
 
 - model-generated second-pass summaries
 - deleting content based on inferred completion
-- changing the hard backend `Request too large / max 20MB` fallback path
+- changing the hard backend `Request too large / max 50MB` fallback path
 - non-session memory systems or external task backends
 
 ## 3. Current Problem
 
-The current staged mitigation has a summarized-reset branch, but the continuation summary is still constructed only when that branch is triggered.
+The current staged mitigation constructs the continuation summary too late in the flow, rather than maintaining it continuously before a fallback is needed.
 
 That has two problems:
 
 1. pruning happens too late, when the context is already large
 2. the current summary template states that completed work should be dropped, but it does not actually track and delete completed task context over time
 
-This means a conversation can continue carrying already-finished work longer than necessary, wasting context budget and making later summarized resets less efficient.
+This means a conversation can continue carrying already-finished work longer than necessary, wasting context budget and making later hard fallback retries less efficient.
 
 ## 4. Proposed Behavior
 
 ### 4.1 Proactive continuation state
 
-The session should maintain a **retained continuation state** continuously rather than only building a fresh summary at summarized-reset time.
+The session should maintain a **retained continuation state** continuously rather than only building a fresh summary at fallback-retry time.
 
 This retained state is a compact representation of what the next session must know.
 
@@ -125,11 +125,11 @@ When context risk enters warning territory:
 - collapse repeated status chatter more eagerly
 - reduce retained context to unfinished work, active constraints, and current objective
 
-This stage prepares for a possible future summarized reset, but does not itself require a new session.
+This stage prepares for a possible future hard fallback retry, but does not itself require a new session.
 
-### 6.3 Summarized reset zone
+### 6.3 Hard fallback zone
 
-When summarized reset becomes necessary:
+When a hard fallback retry becomes necessary:
 
 - do not reconstruct summary state from raw bloated context
 - use the already-maintained retained continuation state
@@ -240,15 +240,15 @@ Add tests covering:
 3. structured `completed` state removes task context even if older chatter remains
 4. explicit text completion statements can prune when no structured state exists
 5. ambiguous progress wording does not delete context
-6. summarized reset uses the retained continuation state rather than rebuilding from raw turn text
+6. hard fallback retry uses the retained continuation state rather than rebuilding from raw turn text
 
 ## 12. Acceptance Criteria
 
 The change is complete when:
 
-1. continuation state is maintained before summarized reset is triggered
+1. continuation state is maintained before a hard fallback retry is triggered
 2. explicitly completed work is removed proactively
 3. unfinished work, active constraints, and current objective are preserved
 4. structured task state takes precedence over plain-text completion statements
-5. summarized reset reuses the proactively maintained retained state
+5. hard fallback retry reuses the proactively maintained retained state
 6. relevant unit tests pass

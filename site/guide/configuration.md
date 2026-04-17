@@ -42,7 +42,6 @@ The bot has full shell and file access to your machine. Always configure `allowe
 | `default_permission_mode` | `"default"` | Permission mode: `default`, `acceptEdits`, `plan`, `bypassPermissions` |
 | `permission_timeout_seconds` | `300` | Seconds before a permission card auto-denies |
 | `permission_warn_before_seconds` | `60` | Seconds before timeout to post a reminder |
-| `auto_compact_threshold` | provider default | Provider-native compact hint threshold, when supported |
 
 ### `[claude]` — Claude Runtime Defaults
 

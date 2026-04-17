@@ -66,7 +66,7 @@ it("uses retained summary plus bounded recent context for lower-risk compact han
 });
 ```
 
-- [ ] **Step 3: Add a test that summarized reset and hard fallback reuse retained-summary handoff**
+- [ ] **Step 3: Add a test that hard fallback reuses retained-summary handoff**
 
 Append:
 
@@ -74,7 +74,7 @@ Append:
 it("uses retained-summary handoff for hard fallback retry", async () => {
   const h = createHarness({
     providerSessionId: "ses_backend_limit",
-    firstRunError: new Error("Request too large: max 20MB"),
+    firstRunError: new Error("Request too large: max 50MB"),
   });
 
   h.session._testSetRetainedTaskState([
@@ -164,14 +164,14 @@ private buildRuntimeHandoffPrompt(args: {
 }
 ```
 
-- [ ] **Step 3: Use summary-based handoff in compact and summarized-reset branches**
+- [ ] **Step 3: Use summary-based handoff in compact and fallback branches**
 
 In `processLoop()`:
 
 - keep warning path unchanged
 - on compact, clear `resumeId` and replace `effectivePrompt` with a summary-based prompt
 - lower-risk compact includes recent context
-- summarized reset uses summary-based prompt without recent raw context
+- hard fallback uses summary-based prompt without recent raw context
 
 Suggested shape:
 
@@ -185,14 +185,8 @@ if (assessment.level === "compact" && this.claudeSessionId !== undefined) {
   });
 }
 
-if (assessment.level === "summarize_reset") {
-  this.claudeSessionId = undefined;
-  await next.emit({ type: "context_summarized_reset" });
-  effectivePrompt = this.buildRuntimeHandoffPrompt({
-    next,
-    includeRecentContext: false,
-  });
-}
+// No preflight summarized-reset path: keep warning behavior and rely on
+// the existing hard fallback retry to start a fresh session when needed.
 ```
 
 - [ ] **Step 4: Use summary-based handoff in hard fallback retry**

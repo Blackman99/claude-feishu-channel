@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add proactive context-growth warnings and staged 20MB mitigation so oversized sessions warn early, compact first, and only reset into a fresh summarized session when necessary.
+**Goal:** Add proactive context-growth warnings and staged 50MB mitigation so oversized sessions warn early and only reset on the backend hard-fallback path when necessary.
 
 **Architecture:** Keep the control loop inside `src/claude/session.ts`, because that is where queueing, retries, provider resume IDs, and render events already live. Add a pre-turn context assessment that combines token trend and byte estimation, then layer three mitigations in order: warn, compact, summarize-and-new-session, while preserving the existing backend-error reset as the last fallback.
 
@@ -13,7 +13,7 @@
 ## File Structure
 
 **Create:**
-- `test/unit/claude/context-mitigation.test.ts` - focused coverage for pre-turn warning, compact, summarize-reset, and hard 20MB fallback behavior
+- `test/unit/claude/context-mitigation.test.ts` - focused coverage for pre-turn warning and hard 50MB fallback behavior
 
 **Modify:**
 - `src/claude/session.ts` - add context assessment, mitigation state, continuation summary generation, and staged retry flow
@@ -61,13 +61,13 @@ it("classifies warning when token usage is high but reset is not required", asyn
   });
 });
 
-it("classifies summarize_reset when estimated bytes are above the hard threshold", async () => {
+it("keeps warn classification when estimated bytes are above the old hard threshold", async () => {
   const huge = "x".repeat(19_000_000);
   const h = createHarness();
   expect(
     h.session._testAssessContextRisk(huge),
   ).toMatchObject({
-    level: "summarize_reset",
+    level: "warn",
   });
 });
 ```
@@ -88,7 +88,7 @@ Expected:
 In `src/claude/session.ts`, add explicit internal shapes near the existing status types:
 
 ```ts
-type ContextRiskLevel = "normal" | "warn" | "compact" | "summarize_reset";
+type ContextRiskLevel = "normal" | "warn" | "compact";
 
 interface ContextAssessment {
   level: ContextRiskLevel;
@@ -119,7 +119,7 @@ private assessContextRisk(prompt: string): ContextAssessment {
   const estimatedBytes = this.estimatePromptBytes(prompt);
 
   if (estimatedBytes >= 18_000_000) {
-    return { level: "summarize_reset", tokenUsage, tokenWindow, estimatedBytes };
+    return { level: "warn", tokenUsage, tokenWindow, estimatedBytes };
   }
   if (tokenUsage / tokenWindow >= 0.9) {
     return { level: "compact", tokenUsage, tokenWindow, estimatedBytes };
@@ -293,7 +293,7 @@ git commit -m "feat: add staged warning and compact mitigation"
 Add:
 
 ```ts
-it("starts a fresh summarized session when context risk requires summarize_reset", async () => {
+it("keeps the current session when estimated bytes exceed the old hard threshold", async () => {
   const huge = "x".repeat(19_000_000);
   const h = createHarness({
     providerSessionId: "ses_old",
@@ -306,14 +306,14 @@ it("starts a fresh summarized session when context risk requires summarize_reset
   if (outcome.kind === "rejected") throw new Error(outcome.reason);
   await outcome.done;
 
-  expect(h.events).toContainEqual({ type: "context_summarized_reset" });
+  expect(h.events).toContainEqual({ type: "context_warning", level: "warn" });
   expect(h.queryCalls).toHaveLength(1);
   expect(h.queryCalls[0]?.options.resumeId).toBeUndefined();
   expect(h.queryCalls[0]?.prompt).toMatchObject(expect.anything());
   expect(h.session.getStatus().providerSessionId).toBeUndefined();
 });
 
-it("preserves provider/model/cwd/permission mode across summarized reset", async () => {
+it("preserves provider/model/cwd/permission mode across hard fallback handoff", async () => {
   const h = createHarness({
     provider: "codex",
     providerSessionId: "thread_old",
@@ -347,7 +347,7 @@ In `src/claude/session.ts`, add a helper:
 private buildContinuationSummary(nextInput: string): string {
   const status = this.getStatus();
   return [
-    "Continuation summary for a fresh session:",
+    "Continuation summary for resumed work:",
     `- Provider: ${status.provider}`,
     `- Model: ${status.model}`,
     `- Working directory: ${status.cwd}`,
@@ -371,12 +371,9 @@ In `processLoop()`, add a branch before the first provider call:
 
 ```ts
 let effectivePrompt = prompt;
-if (assessment.level === "summarize_reset") {
-  this.logger.warn({ seq: next.seq, assessment }, "Context requires summarized fresh session");
-  this.claudeSessionId = undefined;
-  await next.emit({ type: "context_summarized_reset" });
-  effectivePrompt = `${this.buildContinuationSummary(promptText)}\n\nUser request:\n${promptText}`;
-}
+// No preflight summarized-reset path: keep warning behavior and rely on the
+// existing hard fallback retry to reset the session only after a backend
+// "Request too large" failure.
 ```
 
 Use `effectivePrompt` for the subsequent `queryFn(...)` invocation.
@@ -384,11 +381,11 @@ Use `effectivePrompt` for the subsequent `queryFn(...)` invocation.
 Add localization keys:
 
 ```ts
-contextSummarizedReset:
-  "⚠️ 当前会话上下文已过大，系统已提炼未完成内容并切到新会话后继续本轮请求。"
+contextWarningRuntime:
+  "⚠️ 当前会话上下文已接近上限；如果后端因请求过大拒绝，本轮会自动在新会话中重试。"
 ```
 
-- [ ] **Step 4: Re-run the summarized reset tests**
+- [ ] **Step 4: Re-run the warning and fallback tests**
 
 Run:
 
@@ -397,7 +394,7 @@ pnpm test test/unit/claude/context-mitigation.test.ts
 ```
 
 Expected:
-- PASS for summarized reset and continuation summary
+- PASS for warning and fallback continuation summary
 
 - [ ] **Step 5: Commit**
 
@@ -408,7 +405,7 @@ git commit -m "feat: add summarized fresh-session retry for large context"
 
 ---
 
-### Task 4: Preserve and Clarify the Existing Hard 20MB Fallback
+### Task 4: Preserve and Clarify the Existing Hard 50MB Fallback
 
 **Files:**
 - Modify: `src/claude/session.ts`
@@ -423,7 +420,7 @@ Add a focused case in `test/unit/claude/context-mitigation.test.ts`:
 it("still performs the existing reset-and-retry when backend size detection misses", async () => {
   const h = createHarness({
     providerSessionId: "ses_backend_limit",
-    firstRunError: new Error("Request too large: max 20MB"),
+    firstRunError: new Error("Request too large: max 50MB"),
   });
 
   const outcome = await h.session.submit(runInput("retry me"), h.emit);
@@ -535,14 +532,14 @@ Add i18n strings:
 
 ```ts
 contextStages:
-  "Mitigation order: warn -> compact -> summarized new session -> hard reset fallback"
+  "Mitigation order: warn -> hard reset fallback"
 ```
 
 Chinese equivalent:
 
 ```ts
 contextStages:
-  "系统处理顺序：预警 -> 压缩 -> 提炼后新会话 -> 最后兜底重置"
+  "系统处理顺序：预警 -> 最后兜底重置"
 ```
 
 - [ ] **Step 4: Run the final regression suite**
@@ -572,7 +569,7 @@ git commit -m "docs: explain staged context mitigation behavior"
 - [ ] Near-limit sessions can clear `providerSessionId` and retry as a compact-first mitigation
 - [ ] Very large turns start a fresh session with a continuation summary instead of a blank reset
 - [ ] Continuation summaries preserve provider/model/cwd/permission mode
-- [ ] Existing backend `Request too large` / `max 20MB` fallback still works
+- [ ] Existing backend `Request too large` / `max 50MB` fallback still works
 - [ ] `/context` output explains the staged mitigation flow
 - [ ] `pnpm test test/unit/claude/context-mitigation.test.ts test/unit/claude/session-state-machine.test.ts test/unit/commands/dispatcher.test.ts test/unit/claude/session-manager.test.ts`
 - [ ] `pnpm typecheck`
