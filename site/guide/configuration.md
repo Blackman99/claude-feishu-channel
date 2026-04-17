@@ -90,6 +90,43 @@ my-app = "~/projects/my-app"
 infra = "~/projects/infrastructure"
 ```
 
+### `[[mcp]]` — Custom MCP Servers
+
+Register additional [Model Context Protocol](https://modelcontextprotocol.io/) servers to expose their tools to the active provider. Each `[[mcp]]` block is one server; repeat the block to add more. Servers are loaded at startup — restart the process after editing.
+
+| Key | Required | Description |
+|-----|----------|-------------|
+| `name` | yes | Unique identifier; Claude sees tools as `mcp__<name>__<tool>` |
+| `type` | yes | `"stdio"` (spawn a local process) or `"sse"` (connect to an HTTP SSE endpoint) |
+| `command` | stdio only | Executable to run (e.g. `"npx"`) |
+| `args` | optional | Argument list for `command` |
+| `env` | optional | Environment variables passed to the stdio process |
+| `url` | sse only | SSE endpoint URL |
+
+**Stdio example:**
+
+```toml
+[[mcp]]
+name = "my-tools"
+type = "stdio"
+command = "npx"
+args = ["-y", "@company/my-mcp-server"]
+env = { API_KEY = "secret" }
+```
+
+**SSE example:**
+
+```toml
+[[mcp]]
+name = "remote"
+type = "sse"
+url = "http://localhost:8080/sse"
+```
+
+::: tip
+The built-in `mcp__feishu__ask_user` tool (which drives interactive question cards) is always available and does not need to be configured here.
+:::
+
 ## Runtime-Settable Keys
 
 The following keys can be changed at runtime via `/config set` without restarting the process:

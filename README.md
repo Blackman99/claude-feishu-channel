@@ -85,7 +85,9 @@ Options:
 | `/new` | Start a new session (clear context) |
 | `/stop` | Interrupt current generation |
 | `/status` | Show session state, model, token usage |
+| `/cost` | Show token usage totals (input / output / total) for this session |
 | `/context` | Show context window usage and mitigation status |
+| `/compact` | Reset the current session to free context (idle-only) |
 | `/sessions` | List all known sessions |
 | `/projects` | List all configured project aliases |
 | `/resume <id>` | Resume a previous session |
@@ -97,6 +99,8 @@ Options:
 | `/config show` | Display current configuration |
 | `/config set <key> <value>` | Change a config value at runtime |
 | `/config set <key> <value> --persist` | Change and write back to config.toml |
+| `/memory` | Show contents of global `~/.claude/CLAUDE.md` and project `<cwd>/CLAUDE.md` |
+| `/memory add <text>` | Append `<text>` as a bullet to the project `CLAUDE.md` |
 | `/help` | Show available commands |
 
 **Special inputs:**
@@ -123,6 +127,7 @@ See [`config.example.toml`](config.example.toml) for all options with comments.
 | `[persistence]` | `state_file`, `log_dir`, `session_ttl_days` | State and log paths |
 | `[logging]` | `level` | Log level: `trace`, `debug`, `info`, `warn`, `error` |
 | `[projects]` | `<alias> = "<path>"` | Project aliases for `/project` command |
+| `[[mcp]]` (array) | `name`, `type` (`stdio`/`sse`), `command`/`args`/`env` or `url` | Custom MCP servers exposed to the active provider |
 
 ### Runtime-settable keys
 

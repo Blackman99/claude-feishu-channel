@@ -9,7 +9,9 @@ Agent Feishu Channel supports slash commands and special input prefixes to contr
 | `/new` | Start a new session (clear context) |
 | `/stop` | Interrupt current generation |
 | `/status` | Show session state, model, token usage |
+| `/cost` | Show token usage totals for this session |
 | `/context` | Show context window usage and mitigation status |
+| `/compact` | Reset the current session to free context |
 | `/sessions` | List all known sessions |
 | `/projects` | List all configured project aliases |
 | `/resume <id>` | Resume a previous session |
@@ -21,6 +23,8 @@ Agent Feishu Channel supports slash commands and special input prefixes to contr
 | `/config show` | Display current configuration |
 | `/config set <key> <value>` | Change a config value at runtime |
 | `/config set <key> <value> --persist` | Change and write back to `config.toml` |
+| `/memory` | Show global and project `CLAUDE.md` contents |
+| `/memory add <text>` | Append a bullet to the project `CLAUDE.md` |
 | `/help` | Show available commands |
 
 ## Special Inputs
@@ -48,11 +52,19 @@ Interrupts the current generation. If the current provider is mid-response, this
 
 Displays the current session state, active provider, active model, and token usage statistics.
 
+### `/cost`
+
+Prints the running token totals for the current session — total input tokens, total output tokens, and their sum. Use `/status` for a broader snapshot or `/context` for window-usage percentages.
+
 ### `/context`
 
 Displays current context-window usage. When usage is high, the response also explains the mitigation order:
 
 `warn -> compact -> summarized new session -> hard reset fallback`
+
+### `/compact`
+
+Manually resets the current session to free context. Only runs when the session is idle; cancels any pending permission or question cards. Use this when `/context` shows the window is near full and you want to start fresh without losing the chat's session record.
 
 ### `/sessions`
 
@@ -121,4 +133,20 @@ Add `--persist` to write the change back to `config.toml` so it survives restart
 
 ```
 /config set render.hide_thinking true --persist
+```
+
+## Memory
+
+The provider reads two `CLAUDE.md` files when it starts a turn: the **global** file at `~/.claude/CLAUDE.md` (cross-project instructions) and the **project** file at `<cwd>/CLAUDE.md` (project-specific notes). These commands let you inspect and extend them without leaving Feishu.
+
+### `/memory`
+
+Posts the contents of the global and project `CLAUDE.md` files (whichever exist). Use this to confirm what the provider is currently seeing as standing instructions.
+
+### `/memory add <text>`
+
+Appends `<text>` as a new bullet to the project `CLAUDE.md` (at `<cwd>/CLAUDE.md`). Handy for quick "remember this" notes that should influence subsequent turns in the same project.
+
+```
+/memory add 统一用 pnpm，不要用 npm
 ```
