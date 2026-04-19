@@ -168,6 +168,7 @@ export async function main(configPathOverride?: string): Promise<void> {
   const sessionManager = new ClaudeSessionManager({
     config: config.claude,
     mcpServers: config.mcp,
+    projectPaths: config.projects,
     queryFn: providerQueryFns.claude,
     providerQueryFns,
     defaultProvider,

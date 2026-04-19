@@ -488,6 +488,40 @@ describe("ClaudeSessionManager — Persistence startup", () => {
     const session = mgr.getOrCreate("oc_ov");
     expect(session.getStatus().cwd).toBe("/override/cwd");
   });
+
+  it("restores the configured project cwd for a codex project session that was persisted with the default cwd", async () => {
+    const store = new FakeStateStore();
+    store.state.activeProjects["oc_project_restore"] = "blog";
+    store.state.activeProviders["oc_project_restore\tblog"] = "codex";
+    store.state.sessions["oc_project_restore\tblog\tcodex"] = {
+      provider: "codex",
+      providerSessionId: "thread_blog",
+      cwd: "/tmp/cfc-test",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+      permissionMode: "bypassPermissions",
+      model: "gpt-5.4",
+    };
+
+    const mgr = new ClaudeSessionManager({
+      config: BASE_CLAUDE_CONFIG,
+      queryFn: NOOP_QUERY,
+      clock: new FakeClock(),
+      permissionBroker: new FakePermissionBroker(),
+      questionBroker: new FakeQuestionBroker(),
+      logger: SILENT_LOGGER,
+      stateStore: store as unknown as StateStore,
+      projectPaths: {
+        blog: "/projects/blog",
+      },
+    });
+
+    await mgr.startupLoad();
+
+    const session = mgr.getOrCreate("oc_project_restore");
+    expect(session.getStatus().provider).toBe("codex");
+    expect(session.getStatus().cwd).toBe("/projects/blog");
+  });
 });
 
 describe("ClaudeSessionManager — Save triggers", () => {

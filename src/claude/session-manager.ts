@@ -14,6 +14,7 @@ import type { FeishuClient } from "../feishu/client.js";
 export interface ClaudeSessionManagerOptions {
   config: AppConfig["claude"];
   mcpServers?: AppConfig["mcp"];
+  projectPaths?: AppConfig["projects"];
   queryFn: QueryFn;
   providerQueryFns?: Partial<Record<AgentProvider, QueryFn>>;
   providerConfigs?: Pick<AppConfig, "claude" | "codex">;
@@ -198,6 +199,7 @@ export class ClaudeSessionManager {
 
     const stale = this.staleRecords.get(key);
     const cwdOverride = this.cwdOverrides.get(key);
+    const projectCwd = this.projectPathForAlias(this.activeProjects.get(chatId));
     const queryFn =
       this.opts.providerQueryFns?.[effectiveProvider] ?? this.opts.queryFn;
 
@@ -209,7 +211,9 @@ export class ClaudeSessionManager {
     let providerSessionId: string | undefined;
 
     if (stale) {
-      cwd = cwdOverride ?? stale.cwd;
+      cwd = cwdOverride
+        ?? this.repairProjectCwd(projectCwd, stale.cwd)
+        ?? stale.cwd;
       permissionMode = stale.permissionMode as
         | AppConfig["claude"]["defaultPermissionMode"]
         | undefined;
@@ -217,7 +221,7 @@ export class ClaudeSessionManager {
       providerSessionId = stale.providerSessionId;
       this.staleRecords.delete(key);
     } else {
-      cwd = cwdOverride ?? this.opts.config.defaultCwd;
+      cwd = cwdOverride ?? projectCwd ?? this.opts.config.defaultCwd;
     }
 
     session = new ClaudeSession({
@@ -293,7 +297,16 @@ export class ClaudeSessionManager {
    * working directory.
    */
   switchProject(chatId: string, alias: string, cwd: string): void {
+    const currentProvider = this.getEffectiveProvider(chatId);
     this.activeProjects.set(chatId, alias);
+    const projectKey = this.activeProjectKey(chatId);
+    if (
+      !this.providerOverrides.has(projectKey) &&
+      this.inferProviderForProject(chatId, alias) === undefined &&
+      currentProvider !== this.getDefaultProvider()
+    ) {
+      this.providerOverrides.set(projectKey, currentProvider);
+    }
     // Only apply the cwd as an initial override if no session exists yet.
     for (const provider of ["claude", "codex"] as const) {
       const newKey = this.sessionKey(chatId, provider, alias);
@@ -530,5 +543,19 @@ export class ClaudeSessionManager {
     return providers.size === 1
       ? [...providers][0]
       : undefined;
+  }
+
+  private projectPathForAlias(projectAlias?: string): string | undefined {
+    if (!projectAlias) return undefined;
+    return this.opts.projectPaths?.[projectAlias];
+  }
+
+  private repairProjectCwd(
+    projectCwd: string | undefined,
+    persistedCwd: string,
+  ): string | undefined {
+    if (!projectCwd) return undefined;
+    if (projectCwd === this.opts.config.defaultCwd) return undefined;
+    return persistedCwd === this.opts.config.defaultCwd ? projectCwd : undefined;
   }
 }

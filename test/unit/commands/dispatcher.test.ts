@@ -216,6 +216,21 @@ describe("CommandDispatcher — simple commands", () => {
       expect(text).toContain("gpt-5.4");
     });
 
+    it("reports the codex provider and project cwd after switching provider and project", async () => {
+      const { feishu, dispatcher } = makeHarness();
+
+      await dispatcher.dispatch({ name: "provider", provider: "codex" }, CTX);
+      await dispatcher.dispatch({ name: "project", alias: "my-app" }, CTX);
+
+      (feishu.replyText as ReturnType<typeof vi.fn>).mockClear();
+      await dispatcher.dispatch({ name: "status" }, CTX);
+
+      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+      expect(text).toContain("codex");
+      expect(text).toContain("gpt-5.4");
+      expect(text).toContain("/home/user/my-app");
+    });
+
     it("reports the restored provider from a stale codex session", async () => {
       const { feishu, sessionManager, dispatcher } = makeHarness();
 
@@ -680,6 +695,18 @@ describe("CommandDispatcher — /project", () => {
     expect(text).toContain("/tmp");
     // Active project should be updated in session manager.
     expect(sessionManager.getActiveProject(CTX.chatId)).toBe("my-app");
+  });
+
+  it("keeps codex selected and uses the project cwd when switching projects after /provider codex", async () => {
+    const { sessionManager, dispatcher } = makeHarness();
+
+    await dispatcher.dispatch({ name: "provider", provider: "codex" }, CTX);
+    await dispatcher.dispatch({ name: "project", alias: "my-app" }, CTX);
+
+    const session = sessionManager.getOrCreate(CTX.chatId);
+    expect(sessionManager.getEffectiveProvider(CTX.chatId)).toBe("codex");
+    expect(session.getStatus().provider).toBe("codex");
+    expect(session.getStatus().cwd).toBe("/home/user/my-app");
   });
 
   it("unknown alias replies with error listing available aliases", async () => {
