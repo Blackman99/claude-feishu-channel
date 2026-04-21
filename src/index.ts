@@ -33,6 +33,7 @@ import {
   type ToolActivityEntry,
 } from "./feishu/cards.js";
 import { formatToolParams } from "./feishu/tool-formatters.js";
+import { replyFinalAnswerWithFallback } from "./feishu/final-reply.js";
 import {
   formatResultTip,
   formatErrorText,
@@ -492,16 +493,30 @@ export async function main(configPathOverride?: string): Promise<void> {
           return;
         }
         case "turn_end":
-          await flushTextBlocks();
+          try {
+            await flushTextBlocks();
+          } catch (err) {
+            logger.warn(
+              { err, chat_id: msg.chatId },
+              "turn_end final reply failed",
+            );
+          }
           if (!config.render.showTurnStats) return;
-          await feishuClient.replyText(
-            msg.messageId,
+          try {
+            await feishuClient.replyText(
+              msg.messageId,
               formatResultTip({
                 durationMs: event.durationMs,
                 inputTokens: event.inputTokens,
                 outputTokens: event.outputTokens,
               }, locale),
             );
+          } catch (err) {
+            logger.warn(
+              { err, chat_id: msg.chatId },
+              "turn_end stats reply failed",
+            );
+          }
           return;
         case "queued":
           // Out-of-band notice from the session: the user's input landed in
@@ -704,10 +719,13 @@ export async function main(configPathOverride?: string): Promise<void> {
           }
         }
       }
-      await feishuClient.replyCard(
-        msg.messageId,
-        buildAnswerCard(blocks[blocks.length - 1]!),
-      );
+      await replyFinalAnswerWithFallback({
+        feishu: feishuClient,
+        parentMessageId: msg.messageId,
+        text: blocks[blocks.length - 1]!,
+        logger,
+        chatId: msg.chatId,
+      });
     };
 
     try {

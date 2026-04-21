@@ -257,6 +257,26 @@ describe("FeishuClient.replyCard", () => {
       fc.replyCard("om_parent", { schema: "2.0", body: { elements: [] } }),
     ).rejects.toThrow(/no message_id/);
   });
+
+  it("times out when the SDK reply promise never resolves", async () => {
+    vi.useFakeTimers();
+    try {
+      const mock = makeMockLarkClient();
+      mock.im.v1.message.reply = vi.fn(
+        () => new Promise(() => undefined),
+      );
+      const fc = new FeishuClient(mock as never);
+      const pending = fc.replyCard(
+        "om_parent",
+        { schema: "2.0", body: { elements: [] } },
+      );
+      const assertion = expect(pending).rejects.toThrow(/timed out/i);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("FeishuClient.patchCard", () => {

@@ -1,6 +1,6 @@
 {
   "name": "agent-feishu-channel",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "Bridge Claude Code or Codex agent sessions to a Feishu / Lark bot",
   "repository": {
     "type": "git",

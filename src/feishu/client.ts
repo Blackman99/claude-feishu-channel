@@ -2,6 +2,8 @@ import { Readable } from "node:stream";
 import type { Client as LarkClient } from "@larksuiteoapi/node-sdk";
 import type { FeishuCardV2 } from "./card-types.js";
 
+const FEISHU_API_TIMEOUT_MS = 15_000;
+
 export interface SendTextResult {
   messageId: string;
 }
@@ -10,14 +12,14 @@ export class FeishuClient {
   constructor(private readonly lark: LarkClient) {}
 
   async sendText(chatId: string, text: string): Promise<SendTextResult> {
-    const response = await this.lark.im.v1.message.create({
+    const response = await withTimeout(this.lark.im.v1.message.create({
       params: { receive_id_type: "chat_id" },
       data: {
         receive_id: chatId,
         msg_type: "text",
         content: JSON.stringify({ text }),
       },
-    });
+    }), "Feishu sendText");
 
     if (response.code !== 0) {
       throw new Error(
@@ -39,14 +41,14 @@ export class FeishuClient {
     chatId: string,
     card: FeishuCardV2,
   ): Promise<SendTextResult> {
-    const response = await this.lark.im.v1.message.create({
+    const response = await withTimeout(this.lark.im.v1.message.create({
       params: { receive_id_type: "chat_id" },
       data: {
         receive_id: chatId,
         msg_type: "interactive",
         content: JSON.stringify(card),
       },
-    });
+    }), "Feishu sendCard");
 
     if (response.code !== 0) {
       throw new Error(
@@ -81,13 +83,13 @@ export class FeishuClient {
     parentMessageId: string,
     text: string,
   ): Promise<SendTextResult> {
-    const response = await this.lark.im.v1.message.reply({
+    const response = await withTimeout(this.lark.im.v1.message.reply({
       path: { message_id: parentMessageId },
       data: {
         msg_type: "text",
         content: JSON.stringify({ text }),
       },
-    });
+    }), "Feishu replyText");
 
     if (response.code !== 0) {
       throw new Error(
@@ -114,13 +116,13 @@ export class FeishuClient {
     parentMessageId: string,
     card: FeishuCardV2,
   ): Promise<SendTextResult> {
-    const response = await this.lark.im.v1.message.reply({
+    const response = await withTimeout(this.lark.im.v1.message.reply({
       path: { message_id: parentMessageId },
       data: {
         msg_type: "interactive",
         content: JSON.stringify(card),
       },
-    });
+    }), "Feishu replyCard");
 
     if (response.code !== 0) {
       throw new Error(
@@ -151,10 +153,10 @@ export class FeishuClient {
    * under that ceiling for a single message.
    */
   async patchCard(messageId: string, card: FeishuCardV2): Promise<void> {
-    const response = await this.lark.im.v1.message.patch({
+    const response = await withTimeout(this.lark.im.v1.message.patch({
       path: { message_id: messageId },
       data: { content: JSON.stringify(card) },
-    });
+    }), "Feishu patchCard");
 
     if (response.code !== 0) {
       throw new Error(
@@ -175,9 +177,9 @@ export class FeishuClient {
    * element updates to produce a typewriter effect.
    */
   async convertMessageIdToCardId(messageId: string): Promise<string> {
-    const response = await this.lark.cardkit.v1.card.idConvert({
+    const response = await withTimeout(this.lark.cardkit.v1.card.idConvert({
       data: { message_id: messageId },
-    });
+    }), "Feishu cardkit idConvert");
     if (response.code !== 0) {
       throw new Error(
         `Feishu cardkit idConvert failed: code=${response.code} msg=${response.msg ?? ""} (message_id=${messageId})`,
@@ -214,10 +216,10 @@ export class FeishuClient {
     sequence: number;
   }): Promise<void> {
     const { cardId, elementId, content, sequence } = args;
-    const response = await this.lark.cardkit.v1.cardElement.content({
+    const response = await withTimeout(this.lark.cardkit.v1.cardElement.content({
       path: { card_id: cardId, element_id: elementId },
       data: { content, sequence },
-    });
+    }), "Feishu cardkit streamElementContent");
     if (response.code !== 0) {
       throw new Error(
         `Feishu cardkit streamElementContent failed: code=${response.code} msg=${response.msg ?? ""} (card_id=${cardId}, element_id=${elementId}, sequence=${sequence})`,
@@ -226,10 +228,10 @@ export class FeishuClient {
   }
 
   async downloadImage(messageId: string, imageKey: string): Promise<Buffer> {
-    const response = await this.lark.im.v1.messageResource.get({
+    const response = await withTimeout(this.lark.im.v1.messageResource.get({
       path: { message_id: messageId, file_key: imageKey },
       params: { type: "image" },
-    });
+    }), "Feishu downloadImage");
     const data = (
       typeof response === "object" &&
       response !== null &&
@@ -263,4 +265,23 @@ export class FeishuClient {
       `downloadImage: unexpected response type ${(data as { constructor?: { name?: string } } | null)?.constructor?.name ?? typeof data}`,
     );
   }
+}
+
+function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${FEISHU_API_TIMEOUT_MS}ms`));
+    }, FEISHU_API_TIMEOUT_MS);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
