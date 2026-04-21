@@ -52,6 +52,27 @@ function collectButtons(card: unknown): Array<{
   return out;
 }
 
+function collectMarkdown(card: unknown): string {
+  const out: string[] = [];
+  function walk(el: unknown): void {
+    if (!el || typeof el !== "object") return;
+    const e = el as {
+      tag?: string;
+      content?: string;
+      elements?: unknown[];
+      columns?: unknown[];
+    };
+    if (e.tag === "markdown" && typeof e.content === "string") {
+      out.push(e.content);
+    }
+    if (Array.isArray(e.elements)) e.elements.forEach(walk);
+    if (Array.isArray(e.columns)) e.columns.forEach(walk);
+  }
+  const c = card as { body?: { elements?: unknown[] } };
+  c.body?.elements?.forEach(walk);
+  return out.join("\n");
+}
+
 describe("buildQuestionCard (pending)", () => {
   it("renders one question with one button per option, tagged with request_id + indices", () => {
     const card = buildQuestionCard({
@@ -73,8 +94,11 @@ describe("buildQuestionCard (pending)", () => {
     }
     expect(buttons.map((b) => b.value.option_index).sort()).toEqual([0, 1]);
     expect(buttons.map((b) => b.label)).toEqual(
-      expect.arrayContaining(["A. Vim", "B. Emacs"]),
+      expect.arrayContaining(["A", "B"]),
     );
+    const markdown = collectMarkdown(card);
+    expect(markdown).toContain("**A.** Vim");
+    expect(markdown).toContain("**B.** Emacs");
   });
 
   it("renders the question text and the optional category header", () => {
@@ -134,7 +158,7 @@ describe("buildQuestionCard (pending)", () => {
     expect(json).toMatch(/发起者|owner|only/i);
   });
 
-  it("truncates overly long button labels to fit", () => {
+  it("renders long option labels in markdown while keeping compact button text", () => {
     const long = "这是一个非常非常非常非常非常非常非常非常非常长的选项标签";
     const card = buildQuestionCard({
       requestId: "r",
@@ -152,12 +176,10 @@ describe("buildQuestionCard (pending)", () => {
       locale: "zh",
     });
     const buttons = collectButtons(card);
-    const longBtn = buttons.find((b) => b.label !== "short");
-    expect(longBtn).toBeDefined();
-    // Ellipsis sentinel = truncation happened; the raw long string
-    // is not present verbatim.
-    expect(longBtn!.label).toContain("…");
-    expect(longBtn!.label).not.toBe(long);
+    expect(buttons.map((b) => b.label)).toEqual(["A", "B"]);
+    const markdown = collectMarkdown(card);
+    expect(markdown).toContain(long);
+    expect(markdown).toContain("**B.** short");
   });
 });
 

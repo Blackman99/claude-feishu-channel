@@ -5,8 +5,6 @@ import type {
 import type { AskUserQuestionSpec } from "../../claude/question-broker.js";
 import { t, type Locale } from "../../util/i18n.js";
 
-/** Max characters for a button label before it wraps unpleasantly. */
-const BUTTON_LABEL_MAX = 18;
 const QUESTION_TEXT_MAX = 80;
 const OPTION_PREFIXES = ["A.", "B.", "C.", "D."] as const;
 
@@ -61,11 +59,15 @@ export function buildQuestionCard(args: BuildPendingArgs): FeishuCardV2 {
         content: `✅ **${escapeMd(answered)}**`,
       });
     } else {
+      elements.push({
+        tag: "markdown",
+        content: optionListBlock(q),
+      });
       // Render options as button rows. Feishu buttons inside a
       // `column_set` fit 2 per row comfortably; for 3–4 options we
       // use two rows of two (or one row of 3 flowing wide).
-      const buttons = q.options.map((opt, j) =>
-        makeButton(opt.label, args.requestId, i, j),
+      const buttons = q.options.map((_, j) =>
+        makeButton(args.requestId, i, j),
       );
       elements.push(...layoutButtons(buttons));
     }
@@ -191,14 +193,13 @@ function buttonRow(
 }
 
 function makeButton(
-  label: string,
   requestId: string,
   questionIndex: number,
   optionIndex: number,
 ): FeishuElement {
   return {
     tag: "button",
-    text: { tag: "plain_text", content: buttonDisplayLabel(optionIndex, label) },
+    text: { tag: "plain_text", content: buttonDisplayLabel(optionIndex) },
     type: "default",
     width: "fill",
     value: {
@@ -210,8 +211,8 @@ function makeButton(
   };
 }
 
-function buttonDisplayLabel(optionIndex: number, label: string): string {
-  return `${optionPrefix(optionIndex)} ${clipButtonLabel(label)}`;
+function buttonDisplayLabel(optionIndex: number): string {
+  return optionPrefix(optionIndex).replace(/\.$/, "");
 }
 
 function isLongQuestion(question: string): boolean {
@@ -233,13 +234,19 @@ function optionPrefix(optionIndex: number): string {
   return OPTION_PREFIXES[optionIndex] ?? `${optionIndex + 1}.`;
 }
 
-function clipButtonLabel(label: string): string {
-  // Count code points, not bytes — Chinese button text is common
-  // and we want the visual length, not the UTF-8 length.
-  const clipped = label.trim();
-  const chars = Array.from(clipped);
-  if (chars.length <= BUTTON_LABEL_MAX) return clipped;
-  return chars.slice(0, BUTTON_LABEL_MAX - 1).join("") + "…";
+function optionListBlock(question: AskUserQuestionSpec): string {
+  return question.options
+    .map((option, index) => {
+      const lines = [
+        `**${optionPrefix(index)}** ${escapeMd(option.label)}`,
+      ];
+      const description = option.description.trim();
+      if (description.length > 0) {
+        lines.push(`<font color="grey">${escapeMd(description)}</font>`);
+      }
+      return lines.join("\n");
+    })
+    .join("\n\n");
 }
 
 function escapeMd(text: string): string {

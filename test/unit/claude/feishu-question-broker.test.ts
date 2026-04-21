@@ -128,10 +128,10 @@ describe("FeishuQuestionBroker.request — happy path", () => {
     const json = JSON.stringify(f.replyCard.mock.calls[0]![1]);
     expect(json).toContain("Full question below");
     expect(json).toContain(longQuestionText);
-    expect(json).toContain("A. Use existing");
+    expect(json).toContain("**A.** Use existing");
   });
 
-  it("renders long option labels as compact prefixed button text", async () => {
+  it("renders long option labels in card text while keeping buttons compact", async () => {
     const f = makeFakeFeishu();
     const broker = makeBroker(f.client, new FakeClock());
     const longQuestion: AskUserQuestionSpec = {
@@ -160,9 +160,10 @@ describe("FeishuQuestionBroker.request — happy path", () => {
     await Promise.resolve();
 
     const json = JSON.stringify(f.replyCard.mock.calls[0]![1]);
-    expect(json).toContain("A. Use existing");
-    expect(json).toContain("B. Create a fresh");
-    expect(json).not.toContain(longQuestion.options[0]!.label);
+    expect(json).toContain(longQuestion.options[0]!.label);
+    expect(json).toContain(longQuestion.options[1]!.label);
+    expect(json).toContain('"content":"A"');
+    expect(json).toContain('"content":"B"');
   });
 
   it("keeps short questions on the simple one-line layout", async () => {
