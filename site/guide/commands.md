@@ -23,8 +23,8 @@ Agent Feishu Channel supports slash commands and special input prefixes to contr
 | `/config show` | Display current configuration |
 | `/config set <key> <value>` | Change a config value at runtime |
 | `/config set <key> <value> --persist` | Change and write back to `config.toml` |
-| `/memory` | Show global and project `CLAUDE.md` contents |
-| `/memory add <text>` | Append a bullet to the project `CLAUDE.md` |
+| `/memory` | Show current provider memory files (`CLAUDE.md` for Claude, `AGENTS.md` for Codex) |
+| `/memory add <text>` | Append a bullet to the current provider's project memory file |
 | `/help` | Show available commands |
 
 ## Special Inputs
@@ -137,15 +137,15 @@ Add `--persist` to write the change back to `config.toml` so it survives restart
 
 ## Memory
 
-The provider reads two `CLAUDE.md` files when it starts a turn: the **global** file at `~/.claude/CLAUDE.md` (cross-project instructions) and the **project** file at `<cwd>/CLAUDE.md` (project-specific notes). These commands let you inspect and extend them without leaving Feishu.
+The provider reads standing instruction files when it starts a turn. For Claude, `/memory` uses the **global** file at `~/.claude/CLAUDE.md` and the **project** file at `<cwd>/CLAUDE.md`. For Codex, `/memory` uses `~/.codex/AGENTS.md` and `<cwd>/AGENTS.md`. These commands let you inspect and extend the active provider's memory files without leaving Feishu.
 
 ### `/memory`
 
-Posts the contents of the global and project `CLAUDE.md` files (whichever exist). Use this to confirm what the provider is currently seeing as standing instructions.
+Posts the contents of the active provider's global and project memory files (whichever exist). Use this to confirm what the provider is currently seeing as standing instructions.
 
 ### `/memory add <text>`
 
-Appends `<text>` as a new bullet to the project `CLAUDE.md` (at `<cwd>/CLAUDE.md`). Handy for quick "remember this" notes that should influence subsequent turns in the same project.
+Appends `<text>` as a new bullet to the active provider's project memory file (`<cwd>/CLAUDE.md` for Claude, `<cwd>/AGENTS.md` for Codex). Handy for quick "remember this" notes that should influence subsequent turns in the same project.
 
 ```
 /memory add 统一用 pnpm，不要用 npm

@@ -40,6 +40,8 @@ import {
   formatQueuedTip,
   formatInterruptDropAck,
   formatStopAck,
+  formatContextWarning,
+  formatContextReset,
 } from "./feishu/messages.js";
 import type { IncomingMessage } from "./types.js";
 import { detectLocale, t } from "./util/i18n.js";
@@ -569,10 +571,30 @@ export async function main(configPathOverride?: string): Promise<void> {
           }
           return;
         case "context_warning":
+          try {
+            await feishuClient.replyText(
+              msg.messageId,
+              formatContextWarning(locale),
+            );
+          } catch (err) {
+            logger.warn(
+              { err, chat_id: msg.chatId },
+              "context warning reply failed",
+            );
+          }
           return;
         case "context_reset":
-          // Keep the automatic hard-reset retry behavior, but do not
-          // surface an extra chat message for the reset event itself.
+          try {
+            await feishuClient.replyText(
+              msg.messageId,
+              formatContextReset(locale),
+            );
+          } catch (err) {
+            logger.warn(
+              { err, chat_id: msg.chatId },
+              "context reset reply failed",
+            );
+          }
           return;
         default: {
           // Exhaustiveness check — a future RenderEvent variant will make

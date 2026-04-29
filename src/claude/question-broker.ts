@@ -119,4 +119,10 @@ export interface QuestionBroker {
    * unblocks any outstanding `ask_user` tool calls.
    */
   cancelAll(reason: string): void;
+
+  /**
+   * Optional runtime update hook for future question cards. Existing
+   * pending requests keep their already-scheduled timers.
+   */
+  updateTiming?(config: { timeoutMs: number; warnBeforeMs: number }): void;
 }

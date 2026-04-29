@@ -1,4 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { CommandDispatcher } from "../../../src/commands/dispatcher.js";
 import type { CommandContext } from "../../../src/commands/dispatcher.js";
 import { ClaudeSessionManager } from "../../../src/claude/session-manager.js";
@@ -93,6 +102,7 @@ function makeHarness(configOverrides?: Partial<AppConfig>) {
   const permissionBroker = new FakePermissionBroker();
   const questionBroker = new FakeQuestionBroker();
   const clock = new FakeClock(0);
+  const logger = createLogger({ level: "error", pretty: false });
   const config: AppConfig = { ...BASE_CONFIG, ...configOverrides };
 
   const sessionManager = new ClaudeSessionManager({
@@ -101,7 +111,7 @@ function makeHarness(configOverrides?: Partial<AppConfig>) {
     clock,
     permissionBroker,
     questionBroker,
-    logger: SILENT_LOGGER,
+    logger,
   });
 
   const dispatcher = new CommandDispatcher({
@@ -111,10 +121,19 @@ function makeHarness(configOverrides?: Partial<AppConfig>) {
     permissionBroker,
     questionBroker,
     clock,
-    logger: SILENT_LOGGER,
+    logger,
   });
 
-  return { feishu, sessionManager, dispatcher, clock };
+  return {
+    feishu,
+    sessionManager,
+    dispatcher,
+    clock,
+    config,
+    logger,
+    permissionBroker,
+    questionBroker,
+  };
 }
 
 /**
@@ -885,6 +904,53 @@ describe("CommandDispatcher — /resume", () => {
   });
 });
 
+describe("CommandDispatcher — /memory provider files", () => {
+  it("shows project AGENTS.md when the active provider is codex", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "afc-memory-codex-"));
+    try {
+      writeFileSync(join(cwd, "AGENTS.md"), "- Use pnpm\n", "utf8");
+      const { feishu, sessionManager, dispatcher } = makeHarness({
+        agent: { ...BASE_CONFIG.agent, defaultCwd: cwd },
+        claude: { ...BASE_CONFIG.claude, defaultCwd: cwd },
+      });
+      sessionManager.setProviderOverride(CTX.chatId, "codex");
+
+      await dispatcher.dispatch({ name: "memory_show" }, CTX);
+
+      expect(feishu.replyText).toHaveBeenCalledOnce();
+      const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+      expect(text).toContain("AGENTS.md");
+      expect(text).toContain("Use pnpm");
+      expect(text).not.toContain("CLAUDE.md");
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("appends /memory add entries to project AGENTS.md when provider is codex", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "afc-memory-codex-add-"));
+    try {
+      const { sessionManager, dispatcher } = makeHarness({
+        agent: { ...BASE_CONFIG.agent, defaultCwd: cwd },
+        claude: { ...BASE_CONFIG.claude, defaultCwd: cwd },
+      });
+      sessionManager.setProviderOverride(CTX.chatId, "codex");
+
+      await dispatcher.dispatch(
+        { name: "memory_add", text: "Prefer pnpm" },
+        CTX,
+      );
+
+      const agentsPath = join(cwd, "AGENTS.md");
+      expect(existsSync(agentsPath)).toBe(true);
+      expect(readFileSync(agentsPath, "utf8")).toContain("- Prefer pnpm");
+      expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("CommandDispatcher — /config set", () => {
   it("sets a boolean config key and replies with confirmation", async () => {
     const { feishu, dispatcher } = makeHarness();
@@ -916,13 +982,14 @@ describe("CommandDispatcher — /config set", () => {
   });
 
   it("sets an enum config key (logging.level)", async () => {
-    const { feishu, dispatcher } = makeHarness();
+    const { feishu, dispatcher, logger } = makeHarness();
 
     await dispatcher.dispatch(
       { name: "config_set", key: "logging.level", value: "debug", persist: false },
       CTX,
     );
 
+    expect(logger.level).toBe("debug");
     expect(feishu.replyText).toHaveBeenCalledOnce();
     const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("debug");
@@ -940,6 +1007,70 @@ describe("CommandDispatcher — /config set", () => {
     expect(feishu.replyText).toHaveBeenCalledOnce();
     const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
     expect(text).toContain("claude-sonnet-4-6");
+  });
+
+  it("sets agent.default_provider and updates the session manager default for new chats", async () => {
+    const { feishu, dispatcher, sessionManager, config } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "agent.default_provider", value: "codex", persist: false },
+      CTX,
+    );
+
+    expect(config.agent.defaultProvider).toBe("codex");
+    expect(sessionManager.getEffectiveProvider("oc_new")).toBe("codex");
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("agent.default_provider");
+    expect(text).toContain("codex");
+  });
+
+  it("sets agent.default_cwd and keeps shared Claude defaults in sync", async () => {
+    const { dispatcher, sessionManager, config } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "agent.default_cwd", value: "/tmp/next-cwd", persist: false },
+      CTX,
+    );
+
+    expect(config.agent.defaultCwd).toBe("/tmp/next-cwd");
+    expect(config.claude.defaultCwd).toBe("/tmp/next-cwd");
+    expect(sessionManager.getOrCreate("oc_new").getStatus().cwd).toBe("/tmp/next-cwd");
+  });
+
+  it("sets agent permission timeout values and keeps broker-facing Claude defaults in sync", async () => {
+    const { dispatcher, config, permissionBroker, questionBroker } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "agent.permission_timeout_seconds", value: "120", persist: false },
+      CTX,
+    );
+
+    expect(config.agent.permissionTimeoutMs).toBe(120_000);
+    expect(config.claude.permissionTimeoutMs).toBe(120_000);
+    expect(permissionBroker.timingUpdates.at(-1)).toEqual({
+      timeoutMs: 120_000,
+      warnBeforeMs: 60_000,
+    });
+    expect(questionBroker.timingUpdates.at(-1)).toEqual({
+      timeoutMs: 120_000,
+      warnBeforeMs: 60_000,
+    });
+  });
+
+  it("sets codex.default_model", async () => {
+    const { feishu, dispatcher, config } = makeHarness();
+
+    await dispatcher.dispatch(
+      { name: "config_set", key: "codex.default_model", value: "gpt-5.4-mini", persist: false },
+      CTX,
+    );
+
+    expect(config.codex.defaultModel).toBe("gpt-5.4-mini");
+    expect(feishu.replyText).toHaveBeenCalledOnce();
+    const text: string = (feishu.replyText as ReturnType<typeof vi.fn>).mock.calls[0]![1];
+    expect(text).toContain("codex.default_model");
+    expect(text).toContain("gpt-5.4-mini");
   });
 
   it("converts permission_timeout_seconds to ms", async () => {

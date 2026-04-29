@@ -62,10 +62,12 @@ export class ClaudeSessionManager {
   /** chatId → currently-active project alias (absent = default project). */
   private readonly activeProjects = new Map<string, string>();
   private readonly opts: ClaudeSessionManagerOptions;
+  private defaultProvider: AgentProvider;
   private debounceTimer: TimeoutHandle | null = null;
 
   constructor(opts: ClaudeSessionManagerOptions) {
     this.opts = opts;
+    this.defaultProvider = opts.defaultProvider ?? "claude";
   }
 
   // --- project helpers ---
@@ -277,6 +279,10 @@ export class ClaudeSessionManager {
     this.providerOverrides.set(this.activeProjectKey(chatId), provider);
   }
 
+  setDefaultProvider(provider: AgentProvider): void {
+    this.defaultProvider = provider;
+  }
+
   getEffectiveProvider(chatId: string): AgentProvider {
     const key = this.activeProjectKey(chatId);
     return this.providerOverrides.get(key)
@@ -482,7 +488,7 @@ export class ClaudeSessionManager {
   }
 
   private getDefaultProvider(): AgentProvider {
-    return this.opts.defaultProvider ?? "claude";
+    return this.defaultProvider;
   }
 
   private getDefaultModelForProvider(provider: AgentProvider): string {

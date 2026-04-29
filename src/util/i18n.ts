@@ -106,8 +106,8 @@ const STRINGS = {
     helpConfigSet: "  /config set <key> <value> — 运行时修改配置",
     helpConfigSetPersist:
       "  /config set <key> <value> --persist — 修改并写入文件",
-    helpMemory: "  /memory       — 查看 CLAUDE.md 记忆内容",
-    helpMemoryAdd: "  /memory add <文本> — 追加一条记忆到项目 CLAUDE.md",
+    helpMemory: "  /memory       — 查看当前 provider 的记忆文件",
+    helpMemoryAdd: "  /memory add <文本> — 追加一条记忆到项目记忆文件",
     helpHelp: "  /help         — 显示此帮助",
     statusState: (v: string) => `状态：${v}`,
     statusProvider: (v: string) => `提供方：${v}`,
@@ -276,8 +276,8 @@ const STRINGS = {
     helpConfigSet: "  /config set <key> <value> — Change config at runtime",
     helpConfigSetPersist:
       "  /config set <key> <value> --persist — Change and write to file",
-    helpMemory: "  /memory       — Show CLAUDE.md memory contents",
-    helpMemoryAdd: "  /memory add <text> — Append an entry to project CLAUDE.md",
+    helpMemory: "  /memory       — Show current provider memory files",
+    helpMemoryAdd: "  /memory add <text> — Append an entry to the project memory file",
     helpHelp: "  /help         — Show this help",
     statusState: (v: string) => `State: ${v}`,
     statusProvider: (v: string) => `Provider: ${v}`,

@@ -19,7 +19,8 @@ verification_token = ""
 # The bot has full shell/file access to your machine. Lock it down!
 [access]
 # List of open_id values allowed to talk to the bot. To find yours,
-# have the bot log the `sender_open_id` of an incoming message.
+# temporarily set this to [] and unauthorized_behavior = "reject", then
+# send a message to the bot. It will reply with your open_id.
 allowed_open_ids = [
   "ou_your_open_id_here",
 ]

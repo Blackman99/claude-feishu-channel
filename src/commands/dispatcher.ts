@@ -7,6 +7,7 @@ import type { ParsedCommand } from "./router.js";
 import type { ClaudeSessionManager } from "../claude/session-manager.js";
 import type { FeishuClient } from "../feishu/client.js";
 import type { AppConfig } from "../types.js";
+import type { AgentProvider } from "../types.js";
 import type { PermissionBroker } from "../claude/permission-broker.js";
 import type { QuestionBroker } from "../claude/question-broker.js";
 import type { Clock, TimeoutHandle } from "../util/clock.js";
@@ -41,8 +42,10 @@ function contextWindowFor(model: string): number {
 }
 
 interface SettableKeyDef {
-  /** Path segments into AppConfig, e.g. ["render", "hideThinking"] */
-  path: [string, string];
+  /** Path segments into AppConfig, e.g. ["render", "hideThinking"]. */
+  path?: [string, string];
+  /** Additional mirrored AppConfig paths that must stay in sync. */
+  paths?: Array<[string, string]>;
   type: KeyType;
   /** For "enum" type: valid values */
   values?: readonly string[];
@@ -59,23 +62,51 @@ const SETTABLE_KEYS: Record<string, SettableKeyDef> = {
     type: "enum",
     values: ["trace", "debug", "info", "warn", "error"],
   },
+  "agent.default_provider": {
+    path: ["agent", "defaultProvider"],
+    type: "enum",
+    values: ["claude", "codex"],
+  },
+  "agent.default_cwd": {
+    paths: [["agent", "defaultCwd"], ["claude", "defaultCwd"]],
+    type: "string",
+  },
+  "agent.default_permission_mode": {
+    paths: [["agent", "defaultPermissionMode"], ["claude", "defaultPermissionMode"]],
+    type: "enum",
+    values: ["default", "acceptEdits", "plan", "bypassPermissions"],
+  },
+  "agent.permission_timeout_seconds": {
+    paths: [["agent", "permissionTimeoutMs"], ["claude", "permissionTimeoutMs"]],
+    type: "number",
+    multiplier: 1000,
+  },
+  "agent.permission_warn_before_seconds": {
+    paths: [["agent", "permissionWarnBeforeMs"], ["claude", "permissionWarnBeforeMs"]],
+    type: "number",
+    multiplier: 1000,
+  },
   "claude.default_model": { path: ["claude", "defaultModel"], type: "string" },
-  "claude.default_cwd": { path: ["claude", "defaultCwd"], type: "string" },
+  "claude.default_cwd": {
+    paths: [["claude", "defaultCwd"], ["agent", "defaultCwd"]],
+    type: "string",
+  },
   "claude.default_permission_mode": {
-    path: ["claude", "defaultPermissionMode"],
+    paths: [["claude", "defaultPermissionMode"], ["agent", "defaultPermissionMode"]],
     type: "enum",
     values: ["default", "acceptEdits", "plan", "bypassPermissions"],
   },
   "claude.permission_timeout_seconds": {
-    path: ["claude", "permissionTimeoutMs"],
+    paths: [["claude", "permissionTimeoutMs"], ["agent", "permissionTimeoutMs"]],
     type: "number",
     multiplier: 1000,
   },
   "claude.permission_warn_before_seconds": {
-    path: ["claude", "permissionWarnBeforeMs"],
+    paths: [["claude", "permissionWarnBeforeMs"], ["agent", "permissionWarnBeforeMs"]],
     type: "number",
     multiplier: 1000,
   },
+  "codex.default_model": { path: ["codex", "defaultModel"], type: "string" },
 };
 
 function parseConfigValue(
@@ -136,6 +167,13 @@ interface PendingCdConfirm {
   timer: TimeoutHandle;
 }
 
+interface MemoryPaths {
+  globalPath: string;
+  projectPath: string;
+  globalLabel: string;
+  projectLabel: string;
+}
+
 export interface CommandDispatcherOptions {
   sessionManager: ClaudeSessionManager;
   feishu: FeishuClient;
@@ -154,6 +192,7 @@ export class CommandDispatcher {
   private readonly permissionBroker: PermissionBroker;
   private readonly questionBroker: QuestionBroker;
   private readonly clock: Clock;
+  private readonly rootLogger: Logger;
   private readonly logger: Logger;
   private readonly configPath: string | undefined;
   private readonly pendingCdConfirms = new Map<string, PendingCdConfirm>();
@@ -165,6 +204,7 @@ export class CommandDispatcher {
     this.permissionBroker = opts.permissionBroker;
     this.questionBroker = opts.questionBroker;
     this.clock = opts.clock;
+    this.rootLogger = opts.logger;
     this.logger = opts.logger.child({ component: "CommandDispatcher" });
     this.configPath = opts.configPath;
   }
@@ -427,12 +467,33 @@ export class CommandDispatcher {
     }
 
     // Mutate the shared config in place
-    const [section, field] = def.path;
     const storeValue = def.multiplier
       ? (parsed.value as number) * def.multiplier
       : parsed.value;
-    (this.config as unknown as Record<string, Record<string, unknown>>)[section]![field] =
-      storeValue;
+    const paths = def.paths ?? (def.path ? [def.path] : []);
+    for (const [section, field] of paths) {
+      (this.config as unknown as Record<string, Record<string, unknown>>)[section]![field] =
+        storeValue;
+    }
+    if (key === "agent.default_provider") {
+      this.sessionManager.setDefaultProvider(parsed.value as "claude" | "codex");
+    }
+    if (key === "logging.level") {
+      this.rootLogger.level = parsed.value as AppConfig["logging"]["level"];
+      this.logger.level = parsed.value as AppConfig["logging"]["level"];
+    }
+    if (
+      paths.some(([, field]) =>
+        field === "permissionTimeoutMs" || field === "permissionWarnBeforeMs"
+      )
+    ) {
+      const timing = {
+        timeoutMs: this.config.claude.permissionTimeoutMs,
+        warnBeforeMs: this.config.claude.permissionWarnBeforeMs,
+      };
+      this.permissionBroker.updateTiming?.(timing);
+      this.questionBroker.updateTiming?.(timing);
+    }
 
     // Persist to TOML if requested
     let persistMsg = "";
@@ -697,8 +758,11 @@ export class CommandDispatcher {
     const s = t(ctx.locale);
     const session = this.sessionManager.getOrCreate(ctx.chatId);
     const cwd = session.getStatus().cwd;
-    const globalPath = join(homedir(), ".claude", "CLAUDE.md");
-    const projectPath = join(cwd, "CLAUDE.md");
+    const paths = this.memoryPathsFor(
+      this.sessionManager.getEffectiveProvider(ctx.chatId),
+      cwd,
+      ctx.locale,
+    );
 
     const readOrEmpty = async (filePath: string): Promise<string | null> => {
       try {
@@ -710,8 +774,8 @@ export class CommandDispatcher {
     };
 
     const [globalContent, projectContent] = await Promise.all([
-      readOrEmpty(globalPath),
-      readOrEmpty(projectPath),
+      readOrEmpty(paths.globalPath),
+      readOrEmpty(paths.projectPath),
     ]);
 
     if (globalContent === null && projectContent === null) {
@@ -721,11 +785,11 @@ export class CommandDispatcher {
 
     const parts: string[] = [];
     if (globalContent !== null) {
-      parts.push(s.memoryGlobalHeader, globalContent.trim() || s.memoryEmpty);
+      parts.push(paths.globalLabel, globalContent.trim() || s.memoryEmpty);
     }
     if (projectContent !== null) {
       parts.push(
-        s.memoryProjectHeader(cwd),
+        paths.projectLabel,
         projectContent.trim() || s.memoryEmpty,
       );
     }
@@ -737,7 +801,11 @@ export class CommandDispatcher {
     const s = t(ctx.locale);
     const session = this.sessionManager.getOrCreate(ctx.chatId);
     const cwd = session.getStatus().cwd;
-    const projectPath = join(cwd, "CLAUDE.md");
+    const projectPath = this.memoryPathsFor(
+      this.sessionManager.getEffectiveProvider(ctx.chatId),
+      cwd,
+      ctx.locale,
+    ).projectPath;
 
     try {
       await appendFile(projectPath, `\n- ${text}\n`, "utf8");
@@ -746,6 +814,33 @@ export class CommandDispatcher {
       const msg = err instanceof Error ? err.message : String(err);
       await this.feishu.replyText(ctx.parentMessageId, s.memoryAddFailed(msg));
     }
+  }
+
+  private memoryPathsFor(
+    provider: AgentProvider,
+    cwd: string,
+    locale: Locale,
+  ): MemoryPaths {
+    const isCodex = provider === "codex";
+    const fileName = isCodex ? "AGENTS.md" : "CLAUDE.md";
+    const homeDir = isCodex ? ".codex" : ".claude";
+    const displayGlobal = `~/${homeDir}/${fileName}`;
+    const globalPath = join(homedir(), homeDir, fileName);
+    const projectPath = join(cwd, fileName);
+    if (locale === "en") {
+      return {
+        globalPath,
+        projectPath,
+        globalLabel: `🧠 Global memory (${displayGlobal})`,
+        projectLabel: `📁 Project memory (${projectPath})`,
+      };
+    }
+    return {
+      globalPath,
+      projectPath,
+      globalLabel: `🧠 全局记忆 (${displayGlobal})`,
+      projectLabel: `📁 项目记忆 (${projectPath})`,
+    };
   }
 
   async resolveCdConfirm(args: {

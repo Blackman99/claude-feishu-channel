@@ -55,8 +55,8 @@ export class FeishuQuestionBroker implements QuestionBroker {
   private readonly feishu: FeishuClient;
   private readonly clock: Clock;
   private readonly logger: Logger;
-  private readonly timeoutMs: number;
-  private readonly warnBeforeMs: number;
+  private timeoutMs: number;
+  private warnBeforeMs: number;
   private readonly pending = new Map<string, PendingRequest>();
 
   constructor(opts: FeishuQuestionBrokerOptions) {
@@ -65,6 +65,11 @@ export class FeishuQuestionBroker implements QuestionBroker {
     this.logger = opts.logger.child({ component: "feishu-question-broker" });
     this.timeoutMs = opts.config.timeoutMs;
     this.warnBeforeMs = opts.config.warnBeforeMs;
+  }
+
+  updateTiming(config: { timeoutMs: number; warnBeforeMs: number }): void {
+    this.timeoutMs = config.timeoutMs;
+    this.warnBeforeMs = config.warnBeforeMs;
   }
 
   async request(req: QuestionRequest): Promise<QuestionResponse> {

@@ -26,8 +26,8 @@ cp config.example.toml ~/.agent-feishu-channel/config.toml
 
 | Key | Description |
 |-----|-------------|
-| `allowed_open_ids` | Array of `open_id` values allowed to talk to the bot |
-| `unauthorized_behavior` | `"ignore"` (silently drop) or `"reject"` (reply with error) |
+| `allowed_open_ids` | Array of `open_id` values allowed to talk to the bot. Use `[]` only during first-run discovery with `unauthorized_behavior = "reject"` |
+| `unauthorized_behavior` | `"ignore"` (silently drop) or `"reject"` (reply with an unauthorized message that includes the sender `open_id`) |
 
 ::: warning
 The bot has full shell and file access to your machine. Always configure `allowed_open_ids` to restrict access.

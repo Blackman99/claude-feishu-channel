@@ -20,7 +20,7 @@ const FeishuSchema = z.object({
 });
 
 const AccessSchema = z.object({
-  allowed_open_ids: z.array(z.string().min(1)).min(1),
+  allowed_open_ids: z.array(z.string().min(1)),
   unauthorized_behavior: z.enum(["ignore", "reject"]).default("ignore"),
 });
 

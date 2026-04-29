@@ -51,6 +51,11 @@ Edit the config with your Feishu credentials:
 vim ~/.agent-feishu-channel/config.toml
 ```
 
+To discover your Feishu `open_id` on first run, temporarily set
+`allowed_open_ids = []` and `unauthorized_behavior = "reject"`, then send the
+bot a message. It will reply with your `open_id`; add that value to
+`allowed_open_ids` and switch back to `"ignore"` for normal use.
+
 ### Run
 
 ```bash
@@ -99,8 +104,8 @@ Options:
 | `/config show` | Display current configuration |
 | `/config set <key> <value>` | Change a config value at runtime |
 | `/config set <key> <value> --persist` | Change and write back to config.toml |
-| `/memory` | Show contents of global `~/.claude/CLAUDE.md` and project `<cwd>/CLAUDE.md` |
-| `/memory add <text>` | Append `<text>` as a bullet to the project `CLAUDE.md` |
+| `/memory` | Show current provider memory files (`CLAUDE.md` for Claude, `AGENTS.md` for Codex) |
+| `/memory add <text>` | Append `<text>` as a bullet to the current provider's project memory file |
 | `/help` | Show available commands |
 
 **Special inputs:**

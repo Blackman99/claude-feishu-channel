@@ -79,4 +79,10 @@ export interface PermissionBroker {
    * the deny `message` that Claude sees as the tool_result.
    */
   cancelAll(reason: string): void;
+
+  /**
+   * Optional runtime update hook for future permission cards. Existing
+   * pending requests keep their already-scheduled timers.
+   */
+  updateTiming?(config: { timeoutMs: number; warnBeforeMs: number }): void;
 }

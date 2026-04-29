@@ -5,6 +5,8 @@ import {
   formatQueuedTip,
   formatStopAck,
   formatInterruptDropAck,
+  formatContextWarning,
+  formatContextReset,
 } from "../../../src/feishu/messages.js";
 import type { IncomingMessage } from "../../../src/types.js";
 
@@ -83,6 +85,18 @@ describe("formatInterruptDropAck", () => {
     expect(formatInterruptDropAck()).toBe(
       "⚠️ 你之前的消息在被当前 agent 处理前已被后续指令打断丢弃",
     );
+  });
+});
+
+describe("context mitigation notices", () => {
+  it("renders a visible warning notice", () => {
+    expect(formatContextWarning()).toContain("上下文");
+    expect(formatContextWarning()).toContain("50MB");
+  });
+
+  it("renders a visible reset notice", () => {
+    expect(formatContextReset()).toContain("会话已重置");
+    expect(formatContextReset()).toContain("新的会话上下文");
   });
 });
 

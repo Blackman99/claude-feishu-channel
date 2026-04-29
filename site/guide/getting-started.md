@@ -100,7 +100,7 @@ AGENT_FEISHU_CONFIG=/path/to/config.toml afc
 4. Enable the **Bot** capability for your app, and add it to the Feishu group where you want to interact with the agent.
 
 ::: tip How to find your open_id
-Your `open_id` is a per-app user identifier that looks like `ou_xxxxxxxxxxxxxxxx`. To find yours, temporarily set `unauthorized_behavior = "reject"` and `allowed_open_ids = []` in your config, then send a message to the bot. The bot will log the `sender_open_id` of the incoming message. Copy that value into the `allowed_open_ids` list.
+Your `open_id` is a per-app user identifier that looks like `ou_xxxxxxxxxxxxxxxx`. To find yours, temporarily set `unauthorized_behavior = "reject"` and `allowed_open_ids = []` in your config, then send a message to the bot. The bot will reply with your `open_id`. Copy that value into the `allowed_open_ids` list and switch `unauthorized_behavior` back to `"ignore"` when you are done.
 :::
 
 ::: warning
@@ -113,7 +113,7 @@ The bot now mitigates oversized conversations before they hit the backend's hard
 
 1. warn when usage trends high
 2. retry in a fresh provider thread only if the backend rejects the request as too large
-4. keep the old backend-driven reset-and-retry path as the last fallback
+3. keep the backend-driven reset-and-retry path as the last fallback
 
 Use `/context` in chat to inspect current usage and the mitigation order.
 

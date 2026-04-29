@@ -16,6 +16,7 @@ import type {
 export class FakeQuestionBroker implements QuestionBroker {
   readonly requests: QuestionRequest[] = [];
   readonly cancelCalls: string[] = [];
+  readonly timingUpdates: Array<{ timeoutMs: number; warnBeforeMs: number }> = [];
   readonly resolveByCardCalls: Array<{
     requestId: string;
     senderOpenId: string;
@@ -63,5 +64,9 @@ export class FakeQuestionBroker implements QuestionBroker {
 
   pendingCount(): number {
     return this.pending.length;
+  }
+
+  updateTiming(config: { timeoutMs: number; warnBeforeMs: number }): void {
+    this.timingUpdates.push(config);
   }
 }

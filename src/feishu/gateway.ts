@@ -114,10 +114,25 @@ export class FeishuGateway {
 
     const decision = this.access.check(event.sender.sender_id.open_id);
     if (!decision.allowed) {
+      const senderOpenId = event.sender.sender_id.open_id;
       log.warn(
-        { open_id: event.sender.sender_id.open_id, action: decision.action },
+        { open_id: senderOpenId, action: decision.action },
         "Unauthorized sender",
       );
+      if (decision.action === "reject") {
+        try {
+          await this.feishuClient.replyText(
+            event.message.message_id,
+            [
+              "Unauthorized sender.",
+              `Your open_id is: ${senderOpenId}`,
+              "Ask the bot owner to add it to [access].allowed_open_ids in config.toml.",
+            ].join("\n"),
+          );
+        } catch (err) {
+          log.warn({ err }, "Failed to send unauthorized reject reply");
+        }
+      }
       return;
     }
 

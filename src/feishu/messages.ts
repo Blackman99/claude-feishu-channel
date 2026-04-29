@@ -57,3 +57,12 @@ export function formatStopAck(locale: Locale = "zh"): string {
 export function formatInterruptDropAck(locale: Locale = "zh"): string {
   return t(locale).dropped;
 }
+
+export function formatContextWarning(locale: Locale = "zh"): string {
+  const s = t(locale);
+  return [s.contextWarning, s.contextStages].join("\n");
+}
+
+export function formatContextReset(locale: Locale = "zh"): string {
+  return t(locale).compactStarted;
+}

@@ -188,7 +188,7 @@ allowed_open_ids = ["ou_test"]
     await expect(loadConfig(path)).rejects.toThrow(/feishu\.app_secret/);
   });
 
-  it("throws ConfigError when allowed_open_ids is empty", async () => {
+  it("allows empty allowed_open_ids for first-run open_id discovery", async () => {
     const path = writeConfig(`
 [feishu]
 app_id = "cli_test"
@@ -196,8 +196,12 @@ app_secret = "secret"
 
 [access]
 allowed_open_ids = []
+
+[claude]
+default_cwd = "/tmp/cfc-test"
 `);
-    await expect(loadConfig(path)).rejects.toThrow(/allowed_open_ids/);
+    const cfg = await loadConfig(path);
+    expect(cfg.access.allowedOpenIds).toEqual([]);
   });
 
   it("accepts unauthorized_behavior = 'reject'", async () => {

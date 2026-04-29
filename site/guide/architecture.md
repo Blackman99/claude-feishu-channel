@@ -60,9 +60,8 @@ The session drives the provider runtime: it submits user text to the active prov
 The session also owns staged context mitigation before backend hard failures:
 
 1. warn when context usage is high
-2. compact the current provider thread if possible
-3. start a summarized fresh session that preserves unfinished work and key constraints
-4. keep the old backend-driven reset-and-retry path as the last fallback
+2. retry in a fresh provider thread only if the backend rejects the request as too large
+3. keep the backend-driven reset-and-retry path as the last fallback
 
 ### ClaudeSessionManager
 
